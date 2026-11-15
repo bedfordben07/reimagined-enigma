@@ -7,7 +7,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11 };
 
 export function makeVoxelMaterials() {
-  const std = (tex, extra = {}) => new THREE.MeshStandardMaterial({ map: tex.map, normalMap: tex.normalMap, roughnessMap: tex.ormMap, metalnessMap: tex.ormMap, roughness: 1, metalness: extra.metalness ?? 0, ...extra });
+  const std = (tex, extra = {}) => T.pbr(tex, { metalness: extra.metalness ?? 0, ...extra });
   const defs = [null];
   defs[MAT.BRICK] = { material: std(T.brickTex(11, '#9a4a35')), dust: 0x8a6656 };
   defs[MAT.BRICK_TAN] = { material: std(T.brickTex(12, '#b58d62', '#cfc6b6')), dust: 0xa89478 };
@@ -15,7 +15,7 @@ export function makeVoxelMaterials() {
   defs[MAT.PLASTER_BLUE] = { material: std(T.plasterTex(14, '#8fa7b5')), dust: 0xb8c0c4 };
   defs[MAT.CONCRETE] = { material: std(T.concreteTex(15, '#a7a49d')), dust: 0xa9a6a0 };
   defs[MAT.TRIM] = { material: std(T.concreteTex(16, '#d8d1c4')), dust: 0xcac4b8 };
-  defs[MAT.GLASS] = { material: std(T.glassTex(17), { metalness: 1, envMapIntensity: 1.4 }), dust: 0xd0e0ea, glass: true, noTint: true };
+  defs[MAT.GLASS] = { material: std(T.glassTex(17), { metalness: 0.9, roughness: 1, envMapIntensity: 1.5 }), dust: 0xd0e0ea, glass: true, noTint: true };
   defs[MAT.ROOF] = { material: std(T.roofTex(18)), dust: 0x6a6a6a };
   defs[MAT.SLAB] = { material: std(T.concreteTex(19, '#8c8984')), dust: 0x9a9792 };
   defs[MAT.TILE] = { material: std(T.tileTex(20)), dust: 0x9a5a48 };
@@ -68,6 +68,15 @@ function block(vox, o) {
       }
       if (m) vox.set(x0 + x, y, z0 + z, m, b);
     }
+  }
+  cornice(vox, x0, z0, W, D, topY, o.trim, b);
+  if (floors > 1) cornice(vox, x0, z0, W, D, STOREY, o.trim, b); // band above the shopfront
+}
+
+// (called at the end of block) projecting cornice one block out around the roof line
+function cornice(vox, x0, z0, W, D, y, m, b) {
+  for (let z = -1; z <= D; z++) for (let x = -1; x <= W; x++) {
+    if (x === -1 || x === W || z === -1 || z === D) vox.set(x0 + x, y, z0 + z, m, b);
   }
 }
 
@@ -144,13 +153,14 @@ export function buildScenery(scene, renderer) {
   const grass = T.grassTex(3);
   const gSize = 900;
   setRep(grass, [gSize / 6, gSize / 6]);
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(gSize, gSize), new THREE.MeshStandardMaterial({ map: grass.map, normalMap: grass.normalMap, roughnessMap: grass.ormMap, roughness: 1 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(gSize, gSize), new THREE.MeshStandardMaterial({ map: grass.map, normalMap: grass.normalMap, aoMap: grass.ormMap, roughnessMap: grass.ormMap, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; group.add(ground);
 
   // roads
   const asph = T.asphaltTex(4);
   const roadMat = (len) => {
     const m = new THREE.MeshStandardMaterial({ map: asph.map.clone(), normalMap: asph.normalMap.clone(), roughnessMap: asph.ormMap.clone(), roughness: 1 });
+    m.aoMap = m.roughnessMap;
     for (const t of [m.map, m.normalMap, m.roughnessMap]) { t.repeat.set(10 / 6, len / 6); t.anisotropy = aniso; t.needsUpdate = true; }
     return m;
   };
@@ -163,7 +173,7 @@ export function buildScenery(scene, renderer) {
     r.position.set(x, 0.012 + (alongX ? 0.001 : 0), z); r.receiveShadow = true; group.add(r);
   }
   // lane markings
-  const dashMat = new THREE.MeshStandardMaterial({ color: 0xe8e2c8, roughness: 0.6 });
+  const dashMat = new THREE.MeshStandardMaterial({ color: 0xe8e2c8, roughness: 0.7, metalness: 0 });
   const dashGeo = new THREE.PlaneGeometry(0.18, 2.4); dashGeo.rotateX(-Math.PI / 2);
   const dashes = new THREE.InstancedMesh(dashGeo, dashMat, 400); let di = 0;
   const m4 = new THREE.Matrix4();
@@ -190,9 +200,9 @@ export function buildScenery(scene, renderer) {
 
   // sidewalks (thin slabs along the blocks)
   const pav = T.paverTex(6);
-  const swMat = new THREE.MeshStandardMaterial({ map: pav.map, normalMap: pav.normalMap, roughnessMap: pav.ormMap, roughness: 1 });
+  const swMat = new THREE.MeshStandardMaterial({ map: pav.map, normalMap: pav.normalMap, aoMap: pav.ormMap, roughnessMap: pav.ormMap, roughness: 1 });
   for (const t of [swMat.map, swMat.normalMap, swMat.roughnessMap]) { t.repeat.set(1, 1); t.anisotropy = aniso; }
-  const curbMat = new THREE.MeshStandardMaterial({ color: 0x9d9a94, roughness: 0.85 });
+  const curbMat = T.pbr(T.concreteTex(8, '#a29f98', false));
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     // each block spans 5..39 from the road centres; ring of sidewalk 3 m wide
     const cx = sx * 22, cz = sz * 22, size = 34;
@@ -207,23 +217,32 @@ export function buildScenery(scene, renderer) {
   }
 
   // street lamps
-  const poleMat = new THREE.MeshStandardMaterial({ color: 0x2b2f33, roughness: 0.5, metalness: 0.7 });
-  const bulbMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.9, 1.4) });
+  const poleMat = T.pbr(T.brushedMetalTex(7, '#33383c', 0.4), { metalness: 0.85 });
+  const bulbMat = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xffd9a0, emissiveIntensity: 2.4, roughness: 0.3 });
+  const poolTex = T.radialTex('rgb(255,255,255)', 'rgb(0,0,0)', 256); // luminance falloff drives both glow and alpha
+  const poolMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffc98a, emissiveIntensity: 0.12, emissiveMap: poolTex, alphaMap: poolTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
+  const poolGeo = new THREE.PlaneGeometry(7, 7); poolGeo.rotateX(-Math.PI / 2);
+  const shadeGeo = new THREE.LatheGeometry([[0.02, 0.1], [0.18, 0.08], [0.3, 0.0], [0.31, -0.03], [0.0, -0.03]].map(([x, y]) => new THREE.Vector2(x, y)), 32);
+  const lampLights = [];
   const lampPos = [];
   for (const s of [-30, -15, 15, 30]) { lampPos.push([5.6, s, -1], [-5.6, s, 1], [s, 5.6, -2], [s, -5.6, 2]); }
   for (const [x, z, f] of lampPos) {
     const g = new THREE.Group();
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 6, 10), poleMat); pole.position.y = 3; pole.castShadow = true; g.add(pole);
     const arm = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.08, 0.08), poleMat); arm.position.set(0.6, 5.9, 0); arm.castShadow = true; g.add(arm);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.25), poleMat); head.position.set(1.2, 5.85, 0); head.castShadow = true; g.add(head);
-    const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.02, 0.18), bulbMat); bulb.position.set(1.2, 5.78, 0); g.add(bulb);
+    const head = new THREE.Mesh(shadeGeo, poleMat); head.position.set(1.25, 5.82, 0); head.castShadow = true; g.add(head);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), bulbMat); bulb.position.set(1.25, 5.8, 0); g.add(bulb);
     g.position.set(x, 0.15, z);
     g.rotation.y = f === -1 ? Math.PI : f === 1 ? 0 : f === -2 ? Math.PI / 2 : -Math.PI / 2;
     group.add(g);
+    g.updateMatrixWorld(true);
+    const bp = new THREE.Vector3(1.25, 5.7, 0).applyMatrix4(g.matrixWorld);
+    lampLights.push(bp);
+    const pool = new THREE.Mesh(poolGeo, poolMat); pool.position.set(bp.x, 0.17, bp.z); pool.renderOrder = 1; group.add(pool);
   }
 
   // trees (park in SE block + street trees)
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a4632, roughness: 0.95 });
+  const trunkMat = T.pbr(T.concreteTex(9, '#5a4632', false), { roughness: 1 });
   const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, vertexColors: true });
   const trunkGeo = new THREE.CylinderGeometry(0.14, 0.24, 3.2, 8); trunkGeo.translate(0, 1.6, 0);
   let leafGeo = new THREE.IcosahedronGeometry(1, 4);
@@ -276,5 +295,5 @@ export function buildScenery(scene, renderer) {
   }
 
   scene.add(group);
-  return group;
+  return { group, lampLights };
 }

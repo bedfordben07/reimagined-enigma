@@ -39,7 +39,7 @@ export function noise2D(n, seed, startCells = 4, octaves = 5, persistence = 0.5)
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 // Build textures from a per-pixel painter: paint(x,y) -> [r,g,b, height, rough, metal]
-function build(n, paint, { normalStrength = 2, repeat = 1, srgb = true } = {}) {
+function build(n, paint, { normalStrength = 2, repeat = 1, srgb = true, aoStrength = 2.2, aoRadius = 6 } = {}) {
   const cC = document.createElement('canvas'); cC.width = cC.height = n;
   const cN = document.createElement('canvas'); cN.width = cN.height = n;
   const cR = document.createElement('canvas'); cR.width = cR.height = n;
@@ -65,6 +65,26 @@ function build(n, paint, { normalStrength = 2, repeat = 1, srgb = true } = {}) {
       iN.data[o] = (nx * 0.5 + 0.5) * 255; iN.data[o + 1] = (ny * 0.5 + 0.5) * 255; iN.data[o + 2] = (nz * 0.5 + 0.5) * 255; iN.data[o + 3] = 255;
     }
   }
+  // Ambient occlusion from the height field: cavities lower than their surroundings get darker.
+  // Stored in the red channel so one texture serves as aoMap (R), roughnessMap (G) and metalnessMap (B).
+  const tmpB = new Float32Array(n * n), blur = new Float32Array(n * n), r = aoRadius, w = 2 * r + 1;
+  for (let y = 0; y < n; y++) {
+    let acc = 0;
+    for (let k = -r; k <= r; k++) acc += H[y * n + ((k + n) % n)];
+    for (let x = 0; x < n; x++) {
+      tmpB[y * n + x] = acc / w;
+      acc += H[y * n + ((x + r + 1) % n)] - H[y * n + ((x - r + n) % n)];
+    }
+  }
+  for (let x = 0; x < n; x++) {
+    let acc = 0;
+    for (let k = -r; k <= r; k++) acc += tmpB[((k + n) % n) * n + x];
+    for (let y = 0; y < n; y++) {
+      blur[y * n + x] = acc / w;
+      acc += tmpB[((y + r + 1) % n) * n + x] - tmpB[((y - r + n) % n) * n + x];
+    }
+  }
+  for (let i = 0; i < n * n; i++) iR.data[i * 4] = clamp01(1 - Math.max(0, blur[i] - H[i]) * aoStrength) * 255;
   ctxC.putImageData(iC, 0, 0); ctxN.putImageData(iN, 0, 0); ctxR.putImageData(iR, 0, 0);
   const mk = (c, isColor) => {
     const t = new THREE.CanvasTexture(c);
@@ -151,11 +171,11 @@ export function glassTex(seed) {
     const v = nz[y * n + x];
     if (d < fw) {
       const bevel = d < 3 ? 0.6 : 1;
-      return [frame[0] * bevel, frame[1] * bevel, frame[2] * bevel, d < 3 ? 0.4 : 1, 0.55, 0.2];
+      return [frame[0] * bevel, frame[1] * bevel, frame[2] * bevel, d < 3 ? 0.4 : 1, 0.45, 0.6];
     }
     // smudges + sky-ish gradient
     const k = 0.8 + v * 0.3;
-    return [pane[0] * k, pane[1] * k, pane[2] * k * 1.05, 0.55, 0.04 + v * 0.12, 0.85];
+    return [pane[0] * k, pane[1] * k, pane[2] * k * 1.05, 0.55, 0.06 + v * 0.08, 1];
   }, { normalStrength: 4 });
 }
 
@@ -318,4 +338,41 @@ export function scorchTex() {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+// Brushed metal: fine directional streaks in roughness and normal, light wear on edges.
+export function brushedMetalTex(seed, baseHex, roughness = 0.35) {
+  const n = 256, base = hexRGB(baseHex);
+  const r = rng(seed);
+  const streak = new Float32Array(n);
+  for (let y = 0; y < n; y++) streak[y] = r();
+  const nz = noise2D(n, seed, 4, 4), fine = noise2D(n, seed + 3, 128, 2);
+  return build(n, (x, y) => {
+    const s = streak[y] * 0.6 + streak[(y + 1) % n] * 0.4;
+    const v = nz[y * n + x], f = fine[y * n + x];
+    const k = 0.9 + s * 0.12 + (v - 0.5) * 0.1;
+    return [base[0] * k, base[1] * k, base[2] * k, s * 0.5 + f * 0.15, roughness - 0.08 + s * 0.12 + v * 0.06, 1];
+  }, { normalStrength: 1.2, aoStrength: 0.6 });
+}
+
+// Matte painted armour: soft mottling, micro-scratches in roughness.
+export function paintedArmorTex(seed, baseHex, roughness = 0.45) {
+  const n = 512, base = hexRGB(baseHex);
+  const nz = noise2D(n, seed, 4, 5), fine = noise2D(n, seed + 9, 256, 1);
+  const r = rng(seed + 1);
+  const scratches = new Uint8Array(n * n);
+  for (let i = 0; i < 180; i++) {
+    let x = r() * n, y = r() * n; const a = r() * Math.PI, l = 6 + r() * 30;
+    for (let t = 0; t < l; t++) { scratches[(Math.floor(y + Math.sin(a) * t + n) % n) * n + Math.floor(x + Math.cos(a) * t + n) % n] = 1; }
+  }
+  return build(n, (x, y) => {
+    const i = y * n + x, v = nz[i], f = fine[i], sc = scratches[i];
+    const k = (0.93 + v * 0.1) * (sc ? 1.12 : 1);
+    return [base[0] * k, base[1] * k, base[2] * k, v * 0.3 + f * 0.05 - sc * 0.15, roughness - 0.05 + v * 0.1 - sc * 0.15, sc ? 0.4 : 0];
+  }, { normalStrength: 1.0, aoStrength: 0.8 });
+}
+
+// Wire a generated texture set into a PBR material (map, normal, AO, roughness, metalness).
+export function pbr(tex, params = {}, Mat = THREE.MeshStandardMaterial) {
+  return new Mat({ map: tex.map, normalMap: tex.normalMap, aoMap: tex.ormMap, roughnessMap: tex.ormMap, metalnessMap: tex.ormMap, roughness: 1, metalness: 0, ...params });
 }

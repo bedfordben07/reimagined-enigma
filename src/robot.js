@@ -2,14 +2,15 @@
 // dark mechanical joints, orange-striped forearms and glowing yellow eyes.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { scuffTex, fabricTex } from './textures.js';
+import { fabricTex, brushedMetalTex, paintedArmorTex, pbr } from './textures.js';
 
 const lerpA = (a, b, k) => a + (b - a) * k;
 
 export class Robot {
   constructor() {
     this.name = 'Android';
-    this.eyeColor = new THREE.Color(5, 3.6, 0.6);
+    this.eyeColor = new THREE.Color(1, 0.72, 0.12);
+    this.eyeIntensity = 4;
     this.laserCore = new THREE.Color(12, 9, 4);
     this.laserGlow = new THREE.Color(3.5, 0.9, 0.1);
     this.build();
@@ -19,17 +20,18 @@ export class Robot {
   }
 
   build() {
-    const white = new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: scuffTex(5, '#d9dedd'), roughness: 0.42, metalness: 0.0, clearcoat: 0.35, clearcoatRoughness: 0.45 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x2a2c2f, roughness: 0.38, metalness: 0.75 });
-    const joint = new THREE.MeshStandardMaterial({ color: 0x5b6064, roughness: 0.42, metalness: 0.7 });
+    // PBR set: painted shell, brushed gunmetal joints, matte cloth carrier, emissive eyes
+    const white = pbr(paintedArmorTex(5, '#d9dedd', 0.42), { metalness: 1, clearcoat: 0.25, clearcoatRoughness: 0.5 }, THREE.MeshPhysicalMaterial);
+    const dark = pbr(brushedMetalTex(31, '#2e3134', 0.35), { metalness: 0.85 });
+    const joint = pbr(brushedMetalTex(32, '#5b6064', 0.38), { metalness: 0.85 });
     const fab = fabricTex(4);
-    const olive = new THREE.MeshStandardMaterial({ color: 0xc8d0b0, map: fab.map, normalMap: fab.normalMap, roughness: 0.95 });
-    const oliveDark = new THREE.MeshStandardMaterial({ color: 0xa3ab8c, map: fab.map, normalMap: fab.normalMap, roughness: 0.95 });
-    const tan = new THREE.MeshStandardMaterial({ color: 0x9a9c84, roughness: 0.9 });
-    const orange = new THREE.MeshStandardMaterial({ color: 0xc4634a, roughness: 0.75 });
+    const olive = pbr(fab, { color: 0xc8d0b0, roughness: 0.85 / 0.95 });
+    const oliveDark = pbr(fab, { color: 0xa3ab8c, roughness: 0.85 / 0.95 });
+    const tan = new THREE.MeshStandardMaterial({ color: 0x9a9c84, roughness: 0.85, metalness: 0 });
+    const orange = new THREE.MeshStandardMaterial({ color: 0xc4634a, roughness: 0.7, metalness: 0 });
     const black = new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.3, metalness: 0.2 });
-    this.eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 3.6, 0.6) });
-    const redLed = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.5, 0.3) });
+    this.eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffc840, emissiveIntensity: 4, roughness: 0.2 });
+    const redLed = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff3020, emissiveIntensity: 3, roughness: 0.3 });
     this.jetMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 2.6, 0.8), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
 
     const M = (geo, mat, parent, x = 0, y = 0, z = 0) => {
@@ -244,7 +246,8 @@ export class Robot {
     this.jetMat.opacity = lerpA(this.jetMat.opacity, jet * (0.55 + Math.random() * 0.2), k);
     for (const side of [-1, 1]) lg[side].jet.scale.set(1, 0.6 + jet * 1.4 + Math.random() * 0.2, 1);
     const eyeBoost = s.laser ? 2.2 : 1;
-    this.eyeMat.color.copy(this.eyeColor).multiplyScalar(eyeBoost);
+    this.eyeMat.emissive.copy(this.eyeColor).multiplyScalar(1 / Math.max(this.eyeColor.r, this.eyeColor.g, this.eyeColor.b));
+    this.eyeMat.emissiveIntensity = this.eyeIntensity * eyeBoost;
     if (this.cape) {
       // the cape streams back with speed and flutters
       const f = s.flying ? Math.min(1, Math.max(0, s.fwdSpeed / 70)) : Math.min(0.3, s.hSpeed / 40);

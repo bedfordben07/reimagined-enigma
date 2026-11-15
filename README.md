@@ -33,6 +33,7 @@ High and steps down automatically if the frame rate drops).
 | `R` | new dummy in front of you |
 | `T` | rebuild the town |
 | `V` | switch character (Android / Spectre V-01) |
+| `O` | ink outlines on/off |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
 
@@ -47,6 +48,7 @@ High and steps down automatically if the frame rate drops).
 - `src/robot.js` — the procedural android model and its poses (walk, hover, superhero flight,
   punch wind-up/strike, laser aim, carrying).
 - `src/spectre.js` — Spectre V-01: caped purple mecha with a red mono-eye laser, built on the same rig.
+- `src/outline.js` — optional inverted-hull ink outline for the characters.
 - `src/effects.js` — dust, sparks, shockwaves, laser beams, scorch marks.
 - `src/textures.js` — all textures (brick, plaster, concrete, glass, asphalt…) are generated
   procedurally at start-up, with normal and roughness maps.

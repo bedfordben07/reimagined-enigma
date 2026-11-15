@@ -86,7 +86,13 @@ export class VoxelWorld {
       for (let s = 0; s < list.length; s++) {
         const i = list[s]; const [x, y, z] = this.decode(i);
         this.center(x, y, z, v);
-        _m.makeScale(VS, VS, VS); _m.setPosition(v);
+        if (def.glass) {
+          // recess window panes: thin along the wall's normal so the surrounding blocks form a reveal
+          const thinX = !this.solid(x - 1, y, z) && !this.solid(x + 1, y, z);
+          const thinZ = !this.solid(x, y, z - 1) && !this.solid(x, y, z + 1);
+          _m.makeScale(thinX ? VS * 0.32 : VS, VS, thinZ && !thinX ? VS * 0.32 : VS);
+        } else _m.makeScale(VS, VS, VS);
+        _m.setPosition(v);
         mesh.setMatrixAt(s, _m);
         const B = this.buildings[this.bid[i]];
         const var_ = def.glass ? 0.04 : 0.1;

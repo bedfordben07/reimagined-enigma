@@ -1,33 +1,76 @@
-// Spectre V-01: purple armoured mecha with a teal armoured poncho cape, small helmet with a
-// red mono-eye and gold ear rings, gold neck pistons, bulky purple arms with black clawed
-// gauntlets (gatling unit on the right forearm), tan trousers and gunmetal track-heel feet.
-// Shares the Robot animation rig; only the model differs.
+// Spectre V-01: violet beveled armour, teal matte poncho cape, gold neck pistons, gunmetal
+// joints and a crimson mono-eye. Built from lathed and bevel-extruded sub-assemblies (no raw
+// boxes) and driven by the shared Robot animation rig.
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Robot } from './robot.js';
-import { scuffTex, fabricTex } from './textures.js';
+import { fabricTex, brushedMetalTex, paintedArmorTex, pbr } from './textures.js';
+
+const V2 = (x, y) => new THREE.Vector2(x, y);
+
+// Lathe around Y from [radius, y] pairs (top to bottom), smooth normals.
+function lathe(profile, seg = 48, phiStart = 0, phiLen = Math.PI * 2) {
+  // LatheGeometry faces outward when the profile runs bottom -> top
+  if (profile[0][1] > profile[profile.length - 1][1]) profile = [...profile].reverse();
+  const g = new THREE.LatheGeometry(profile.map(([r, y]) => V2(Math.max(0, r), y)), seg, phiStart, phiLen);
+  g.computeVertexNormals();
+  return g;
+}
+
+// Extrude a 2D outline with a soft bevel, centred on its depth.
+function extrude(shape, depth, bevel = 0.02, segs = 4) {
+  const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: segs, curveSegments: 24 });
+  g.translate(0, 0, -depth / 2);
+  g.computeVertexNormals();
+  return g;
+}
+
+function roundRect(w, h, r) {
+  const s = new THREE.Shape(), x = -w / 2, y = -h / 2;
+  s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+}
+
+// Mirror-symmetric outline from right-half points (bottom to top), x >= 0.
+function symShape(pts) {
+  const s = new THREE.Shape();
+  s.moveTo(-pts[0][0], pts[0][1]);
+  for (const [x, y] of pts) s.lineTo(x, y);
+  for (let i = pts.length - 1; i >= 0; i--) s.lineTo(-pts[i][0], pts[i][1]);
+  return s;
+}
+function smoothSym(pts, div = 6) {
+  // Catmull-Rom through the right-half points, then mirror
+  const curve = new THREE.SplineCurve(pts.map(([x, y]) => V2(x, y)));
+  return symShape(curve.getPoints(pts.length * div).map((p) => [p.x, p.y]));
+}
 
 export class Spectre extends Robot {
   constructor() {
     super();
     this.name = 'Spectre V-01';
-    this.eyeColor = new THREE.Color(9, 0.7, 0.45);
+    this.eyeColor = new THREE.Color(1, 0.08, 0.05);
+    this.eyeIntensity = 6;
     this.laserCore = new THREE.Color(12, 3.2, 2.4);
     this.laserGlow = new THREE.Color(4, 0.25, 0.12);
   }
 
   build() {
-    const purple = new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: scuffTex(9, '#a79fcf'), roughness: 0.55, metalness: 0.05, clearcoat: 0.15, clearcoatRoughness: 0.6 });
-    const gun = new THREE.MeshStandardMaterial({ color: 0x2b3236, roughness: 0.4, metalness: 0.75 });
-    const black = new THREE.MeshStandardMaterial({ color: 0x14181b, roughness: 0.45, metalness: 0.5 });
-    const gold = new THREE.MeshStandardMaterial({ color: 0xe0a640, roughness: 0.28, metalness: 1 });
-    const tanF = fabricTex(21, '#a99a82');
-    const tan = new THREE.MeshStandardMaterial({ color: 0xffffff, map: tanF.map, normalMap: tanF.normalMap, roughness: 0.9 });
-    const tealF = fabricTex(22, '#4a92a0');
-    for (const t of [tealF.map, tealF.normalMap]) t.repeat.set(2, 2);
-    const teal = new THREE.MeshStandardMaterial({ color: 0xffffff, map: tealF.map, normalMap: tealF.normalMap, roughness: 0.85, normalScale: new THREE.Vector2(0.4, 0.4), side: THREE.DoubleSide });
-    const capeIn = new THREE.MeshStandardMaterial({ color: 0x0f1416, roughness: 0.9, side: THREE.BackSide });
-    this.eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 0.7, 0.45) });
+    const violet = pbr(paintedArmorTex(9, '#b2a0c8', 0.42), { metalness: 1, clearcoat: 0.2, clearcoatRoughness: 0.5 }, THREE.MeshPhysicalMaterial);
+    const violetDark = pbr(paintedArmorTex(10, '#83729e', 0.48), { metalness: 1 });
+    const gun = pbr(brushedMetalTex(41, '#2d3337', 0.35), { metalness: 0.85 });
+    const gold = pbr(brushedMetalTex(42, '#d6a242', 0.28), { metalness: 1 });
+    const rubber = new THREE.MeshStandardMaterial({ color: 0x15191c, roughness: 0.62, metalness: 0.1 });
+    const tanT = fabricTex(21, '#a99a82');
+    const tan = pbr(tanT, { roughness: 0.85 / 0.95 });
+    const tealT = fabricTex(22, '#4a92a0');
+    for (const t of [tealT.map, tealT.normalMap, tealT.ormMap]) t.repeat.set(6, 4);
+    const teal = pbr(tealT, { roughness: 0.85 / 0.95, normalScale: new THREE.Vector2(0.25, 0.25), side: THREE.DoubleSide });
+    const lining = new THREE.MeshStandardMaterial({ color: 0x10171a, roughness: 0.9, metalness: 0, side: THREE.BackSide });
+    this.eyeMat = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a10, emissiveIntensity: 6, roughness: 0.15 });
+    const lens = new THREE.MeshPhysicalMaterial({ color: 0x050505, roughness: 0.05, metalness: 0, clearcoat: 1, transmission: 0, transparent: true, opacity: 0.35 });
     this.jetMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.6, 0.4), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
 
     const M = (geo, mat, parent, x = 0, y = 0, z = 0) => {
@@ -35,151 +78,188 @@ export class Spectre extends Robot {
       m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
       parent.add(m); return m;
     };
-    const RB = (w, h, d, r = 0.04) => new RoundedBoxGeometry(w, h, d, 3, r);
-    const CylX = (r, l, seg = 20) => { const g = new THREE.CylinderGeometry(r, r, l, seg); g.rotateZ(Math.PI / 2); return g; };
-    const Taper = (r1, r2, l, seg = 24) => new THREE.CylinderGeometry(r1, r2, l, seg);
+    const toX = (g) => g.rotateZ(Math.PI / 2); // lathe axis Y -> X
 
     this.root = new THREE.Group();
     this.body = new THREE.Group(); this.body.position.y = 1.15; this.root.add(this.body);
 
-    // pelvis + belt with gold buckle
-    M(RB(0.4, 0.22, 0.28, 0.07), tan, this.body, 0, -0.02, 0);
-    M(Taper(0.215, 0.215, 0.09, 32), black, this.body, 0, 0.09, 0);
-    M(RB(0.09, 0.07, 0.03, 0.01), gold, this.body, 0, 0.09, 0.215);
-    M(new THREE.TorusGeometry(0.02, 0.008, 8, 16), black, this.body, 0, 0.09, 0.232);
+    // ---------------- pelvis + belt
+    M(lathe([[0, 0.1], [0.16, 0.1], [0.2, 0.06], [0.21, -0.04], [0.17, -0.12], [0, -0.13]], 40), tan, this.body, 0, -0.02, 0).scale.z = 0.75;
+    M(new THREE.TorusGeometry(0.205, 0.035, 12, 48), rubber, this.body, 0, 0.08, 0).rotation.x = Math.PI / 2;
+    this.body.children[this.body.children.length - 1].scale.set(1, 0.78, 1);
+    M(extrude(roundRect(0.09, 0.065, 0.015), 0.015, 0.008), gold, this.body, 0, 0.08, 0.165);
+    M(new THREE.TorusGeometry(0.02, 0.006, 8, 20), gun, this.body, 0, 0.08, 0.183);
 
+    // ---------------- ribbed mechanical waist
     this.spine = new THREE.Group(); this.spine.position.y = 0.12; this.body.add(this.spine);
-    M(Taper(0.14, 0.17, 0.22, 20), black, this.spine, 0, 0.08, 0);
-    for (const sx of [-0.08, 0.08]) M(Taper(0.02, 0.02, 0.24, 8), gun, this.spine, sx, 0.08, 0.14);
+    const rib = [];
+    for (let i = 0; i <= 6; i++) { const y = 0.2 - i * 0.033; rib.push([i % 2 ? 0.13 : 0.15, y]); }
+    M(lathe([[0, 0.21], ...rib, [0, -0.01]], 40), gun, this.spine, 0, 0, 0).scale.z = 0.8;
+    for (const sx of [-0.075, 0.075]) {
+      M(lathe([[0.016, 0.12], [0.016, -0.12]], 12), gold, this.spine, sx, 0.09, 0.115);
+      M(lathe([[0.026, 0.03], [0.026, -0.03]], 12), gun, this.spine, sx, 0.0, 0.115);
+    }
 
+    // ---------------- armoured torso (bevel-extruded silhouette, layered plates)
     this.chest = new THREE.Group(); this.chest.position.y = 0.22; this.spine.add(this.chest);
-    // broad armoured torso
-    M(RB(0.64, 0.56, 0.44, 0.12), purple, this.chest, 0, 0.26, 0);
-    M(RB(0.92, 0.2, 0.46, 0.09), purple, this.chest, 0, 0.47, -0.01);
-    M(RB(0.32, 0.26, 0.05, 0.03), black, this.chest, 0, 0.22, 0.215);
-    M(new THREE.SphereGeometry(0.03, 12, 8), gun, this.chest, -0.2, 0.36, 0.22);
-    M(new THREE.SphereGeometry(0.03, 12, 8), gun, this.chest, 0.2, 0.36, 0.22);
-    // high dark collar
-    M(new THREE.CylinderGeometry(0.17, 0.25, 0.22, 28, 1, true), capeIn, this.chest, 0, 0.62, -0.02);
-    M(new THREE.CylinderGeometry(0.17, 0.25, 0.22, 28, 1, true), teal, this.chest, 0, 0.62, -0.02).scale.setScalar(1.04);
+    const torso = smoothSym([[0.17, -0.02], [0.25, 0.1], [0.31, 0.3], [0.3, 0.46], [0.2, 0.53], [0.0, 0.55]]);
+    M(extrude(torso, 0.28, 0.07, 6), violet, this.chest, 0, 0, 0);
+    // pectoral plates
+    for (const sx of [-1, 1]) {
+      const pec = smoothSym([[0.0, 0.0], [0.11, 0.02], [0.13, 0.12], [0.08, 0.17], [0.0, 0.18]]);
+      M(extrude(pec, 0.03, 0.02), violetDark, this.chest, 0.1 * sx, 0.28, 0.2).rotation.y = 0.18 * sx;
+    }
+    // sternum vent
+    M(extrude(roundRect(0.13, 0.17, 0.03), 0.02, 0.012), rubber, this.chest, 0, 0.19, 0.215);
+    for (let i = 0; i < 4; i++) M(extrude(roundRect(0.1, 0.012, 0.005), 0.01, 0.004), gun, this.chest, 0, 0.13 + i * 0.04, 0.236);
+    // shoulder yoke
+    const yoke = smoothSym([[0.0, -0.07], [0.3, -0.06], [0.45, -0.02], [0.47, 0.04], [0.36, 0.08], [0.0, 0.09]]);
+    M(extrude(yoke, 0.34, 0.05, 5), violet, this.chest, 0, 0.47, -0.01);
+    // high collar (teal outer, dark lining)
+    const collar = [[0.18, 0.13], [0.2, 0.06], [0.24, -0.06], [0.26, -0.1]];
+    M(lathe(collar, 48), teal, this.chest, 0, 0.62, -0.03);
+    M(lathe(collar.map(([r, y]) => [r - 0.012, y]), 48), lining, this.chest, 0, 0.62, -0.03);
 
-    // cape: hangs from the shoulders, open at the front, with folds
-    this.cape = new THREE.Group(); this.cape.position.set(0, 0.6, -0.02); this.chest.add(this.cape);
-    {
-      const h = 1.2;
-      const gap = 0.62;
-      const g = new THREE.CylinderGeometry(0.66, 0.9, h, 56, 10, true, gap, Math.PI * 2 - gap * 2);
+    // ---------------- cape: mantle + long drape, open at the front with sculpted folds
+    this.cape = new THREE.Group(); this.cape.position.set(0, 0.6, -0.03); this.chest.add(this.cape);
+    const drape = (rTop, rBot, h, gap, foldAmp, segs = 72) => {
+      const g = new THREE.CylinderGeometry(rTop, rBot, h, segs, 18, true, gap, Math.PI * 2 - gap * 2);
       g.translate(0, -h / 2, 0);
       const p = g.attributes.position, v = new THREE.Vector3();
       for (let i = 0; i < p.count; i++) {
         v.fromBufferAttribute(p, i);
-        const t = -v.y / h;
-        const th = Math.atan2(v.x, v.z);
-        const fold = 1 + t * 0.07 * Math.sin(th * 9) + t * 0.03 * Math.sin(th * 23 + 1);
-        const back = v.z < 0 ? 1 : 0.92;
-        p.setXYZ(i, v.x * fold, v.y - (v.z > 0 ? t * 0.1 : 0), v.z * fold * 0.78 * back);
+        const t = -v.y / h, th = Math.atan2(v.x, v.z);
+        const fold = 1 + t * foldAmp * Math.sin(th * 9) + t * foldAmp * 0.4 * Math.sin(th * 23 + 1);
+        const hem = v.z > 0 ? -t * t * 0.12 : Math.sin(th * 5) * t * 0.03; // front edges lift, back hem ripples
+        p.setXYZ(i, v.x * fold, v.y + hem, v.z * fold * 0.78);
       }
       g.computeVertexNormals();
-      const outer = M(g, teal, this.cape);
-      const inner = M(g, capeIn, this.cape); inner.scale.setScalar(0.985);
-      outer.castShadow = true;
-      // pointed shoulder flaps
-      for (const sx of [-1, 1]) {
-        const horn = M(new THREE.ConeGeometry(0.1, 0.34, 4), teal, this.cape, 0.6 * sx, 0.06, -0.04);
-        horn.rotation.z = -1.0 * sx; horn.scale.z = 0.4;
-      }
-      // gold arc across the back of the collar
-      const arc = M(new THREE.TorusGeometry(0.21, 0.022, 8, 28, Math.PI), gold, this.cape, 0, -0.04, -0.03);
-      arc.rotation.x = -Math.PI / 2;
+      return g;
+    };
+    const longCape = drape(0.66, 0.92, 1.22, 0.6, 0.07);
+    M(longCape, teal, this.cape);
+    const capeIn = M(longCape, lining, this.cape); capeIn.scale.setScalar(0.988);
+    const mantle = drape(0.5, 0.84, 0.42, 0.42, 0.05);
+    M(mantle, teal, this.cape, 0, 0.04, 0.005).scale.setScalar(1.03);
+    for (const sx of [-1, 1]) { // pointed shoulder flaps
+      const flap = new THREE.Shape(); flap.moveTo(0, 0); flap.quadraticCurveTo(0.1, 0.05, 0.3, 0.17); flap.quadraticCurveTo(0.14, -0.02, 0.04, -0.1); flap.lineTo(0, 0);
+      const f = M(extrude(flap, 0.02, 0.012), teal, this.cape, 0.52 * sx, -0.02, -0.04);
+      f.scale.x = sx;
     }
+    const arc = M(new THREE.TorusGeometry(0.22, 0.02, 12, 40, Math.PI), gold, this.cape, 0, -0.03, -0.03);
+    arc.rotation.x = -Math.PI / 2;
 
-    // neck with gold pistons
+    // ---------------- neck with gold pistons
     this.neck = new THREE.Group(); this.neck.position.y = 0.55; this.chest.add(this.neck);
-    M(Taper(0.06, 0.075, 0.18, 14), black, this.neck, 0, 0.07, 0);
-    for (const [px, pz] of [[-0.07, 0.03], [0.07, 0.03], [0, -0.07]]) {
-      M(Taper(0.017, 0.017, 0.2, 10), gold, this.neck, px, 0.07, pz);
-      M(Taper(0.026, 0.026, 0.05, 10), gun, this.neck, px, -0.01, pz);
+    M(lathe([[0, 0.17], [0.055, 0.17], [0.06, 0.12], [0.055, 0.06], [0.07, 0.0], [0.075, -0.03], [0, -0.03]], 32), rubber, this.neck, 0, 0, 0);
+    for (const [px, pz] of [[-0.075, 0.03], [0.075, 0.03], [0, -0.075]]) {
+      M(lathe([[0.0, 0.2], [0.014, 0.2], [0.014, 0.09], [0.022, 0.085], [0.024, -0.02], [0.03, -0.03], [0.03, -0.06], [0, -0.06]], 16), gold, this.neck, px, 0.0, pz);
     }
 
-    // helmet
+    // ---------------- helmet
     this.head = new THREE.Group(); this.head.position.y = 0.18; this.neck.add(this.head);
-    M(new THREE.SphereGeometry(0.15, 40, 30), purple, this.head, 0, 0.09, -0.01).scale.set(0.95, 1.05, 1.05);
-    // crest ridge
-    M(RB(0.04, 0.06, 0.26, 0.015), purple, this.head, 0, 0.23, -0.01);
-    // black face plate
-    const face = M(new THREE.SphereGeometry(0.142, 32, 20, Math.PI * 0.18, Math.PI * 0.64, Math.PI * 0.32, Math.PI * 0.45), black, this.head, 0, 0.08, 0.008);
-    face.rotation.y = 0;
-    // red mono-eye in a dark ring
-    const ring = M(new THREE.TorusGeometry(0.042, 0.012, 10, 24), gun, this.head, 0, 0.1, 0.143);
-    ring.rotation.x = -0.1;
-    const eye = M(new THREE.SphereGeometry(0.034, 18, 14), this.eyeMat, this.head, 0, 0.1, 0.138);
+    const dome = [[0, 0.26], [0.05, 0.255], [0.1, 0.235], [0.135, 0.19], [0.152, 0.12], [0.152, 0.05], [0.142, -0.0], [0.115, -0.04], [0.06, -0.055], [0, -0.055]];
+    M(lathe(dome, 64), violet, this.head, 0, 0, -0.01).scale.z = 1.08;
+    // crest
+    const crest = new THREE.Shape(); crest.moveTo(-0.12, 0); crest.quadraticCurveTo(0, 0.07, 0.14, 0.0); crest.lineTo(0.12, -0.02); crest.lineTo(-0.1, -0.02);
+    const cr = M(extrude(crest, 0.03, 0.01), violetDark, this.head, 0, 0.245, -0.02); cr.rotation.y = Math.PI / 2;
+    // black face band wrapping the front
+    M(lathe(dome.slice(3, 8).map(([r, y]) => [r + 0.004, y]), 48, -1.05, 2.1), rubber, this.head, 0, 0.0, -0.002).scale.z = 1.09;
+    // mono-eye: gunmetal bezel, crimson emitter, glossy lens
+    const bez = M(lathe([[0.045, 0.012], [0.05, 0.0], [0.045, -0.012], [0.03, -0.012], [0.03, 0.012], [0.045, 0.012]], 32), gun, this.head, 0, 0.1, 0.152);
+    bez.rotation.x = Math.PI / 2;
+    const eye = M(new THREE.SphereGeometry(0.03, 24, 16), this.eyeMat, this.head, 0, 0.1, 0.152);
     eye.castShadow = false;
+    M(new THREE.SphereGeometry(0.034, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2), lens, this.head, 0, 0.1, 0.158).rotation.x = Math.PI / 2;
     this.eyes = [eye];
-    // gold ear rings
     for (const sx of [-1, 1]) {
-      const r = M(new THREE.TorusGeometry(0.058, 0.02, 12, 28), gold, this.head, 0.145 * sx, 0.08, -0.01);
-      r.rotation.y = Math.PI / 2;
-      M(CylX(0.042, 0.04), gun, this.head, 0.15 * sx, 0.08, -0.01);
+      // gold ear rings around gunmetal hubs
+      const ringG = toX(lathe([[0.062, 0.022], [0.07, 0.0], [0.062, -0.022], [0.045, -0.022], [0.045, 0.022], [0.062, 0.022]], 40));
+      M(ringG, gold, this.head, 0.15 * sx, 0.08, -0.01);
+      M(toX(lathe([[0, 0.03], [0.035, 0.03], [0.042, 0.0], [0.035, -0.03], [0, -0.03]], 24)), gun, this.head, 0.15 * sx, 0.08, -0.01);
       // antenna fins
-      const fin = M(RB(0.025, 0.2, 0.07, 0.01), purple, this.head, 0.075 * sx, 0.27, -0.02);
-      fin.rotation.z = -0.18 * sx;
+      const fin = new THREE.Shape(); fin.moveTo(-0.035, 0); fin.lineTo(0.035, 0); fin.quadraticCurveTo(0.02, 0.12, 0.0, 0.2); fin.quadraticCurveTo(-0.025, 0.1, -0.035, 0);
+      const fm = M(extrude(fin, 0.012, 0.008), violet, this.head, 0.08 * sx, 0.2, -0.02);
+      fm.rotation.set(0, Math.PI / 2, -0.2 * sx);
     }
 
-    // arms
+    // ---------------- arms
     this.arms = {};
     for (const side of [-1, 1]) {
       const sh = new THREE.Group(); sh.position.set(0.44 * side, 0.42, 0); this.chest.add(sh);
-      M(new THREE.SphereGeometry(0.17, 24, 16), purple, sh, 0.03 * side, 0.0, 0).scale.set(1, 0.9, 1.05);
-      M(RB(0.18, 0.38, 0.2, 0.07), purple, sh, 0.04 * side, -0.25, 0);
+      // pauldron dome facing outward with a rolled lip
+      const pd = lathe([[0, 0.13], [0.08, 0.12], [0.15, 0.08], [0.185, 0.0], [0.19, -0.06], [0.2, -0.08], [0.17, -0.085], [0.0, -0.085]], 48);
+      const pm = M(pd, violet, sh, 0.05 * side, 0.0, 0); pm.rotation.z = -side * Math.PI / 2 * 0.85; pm.scale.set(1, 0.9, 1.05);
+      M(toX(lathe([[0, 0.05], [0.07, 0.05], [0.08, 0.0], [0.07, -0.05], [0, -0.05]], 32)), gun, sh, 0.0, 0.0, 0);
+      // upper arm
+      M(lathe([[0, 0.0], [0.08, -0.02], [0.095, -0.1], [0.1, -0.28], [0.09, -0.38], [0.06, -0.41], [0, -0.41]], 40), violet, sh, 0.04 * side, -0.04, 0);
       const el = new THREE.Group(); el.position.set(0.04 * side, -0.47, 0); sh.add(el);
-      M(CylX(0.075, 0.15), gun, el, 0, 0, 0);
-      M(Taper(0.105, 0.145, 0.44, 28), purple, el, 0, -0.25, 0);
-      M(Taper(0.03, 0.03, 0.02, 12), black, el, 0.11 * side, -0.18, 0.06).rotation.z = Math.PI / 2;
-      M(Taper(0.13, 0.12, 0.05, 28), black, el, 0, -0.475, 0);
+      M(toX(lathe([[0, 0.08], [0.06, 0.08], [0.075, 0.05], [0.075, -0.05], [0.06, -0.08], [0, -0.08]], 32)), gun, el, 0, 0, 0);
+      // flared gauntlet forearm with ridge bands
+      M(lathe([[0, 0.02], [0.09, 0.0], [0.105, -0.06], [0.125, -0.2], [0.145, -0.36], [0.155, -0.41], [0.15, -0.44], [0.12, -0.45], [0, -0.45]], 48), violet, el, 0, -0.03, 0);
+      for (const y of [-0.14, -0.3]) M(new THREE.TorusGeometry(y === -0.14 ? 0.118 : 0.138, 0.01, 10, 48), violetDark, el, 0, y, 0).rotation.x = Math.PI / 2;
+      M(lathe([[0.14, 0.02], [0.135, -0.03], [0.12, -0.04], [0, -0.04]], 40), gun, el, 0, -0.48, 0);
       if (side === 1) {
-        // retracted mini-gatling along the outside of the forearm
-        const gat = new THREE.Group(); gat.position.set(0.15, -0.28, 0.0); el.add(gat);
+        // retractable mini-gatling along the outer forearm
+        const gat = new THREE.Group(); gat.position.set(0.17, -0.28, 0.0); el.add(gat);
         for (let k = 0; k < 6; k++) {
           const a = (k / 6) * Math.PI * 2;
-          M(Taper(0.014, 0.014, 0.42, 8), black, gat, Math.cos(a) * 0.035, 0, Math.sin(a) * 0.035);
+          M(lathe([[0.013, 0.22], [0.013, -0.2], [0.016, -0.21], [0.016, -0.23], [0, -0.23]], 10), rubber, gat, Math.cos(a) * 0.033, 0, Math.sin(a) * 0.033);
         }
-        M(Taper(0.055, 0.055, 0.05, 16), gun, gat, 0, 0.12, 0);
-        M(Taper(0.055, 0.055, 0.04, 16), gold, gat, 0, -0.16, 0);
+        M(lathe([[0, 0.17], [0.05, 0.17], [0.058, 0.12], [0.058, 0.08], [0.05, 0.06], [0, 0.06]], 24), gun, gat, 0, 0, 0);
+        M(new THREE.TorusGeometry(0.055, 0.012, 8, 28), gold, gat, 0, -0.16, 0).rotation.x = Math.PI / 2;
       }
+      // clawed gauntlet hand
       const hand = new THREE.Group(); hand.position.set(0, -0.52, 0); el.add(hand);
-      M(RB(0.15, 0.14, 0.09, 0.03), black, hand, 0, -0.06, 0);
+      const palm = smoothSym([[0.05, -0.07], [0.075, -0.04], [0.075, 0.03], [0.06, 0.06], [0.0, 0.065]]);
+      M(extrude(palm, 0.05, 0.022), rubber, hand, 0, -0.06, 0);
+      M(extrude(roundRect(0.1, 0.06, 0.02), 0.012, 0.01), gun, hand, 0, -0.04, 0.042);
       const fingers = new THREE.Group(); fingers.position.set(0, -0.13, 0); hand.add(fingers);
+      const seg = extrude(roundRect(0.024, 0.055, 0.01), 0.02, 0.008);
+      const clawG = lathe([[0.0, 0.0], [0.013, -0.005], [0.01, -0.04], [0.0, -0.075]], 10);
       for (let f = 0; f < 4; f++) {
         const x = -0.05 + f * 0.033;
-        M(RB(0.026, 0.09, 0.034, 0.008), black, fingers, x, -0.045, 0);
-        const claw = M(new THREE.ConeGeometry(0.014, 0.07, 8), gun, fingers, x, -0.12, 0.008);
-        claw.rotation.x = Math.PI + 0.25;
+        const k1 = new THREE.Group(); k1.position.set(x, 0, 0); fingers.add(k1);
+        M(seg, rubber, k1, 0, -0.03, 0);
+        const k2 = new THREE.Group(); k2.position.set(0, -0.065, 0); k2.rotation.x = -0.25; k1.add(k2);
+        M(seg, rubber, k2, 0, -0.025, 0);
+        const c = M(clawG, gun, k2, 0, -0.055, 0.004); c.rotation.x = -0.3;
       }
-      const thumb = M(RB(0.03, 0.08, 0.034, 0.01), black, hand, -0.075 * side, -0.08, 0.035);
-      thumb.rotation.z = 0.5 * side;
+      const th = new THREE.Group(); th.position.set(-0.07 * side, -0.07, 0.03); th.rotation.z = 0.55 * side; hand.add(th);
+      M(seg, rubber, th, 0, -0.03, 0); M(clawG, gun, th, 0, -0.065, 0);
       this.arms[side] = { sh, el, hand, fingers };
     }
 
-    // legs: tan trousers, gunmetal feet with track heels
+    // ---------------- legs: tactical trousers over mechanical joints, gunmetal boots
     this.legs = {};
+    const thigh = lathe([[0, 0.02], [0.09, 0.0], [0.108, -0.08], [0.105, -0.25], [0.09, -0.4], [0.078, -0.47], [0, -0.48]], 40);
+    const shin = lathe([[0, 0.0], [0.075, -0.02], [0.082, -0.12], [0.072, -0.3], [0.062, -0.42], [0.0, -0.43]], 40);
+    const bootShape = new THREE.Shape(); // side profile, toe toward +x
+    bootShape.moveTo(-0.13, 0.0); bootShape.lineTo(0.12, 0.0); bootShape.quadraticCurveTo(0.24, 0.0, 0.25, 0.02);
+    bootShape.quadraticCurveTo(0.16, 0.06, 0.06, 0.1); bootShape.lineTo(-0.06, 0.12); bootShape.quadraticCurveTo(-0.13, 0.1, -0.13, 0.0);
+    const boot = extrude(bootShape, 0.08, 0.025, 4);
     for (const side of [-1, 1]) {
       const hip = new THREE.Group(); hip.position.set(0.13 * side, -0.07, 0); this.body.add(hip);
-      M(Taper(0.105, 0.085, 0.46, 20), tan, hip, 0, -0.25, 0);
+      M(toX(lathe([[0, 0.05], [0.065, 0.05], [0.075, 0.0], [0.065, -0.05], [0, -0.05]], 24)), gun, hip, 0, 0, 0);
+      M(thigh, tan, hip, 0, -0.03, 0);
+      // cargo pocket
+      M(extrude(roundRect(0.09, 0.12, 0.02), 0.025, 0.012), tan, hip, 0.1 * side, -0.24, 0.0).rotation.y = Math.PI / 2;
       const kn = new THREE.Group(); kn.position.set(0, -0.5, 0); hip.add(kn);
-      M(new THREE.SphereGeometry(0.075, 16, 12), tan, kn, 0, 0, 0);
-      M(RB(0.1, 0.12, 0.05, 0.02), gun, kn, 0, 0.0, 0.07);
-      M(Taper(0.08, 0.06, 0.42, 20), tan, kn, 0, -0.23, 0);
+      M(toX(lathe([[0, 0.07], [0.065, 0.07], [0.075, 0.0], [0.065, -0.07], [0, -0.07]], 24)), gun, kn, 0, 0, 0);
+      const pad = smoothSym([[0.0, -0.07], [0.05, -0.06], [0.06, 0.02], [0.04, 0.07], [0.0, 0.08]]);
+      M(extrude(pad, 0.03, 0.02), gun, kn, 0, -0.01, 0.075);
+      M(shin, tan, kn, 0, -0.03, 0);
       const an = new THREE.Group(); an.position.set(0, -0.47, 0); kn.add(an);
-      M(Taper(0.06, 0.07, 0.07, 16), gun, an, 0, 0, 0);
-      M(RB(0.12, 0.07, 0.3, 0.025), gun, an, 0, -0.06, 0.07);
-      const toe = M(new THREE.ConeGeometry(0.06, 0.12, 4), gun, an, 0, -0.07, 0.27);
-      toe.rotation.x = Math.PI / 2; toe.scale.set(1, 1, 0.5);
-      M(CylX(0.05, 0.13), black, an, 0, -0.05, -0.09);
-      M(new THREE.TorusGeometry(0.05, 0.012, 8, 20), gold, an, 0.07 * side, -0.05, -0.09).rotation.y = Math.PI / 2;
+      M(lathe([[0, 0.04], [0.06, 0.04], [0.07, 0.0], [0.065, -0.03], [0, -0.03]], 24), gun, an, 0, 0, 0);
+      const b = M(boot, gun, an, 0, -0.1, 0.06); b.rotation.y = -Math.PI / 2;
+      // track-tread heel wheel with gold ring
+      M(toX(lathe([[0, 0.05], [0.04, 0.05], [0.05, 0.03], [0.05, -0.03], [0.04, -0.05], [0, -0.05]], 28)), rubber, an, 0, -0.06, -0.08);
+      M(new THREE.TorusGeometry(0.05, 0.01, 8, 28), gold, an, 0.055 * side, -0.06, -0.08).rotation.y = Math.PI / 2;
       const jet = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.5, 16, 1, true), this.jetMat);
-      jet.rotation.x = Math.PI; jet.position.set(0, -0.35, 0.03);
+      jet.rotation.x = Math.PI; jet.position.set(0, -0.36, 0.03); jet.userData.noOutline = true;
       an.add(jet);
       this.legs[side] = { hip, kn, an, jet };
     }
+    eye.userData.noOutline = true;
   }
 }

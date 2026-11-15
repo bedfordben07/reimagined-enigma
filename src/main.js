@@ -12,6 +12,7 @@ import { DebrisSystem } from './debris.js';
 import { Dummy } from './dummy.js';
 import { Robot } from './robot.js';
 import { Spectre } from './spectre.js';
+import { addOutline } from './outline.js';
 import { Effects } from './effects.js';
 import { makeVoxelMaterials, buildVoxelTown, buildScenery } from './town.js';
 import { Sfx } from './audio.js';
@@ -24,8 +25,9 @@ const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'h
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.15;
 $('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -33,12 +35,12 @@ const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 30
 camera.rotation.order = 'YXZ';
 
 // ---------------------------------------------------------------- sky, sun, environment
-const SUN_ELEV = 26, SUN_AZ = 32;
+const SUN_ELEV = 15, SUN_AZ = 32; // low golden-hour sun behind the start view
 const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - SUN_ELEV), THREE.MathUtils.degToRad(SUN_AZ));
 function makeSky() {
   const s = new Sky();
   const u = s.material.uniforms;
-  u.turbidity.value = 3.2; u.rayleigh.value = 1.1; u.mieCoefficient.value = 0.004; u.mieDirectionalG.value = 0.82;
+  u.turbidity.value = 4.5; u.rayleigh.value = 1.6; u.mieCoefficient.value = 0.004; u.mieDirectionalG.value = 0.82;
   u.sunPosition.value.copy(sunDir);
   // scale the sky's radiance down so only the sun disc reaches bloom range
   s.material.fragmentShader = s.material.fragmentShader.replace('gl_FragColor = vec4( retColor, 1.0 );', 'gl_FragColor = vec4( retColor * 0.42, 1.0 );');
@@ -55,21 +57,30 @@ const sky = makeSky(); sky.scale.setScalar(5000); scene.add(sky);
   scene.environment = pmrem.fromScene(envScene, 0.02, 0.1, 1000).texture;
   scene.environmentIntensity = 0.9;
 }
-scene.fog = new THREE.FogExp2(0x9fb0c0, 0.0026);
+scene.fog = new THREE.FogExp2(0xb3b4b0, 0.0028); // atmospheric haze matched to the horizon
 
-const sun = new THREE.DirectionalLight(0xfff0dc, 4.2);
+// Lighting rig: warm golden-hour key (sun), cool sky/ground hemisphere fill, cool rim behind the player.
+const sun = new THREE.DirectionalLight(0xffe8c8, 5.0);
 sun.castShadow = true;
 sun.shadow.camera.left = -70; sun.shadow.camera.right = 70; sun.shadow.camera.top = 70; sun.shadow.camera.bottom = -70;
 sun.shadow.camera.near = 1; sun.shadow.camera.far = 500;
-sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+sun.shadow.bias = -0.00025; sun.shadow.normalBias = 0.035; // no acne on voxel faces, no peter-panning at feet
 scene.add(sun, sun.target);
-const hemi = new THREE.HemisphereLight(0xcfe0ff, 0x5a5444, 0.75); scene.add(hemi);
+const hemi = new THREE.HemisphereLight(0x7090b5, 0x2a2520, 1.0); scene.add(hemi);
+const rim = new THREE.DirectionalLight(0xb8d4ff, 2.2); // placed behind the player each frame, facing the camera
+scene.add(rim, rim.target);
+// street-lamp light pools: a fixed set of spot lights moved to the lamps nearest the player
+const lampSpots = [];
+for (let i = 0; i < 6; i++) {
+  const l = new THREE.SpotLight(0xffc98a, 70, 22, 0.95, 0.65, 2);
+  scene.add(l, l.target); lampSpots.push(l);
+}
 
 // ---------------------------------------------------------------- world
 const matDefs = makeVoxelMaterials();
 const vox = new VoxelWorld(scene, matDefs);
 buildVoxelTown(vox);
-buildScenery(scene, renderer);
+const { lampLights } = buildScenery(scene, renderer);
 const debris = new DebrisSystem(scene, vox, matDefs, 4500);
 const fx = new Effects(scene);
 const sfx = new Sfx();
@@ -166,6 +177,12 @@ debris.onVoxelImpact = (i, speed, it) => {
 };
 
 const dummy = new Dummy(scene, vox, { smash });
+// optional comic-ink outlines on the characters (toggle with O)
+const outlines = [...chars.map((c) => addOutline(c.root)), addOutline(dummy.group, { thickness: 0.003 })];
+let outlineOn = true;
+try { outlineOn = localStorage.getItem('rubble-ink') !== '0'; } catch (e) { /* ignore */ }
+function setOutline(v) { outlineOn = v; outlines.forEach((o) => o.setVisible(v)); try { localStorage.setItem('rubble-ink', v ? '1' : '0'); } catch (e) { /* ignore */ } }
+setOutline(outlineOn);
 dummy.spawn(new THREE.Vector3(0, 0, 3), 0);
 
 // ---------------------------------------------------------------- player
@@ -246,6 +263,7 @@ addEventListener('keydown', (e) => {
     case 'KeyT': rebuildTown(); break;
     case 'KeyQ': setQuality((quality + 1) % QUALITY.length, true); break;
     case 'KeyV': setCharacter(charIdx + 1); break;
+    case 'KeyO': setOutline(!outlineOn); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
     case 'KeyK': mouse.r = true; break;
@@ -486,15 +504,15 @@ function superLanding(vy) {
 
 // ---------------------------------------------------------------- post-processing + quality
 const QUALITY = [
-  { name: 'Low', pr: 0.75, shadow: 1024, ao: false, smaa: false },
-  { name: 'Medium', pr: 1, shadow: 2048, ao: false, smaa: true },
+  { name: 'Low', pr: 0.75, shadow: 2048, ao: false, smaa: true },
+  { name: 'Medium', pr: 1, shadow: 2048, ao: true, smaa: true },
   { name: 'High', pr: 1.25, shadow: 4096, ao: true, smaa: true },
   { name: 'Ultra', pr: 2, shadow: 4096, ao: true, smaa: true },
 ];
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
-gtao.updateGtaoMaterial({ radius: 1.1, distanceExponent: 1.4, thickness: 1.2, scale: 1.0, samples: 16 });
+gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.6, thickness: 1.0, scale: 1.1, samples: 16 });
 gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
 gtao.blendIntensity = 0.9;
 {
@@ -502,7 +520,8 @@ gtao.blendIntensity = 0.9;
   gtao.overrideVisibility = () => { ov(); fx.fx.visible = false; fx.scorch.visible = false; sky.visible = false; };
 }
 composer.addPass(gtao);
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.5, 1.0);
+// threshold above 1: only HDR emissives (eyes, lasers, sparks, bulbs) bloom, never lit surfaces
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.4, 1.1);
 composer.addPass(bloom);
 const smaa = new SMAAPass(innerWidth, innerHeight);
 composer.addPass(smaa);
@@ -571,12 +590,22 @@ function updateCamera(dt) {
   finish.uniforms.uAb.value = Math.min(0.02, Math.max(0, sp - 40) * 0.0003) + s * 0.01;
 }
 
+let lampT = 0;
 function updateSunShadow() {
   const t = new THREE.Vector3(player.pos.x, 0, player.pos.z);
   const texel = 140 / sun.shadow.mapSize.x;
   t.x = Math.round(t.x / texel) * texel; t.z = Math.round(t.z / texel) * texel;
   sun.target.position.copy(t);
   sun.position.copy(t).addScaledVector(sunDir, 250);
+  // rim light sits beyond the player, shining back toward the camera
+  const f = camera.getWorldDirection(new THREE.Vector3());
+  rim.target.position.set(player.pos.x, player.pos.y + 1.4, player.pos.z);
+  rim.position.copy(rim.target.position).addScaledVector(f, 10).add(new THREE.Vector3(0, 5, 0));
+  if ((lampT -= 1 / 60) <= 0) {
+    lampT = 0.4;
+    const near = lampLights.map((p) => [p.distanceToSquared(player.pos), p]).sort((a, b) => a[0] - b[0]);
+    lampSpots.forEach((l, i) => { const p = near[i][1]; l.position.copy(p); l.target.position.set(p.x, 0, p.z); });
+  }
 }
 
 // speed streaks while boosting
@@ -688,4 +717,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
