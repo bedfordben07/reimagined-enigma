@@ -47,6 +47,11 @@
   .ov .grid div { display: flex; gap: 8px; align-items: baseline; }
   .ov button { justify-self: start; font: 600 14px var(--display); letter-spacing: 0.18em; text-transform: uppercase; color: #15130e; background: var(--amber); border: 0; border-radius: 3px; padding: 11px 18px; cursor: pointer; }
   .ov button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .ov .pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+  .ov .pick button { justify-self: stretch; text-align: left; text-transform: none; letter-spacing: 0.02em; display: grid; gap: 2px; background: rgba(255,255,255,0.05); color: var(--ink); border: 1px solid rgba(255,255,255,0.16); padding: 10px 12px; }
+  .ov .pick button b { font-size: 15px; font-weight: 600; }
+  .ov .pick button span { font: 12px system-ui, sans-serif; color: var(--dim); }
+  .ov .pick button[aria-pressed="true"] { border-color: var(--amber); background: rgba(255, 201, 74, 0.12); }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0d0f10; font-size: 14px; letter-spacing: 0.3em; color: var(--amber); }
   @media (max-width: 640px) { #help { display: none; } #hudR { font-size: 11px; } }
 </style>
@@ -71,6 +76,7 @@
   <span>FPS</span><b id="fps">–</b>
   <span>Render</span><b id="qual">High</b>
   <span>Rubble</span><b id="rubble">0</b>
+  <span>Pilot</span><b id="charName">Android</b>
 </div>
 
 <div id="help" class="panel">
@@ -85,6 +91,7 @@
   <div class="row"><span><kbd>E</kbd></span><span>grab · throw dummy</span></div>
   <div class="row"><span><kbd>R</kbd></span><span>new dummy in front</span></div>
   <div class="row"><span><kbd>T</kbd></span><span>rebuild town</span></div>
+  <div class="row"><span><kbd>V</kbd></span><span>switch character</span></div>
   <div class="row"><span><kbd>Q</kbd></span><span>render quality</span></div>
   <div class="row"><span><kbd>H</kbd></span><span>hide this</span></div>
 </div>
@@ -102,6 +109,10 @@
       <div>L-click punch (hold)</div>
       <div>R-click laser eyes</div>
       <div><kbd>E</kbd> grab / throw</div>
+    </div>
+    <div class="pick" role="group" aria-label="Character">
+      <button type="button" data-char="0" aria-pressed="true"><b>Android</b><span>yellow twin-eye lasers</span></button>
+      <button type="button" data-char="1" aria-pressed="false"><b>Spectre V-01</b><span>caped mecha, red mono-eye</span></button>
     </div>
     <button id="startBtn" type="button">Click to play</button>
   </div>

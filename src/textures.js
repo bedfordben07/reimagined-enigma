@@ -259,8 +259,8 @@ export function scuffTex(seed, baseHex) {
   return t;
 }
 
-export function fabricTex(seed) {
-  const n = 256; const base = hexRGB('#6b7550');
+export function fabricTex(seed, baseHex = '#6b7550') {
+  const n = 256; const base = hexRGB(baseHex);
   const nz = noise2D(n, seed, 8, 4);
   return build(n, (x, y) => {
     const w = (Math.sin(x * 0.8) * 0.5 + 0.5) * (Math.sin(y * 0.8 + 1.5) * 0.5 + 0.5);

@@ -8,6 +8,17 @@ const lerpA = (a, b, k) => a + (b - a) * k;
 
 export class Robot {
   constructor() {
+    this.name = 'Android';
+    this.eyeColor = new THREE.Color(5, 3.6, 0.6);
+    this.laserCore = new THREE.Color(12, 9, 4);
+    this.laserGlow = new THREE.Color(3.5, 0.9, 0.1);
+    this.build();
+    this.phase = 0;
+    this.punchFist = 0;
+    this.hover = 0;
+  }
+
+  build() {
     const white = new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: scuffTex(5, '#d9dedd'), roughness: 0.42, metalness: 0.0, clearcoat: 0.35, clearcoatRoughness: 0.45 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x2a2c2f, roughness: 0.38, metalness: 0.75 });
     const joint = new THREE.MeshStandardMaterial({ color: 0x5b6064, roughness: 0.42, metalness: 0.7 });
@@ -139,7 +150,7 @@ export class Robot {
     return out.set(0, -0.1, 0).applyMatrix4(h.matrixWorld);
   }
 
-  eyeWorld(i, out) { this.eyes[i].updateWorldMatrix(true, false); return out.setFromMatrixPosition(this.eyes[i].matrixWorld); }
+  eyeWorld(i, out) { i %= this.eyes.length; this.eyes[i].updateWorldMatrix(true, false); return out.setFromMatrixPosition(this.eyes[i].matrixWorld); }
 
   // s: {dt, flying, grounded, hSpeed, fwdSpeed, sideSpeed, vSpeed, boost, aimPitch, aimYawRel, charge, punchT, holding, throwT, laser}
   animate(s) {
@@ -233,6 +244,15 @@ export class Robot {
     this.jetMat.opacity = lerpA(this.jetMat.opacity, jet * (0.55 + Math.random() * 0.2), k);
     for (const side of [-1, 1]) lg[side].jet.scale.set(1, 0.6 + jet * 1.4 + Math.random() * 0.2, 1);
     const eyeBoost = s.laser ? 2.2 : 1;
-    this.eyeMat.color.setRGB(5 * eyeBoost, 3.6 * eyeBoost, 0.6 * eyeBoost);
+    this.eyeMat.color.copy(this.eyeColor).multiplyScalar(eyeBoost);
+    if (this.cape) {
+      // the cape streams back with speed and flutters
+      const f = s.flying ? Math.min(1, Math.max(0, s.fwdSpeed / 70)) : Math.min(0.3, s.hSpeed / 40);
+      this.capeT = (this.capeT || 0) + s.dt * (3 + f * 20);
+      const world = f * 1.3 + (s.flying ? 0.08 : 0) + Math.sin(this.capeT) * (0.02 + f * 0.06);
+      const want = Math.max(-0.35, world - this.body.rotation.x - this.spine.rotation.x);
+      this.cape.rotation.x = lerpA(this.cape.rotation.x, want, kk);
+      this.cape.scale.y = lerpA(this.cape.scale.y, 1 + f * 0.25, kk);
+    }
   }
 }

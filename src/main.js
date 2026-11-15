@@ -11,6 +11,7 @@ import { VoxelWorld, VS } from './voxels.js';
 import { DebrisSystem } from './debris.js';
 import { Dummy } from './dummy.js';
 import { Robot } from './robot.js';
+import { Spectre } from './spectre.js';
 import { Effects } from './effects.js';
 import { makeVoxelMaterials, buildVoxelTown, buildScenery } from './town.js';
 import { Sfx } from './audio.js';
@@ -72,8 +73,24 @@ buildScenery(scene, renderer);
 const debris = new DebrisSystem(scene, vox, matDefs, 4500);
 const fx = new Effects(scene);
 const sfx = new Sfx();
-const robot = new Robot();
+const chars = [new Robot(), new Spectre()];
+let charIdx = 0;
+try { charIdx = Math.min(chars.length - 1, Math.max(0, parseInt(localStorage.getItem('rubble-char') || '0', 10) || 0)); } catch (e) { /* storage unavailable */ }
+if (params.has('char')) charIdx = Math.min(chars.length - 1, parseInt(params.get('char'), 10) || 0);
+let robot = chars[charIdx];
 scene.add(robot.root);
+function setCharacter(i) {
+  scene.remove(robot.root);
+  charIdx = (i + chars.length) % chars.length;
+  robot = chars[charIdx];
+  scene.add(robot.root);
+  fx.setLaserColors(robot.laserCore, robot.laserGlow);
+  try { localStorage.setItem('rubble-char', String(charIdx)); } catch (e) { /* ignore */ }
+  const el = document.getElementById('charName'); if (el) el.textContent = robot.name;
+  document.querySelectorAll('[data-char]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.char === charIdx)));
+}
+setCharacter(charIdx);
+document.querySelectorAll('[data-char]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); setCharacter(+b.dataset.char); }));
 
 const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), tmp3 = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -228,6 +245,7 @@ addEventListener('keydown', (e) => {
     case 'KeyR': respawnDummy(); break;
     case 'KeyT': rebuildTown(); break;
     case 'KeyQ': setQuality((quality + 1) % QUALITY.length, true); break;
+    case 'KeyV': setCharacter(charIdx + 1); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
     case 'KeyK': mouse.r = true; break;
@@ -326,7 +344,8 @@ function updateLaser(dt) {
   if (!on) { fx.setBeam(0, null, null, false); fx.setBeam(1, null, null, false); fx.flare.visible = false; fx.laserLight.intensity = 0; return; }
   const ends = [];
   let hitKind = aim.kind, hitN = aim.normal.clone();
-  for (let i = 0; i < 2; i++) {
+  if (robot.eyes.length < 2) fx.setBeam(1, null, null, false);
+  for (let i = 0; i < robot.eyes.length; i++) {
     const e = robot.eyeWorld(i, new THREE.Vector3());
     const d = tmp.subVectors(aim.point, e);
     const len = d.length(); d.divideScalar(len);
@@ -336,7 +355,7 @@ function updateLaser(dt) {
     fx.setBeam(i, e, end, true, time);
     ends.push(end);
   }
-  const p = ends[0].clone().lerp(ends[1], 0.5);
+  const p = ends[0].clone().lerp(ends[ends.length - 1], 0.5);
   const beamDir = aimDirFrom(robot.eyeWorld(0, tmp3), new THREE.Vector3());
   // impact effects
   fx.flare.visible = hitKind !== 'sky';
@@ -347,7 +366,7 @@ function updateLaser(dt) {
   if (hitKind !== 'sky') {
     for (let i = 0; i < 6; i++) {
       const v = rndVec(tmp, 1).add(hitN).normalize().multiplyScalar(6 + Math.random() * 14);
-      fx.sparks.emit(p, v, new THREE.Color(7, 3.2, 0.7), 0.2 + Math.random() * 0.45, 1, 0.025);
+      fx.sparks.emit(p, v, robot.laserCore.clone().multiplyScalar(0.6), 0.2 + Math.random() * 0.45, 1, 0.025);
     }
     if (Math.random() < 0.5) { dustColor.setRGB(0.25, 0.23, 0.22); fx.dust.emit(p, tmp.copy(hitN).multiplyScalar(1.5).add(UP), dustColor, 0.6, 1.5 + Math.random(), 1.8, 0.35); }
   }
@@ -669,4 +688,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, robot, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

@@ -127,7 +127,7 @@ export class Effects {
       core.visible = glow.visible = false; this.fx.add(core); this.fx.add(glow);
       this.beams.push({ core, glow });
     }
-    this.glowMat = glowMat;
+    this.glowMat = glowMat; this.coreMat = coreMat;
     const flare = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: radialTex('rgba(255,220,140,1)', 'rgba(255,120,20,0)'), color: new THREE.Color(6, 3, 1), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     flare.visible = false; this.fx.add(flare); this.flare = flare;
     this.laserLight = new THREE.PointLight(0xffa040, 0, 14, 1.6); scene.add(this.laserLight);
@@ -169,6 +169,8 @@ export class Effects {
     b.core.scale.set(0.022 * flick, len, 0.022 * flick);
     b.glow.scale.set(0.075 * flick, len, 0.075 * flick);
   }
+
+  setLaserColors(core, glow) { this.coreMat.color.copy(core); this.glowMat.color.copy(glow); }
 
   clearScorch() { this.scorch.count = 0; this.scorchI = 0; }
 

@@ -32,6 +32,7 @@ High and steps down automatically if the frame rate drops).
 | `E` | grab the dummy, press again (or click) to throw it |
 | `R` | new dummy in front of you |
 | `T` | rebuild the town |
+| `V` | switch character (Android / Spectre V-01) |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
 
@@ -45,6 +46,7 @@ High and steps down automatically if the frame rate drops).
 - `src/dummy.js` — Verlet ragdoll. Body parts moving fast enough punch holes in walls.
 - `src/robot.js` — the procedural android model and its poses (walk, hover, superhero flight,
   punch wind-up/strike, laser aim, carrying).
+- `src/spectre.js` — Spectre V-01: caped purple mecha with a red mono-eye laser, built on the same rig.
 - `src/effects.js` — dust, sparks, shockwaves, laser beams, scorch marks.
 - `src/textures.js` — all textures (brick, plaster, concrete, glass, asphalt…) are generated
   procedurally at start-up, with normal and roughness maps.
