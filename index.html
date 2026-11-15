@@ -1,0 +1,112 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rubble Town</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* HUD reads like the android's own visor: amber eye-glow on smoked glass over the live scene. */
+  :root {
+    --ink: #f3ecdc;
+    --dim: #b9b2a2;
+    --amber: #ffc94a;
+    --glass: rgba(18, 20, 22, 0.58);
+    --edge: rgba(255, 201, 74, 0.28);
+    --display: 'Chakra Petch', 'Rajdhani', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #0d0f10; color: var(--ink); font-family: var(--display); }
+  #app, #app canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .panel { background: var(--glass); border: 1px solid var(--edge); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); border-radius: 4px; }
+  #hudL { position: fixed; left: calc(16px + env(safe-area-inset-left, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); padding: 10px 14px; display: grid; gap: 2px; pointer-events: none; }
+  #hudL .big { font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  #hudL .unit { font-size: 12px; color: var(--dim); letter-spacing: 0.12em; }
+  #mode { color: var(--amber); font-size: 13px; letter-spacing: 0.18em; font-weight: 600; }
+  #hudR { position: fixed; right: calc(16px + env(safe-area-inset-right, 0px)); top: calc(16px + env(safe-area-inset-top, 0px)); padding: 8px 12px; font-family: var(--mono); font-size: 12px; color: var(--dim); display: grid; grid-template-columns: auto auto; gap: 2px 12px; pointer-events: none; }
+  #hudR b { color: var(--ink); font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+  #help { position: fixed; left: calc(16px + env(safe-area-inset-left, 0px)); top: calc(16px + env(safe-area-inset-top, 0px)); padding: 12px 14px; font-size: 13px; line-height: 1.55; pointer-events: none; max-width: min(320px, calc(100vw - 32px)); }
+  #help h2 { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.2em; color: var(--amber); font-weight: 600; }
+  #help kbd, .ov kbd { font-family: var(--mono); font-size: 11px; color: var(--ink); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 3px; padding: 0 5px; }
+  #help .row { display: flex; justify-content: space-between; gap: 14px; }
+  #help .row span:last-child { color: var(--dim); text-align: right; }
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 46px; height: 46px; transform: translate(-50%, -50%); pointer-events: none; }
+  #crosshair::before, #crosshair::after { content: ''; position: absolute; left: 50%; top: 50%; background: var(--ink); opacity: 0.85; transform: translate(-50%, -50%); }
+  #crosshair::before { width: 2px; height: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.5); }
+  #chargeRing { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--amber) calc(var(--c, 0) * 360deg), transparent 0); -webkit-mask: radial-gradient(circle, transparent 17px, #000 18px, #000 21px, transparent 22px); mask: radial-gradient(circle, transparent 17px, #000 18px, #000 21px, transparent 22px); opacity: 0; transition: opacity 0.12s; }
+  #chargeRing.on { opacity: 1; }
+  #crosshair .tick { position: absolute; background: rgba(243,236,220,0.75); }
+  #grabHint { position: fixed; left: 50%; top: calc(50% + 40px); transform: translateX(-50%); padding: 4px 10px; font-size: 12px; letter-spacing: 0.14em; pointer-events: none; }
+  #lookhint { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--dim); pointer-events: none; text-align: center; max-width: calc(100vw - 32px); }
+  .ov { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(10,12,14,0.35), rgba(10,12,14,0.82)); cursor: pointer; padding: 16px; }
+  .ov .card { max-width: 560px; width: 100%; padding: 26px 28px; display: grid; gap: 14px; }
+  .ov h1 { margin: 0; font-size: clamp(38px, 8vw, 64px); line-height: 0.95; letter-spacing: 0.02em; font-weight: 700; text-wrap: balance; }
+  .ov h1 em { font-style: normal; color: var(--amber); }
+  .ov p { margin: 0; color: var(--dim); font-size: 15px; line-height: 1.5; font-family: system-ui, sans-serif; }
+  .ov .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 18px; font-size: 13px; }
+  .ov .grid div { display: flex; gap: 8px; align-items: baseline; }
+  .ov button { justify-self: start; font: 600 14px var(--display); letter-spacing: 0.18em; text-transform: uppercase; color: #15130e; background: var(--amber); border: 0; border-radius: 3px; padding: 11px 18px; cursor: pointer; }
+  .ov button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0d0f10; font-size: 14px; letter-spacing: 0.3em; color: var(--amber); }
+  @media (max-width: 640px) { #help { display: none; } #hudR { font-size: 11px; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+
+<div id="app"></div>
+
+<div id="crosshair"><div id="chargeRing"></div></div>
+<div id="grabHint" class="panel" hidden><kbd>E</kbd>&nbsp; GRAB DUMMY</div>
+
+<div id="hudL" class="panel">
+  <div id="mode">GROUND</div>
+  <div><span id="speed" class="big">0</span> <span class="unit">KM/H</span></div>
+</div>
+
+<div id="hudR" class="panel">
+  <span>FPS</span><b id="fps">–</b>
+  <span>Render</span><b id="qual">High</b>
+  <span>Rubble</span><b id="rubble">0</b>
+</div>
+
+<div id="help" class="panel">
+  <h2>CONTROLS</h2>
+  <div class="row"><span><kbd>W A S D</kbd></span><span>move</span></div>
+  <div class="row"><span><kbd>Space</kbd></span><span>jump · tap again to fly · climb</span></div>
+  <div class="row"><span><kbd>C</kbd></span><span>descend</span></div>
+  <div class="row"><span><kbd>Shift</kbd></span><span>super speed</span></div>
+  <div class="row"><span><kbd>F</kbd></span><span>toggle flight</span></div>
+  <div class="row"><span>Left click <kbd>J</kbd></span><span>punch · hold to charge</span></div>
+  <div class="row"><span>Right click <kbd>K</kbd></span><span>laser eyes</span></div>
+  <div class="row"><span><kbd>E</kbd></span><span>grab · throw dummy</span></div>
+  <div class="row"><span><kbd>R</kbd></span><span>new dummy in front</span></div>
+  <div class="row"><span><kbd>T</kbd></span><span>rebuild town</span></div>
+  <div class="row"><span><kbd>Q</kbd></span><span>render quality</span></div>
+  <div class="row"><span><kbd>H</kbd></span><span>hide this</span></div>
+</div>
+
+<div id="lookhint" class="panel" hidden>Mouse lock unavailable here: move the mouse or use the arrow keys to look.</div>
+
+<div id="overlay" class="ov">
+  <div class="card panel">
+    <h1>RUBBLE<br><em>TOWN</em></h1>
+    <p>A small destructible test town. You are the android: fly fast, punch through walls, cut with your eyes, and throw the crash-test dummy through buildings.</p>
+    <div class="grid">
+      <div><kbd>WASD</kbd> move</div>
+      <div><kbd>Space</kbd>×2 fly</div>
+      <div><kbd>Shift</kbd> super speed</div>
+      <div>L-click punch (hold)</div>
+      <div>R-click laser eyes</div>
+      <div><kbd>E</kbd> grab / throw</div>
+    </div>
+    <button id="startBtn" type="button">Click to play</button>
+  </div>
+</div>
+
+<div id="loading">BUILDING TOWN…</div>
+
+<script type="module" src="./src/main.js"></script>
