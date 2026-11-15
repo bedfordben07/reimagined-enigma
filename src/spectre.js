@@ -1,4 +1,4 @@
-// Spectre V-01: violet beveled armour, teal matte poncho cape, gold neck pistons, gunmetal
+// Spectre V-01: violet beveled armour, gold neck pistons, gunmetal
 // joints and a crimson mono-eye. Built from lathed and bevel-extruded sub-assemblies (no raw
 // boxes) and driven by the shared Robot animation rig.
 import * as THREE from 'three';
@@ -65,9 +65,6 @@ export class Spectre extends Robot {
     const rubber = new THREE.MeshStandardMaterial({ color: 0x15191c, roughness: 0.62, metalness: 0.1 });
     const tanT = fabricTex(21, '#a99a82');
     const tan = pbr(tanT, { roughness: 0.85 / 0.95 });
-    const tealT = fabricTex(22, '#4a92a0');
-    for (const t of [tealT.map, tealT.normalMap, tealT.ormMap]) t.repeat.set(6, 4);
-    const teal = pbr(tealT, { roughness: 0.85 / 0.95, normalScale: new THREE.Vector2(0.25, 0.25), side: THREE.DoubleSide });
     const lining = new THREE.MeshStandardMaterial({ color: 0x10171a, roughness: 0.9, metalness: 0, side: THREE.BackSide });
     this.eyeMat = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a10, emissiveIntensity: 6, roughness: 0.15 });
     const lens = new THREE.MeshPhysicalMaterial({ color: 0x050505, roughness: 0.05, metalness: 0, clearcoat: 1, transmission: 0, transparent: true, opacity: 0.35 });
@@ -115,39 +112,10 @@ export class Spectre extends Robot {
     // shoulder yoke
     const yoke = smoothSym([[0.0, -0.07], [0.3, -0.06], [0.45, -0.02], [0.47, 0.04], [0.36, 0.08], [0.0, 0.09]]);
     M(extrude(yoke, 0.34, 0.05, 5), violet, this.chest, 0, 0.47, -0.01);
-    // high collar (teal outer, dark lining)
+    // high armoured collar
     const collar = [[0.18, 0.13], [0.2, 0.06], [0.24, -0.06], [0.26, -0.1]];
-    M(lathe(collar, 48), teal, this.chest, 0, 0.62, -0.03);
+    M(lathe(collar, 48), violetDark, this.chest, 0, 0.62, -0.03);
     M(lathe(collar.map(([r, y]) => [r - 0.012, y]), 48), lining, this.chest, 0, 0.62, -0.03);
-
-    // ---------------- cape: mantle + long drape, open at the front with sculpted folds
-    this.cape = new THREE.Group(); this.cape.position.set(0, 0.6, -0.03); this.chest.add(this.cape);
-    const drape = (rTop, rBot, h, gap, foldAmp, segs = 72) => {
-      const g = new THREE.CylinderGeometry(rTop, rBot, h, segs, 18, true, gap, Math.PI * 2 - gap * 2);
-      g.translate(0, -h / 2, 0);
-      const p = g.attributes.position, v = new THREE.Vector3();
-      for (let i = 0; i < p.count; i++) {
-        v.fromBufferAttribute(p, i);
-        const t = -v.y / h, th = Math.atan2(v.x, v.z);
-        const fold = 1 + t * foldAmp * Math.sin(th * 9) + t * foldAmp * 0.4 * Math.sin(th * 23 + 1);
-        const hem = v.z > 0 ? -t * t * 0.12 : Math.sin(th * 5) * t * 0.03; // front edges lift, back hem ripples
-        p.setXYZ(i, v.x * fold, v.y + hem, v.z * fold * 0.78);
-      }
-      g.computeVertexNormals();
-      return g;
-    };
-    const longCape = drape(0.66, 0.92, 1.22, 0.6, 0.07);
-    M(longCape, teal, this.cape);
-    const capeIn = M(longCape, lining, this.cape); capeIn.scale.setScalar(0.988);
-    const mantle = drape(0.5, 0.84, 0.42, 0.42, 0.05);
-    M(mantle, teal, this.cape, 0, 0.04, 0.005).scale.setScalar(1.03);
-    for (const sx of [-1, 1]) { // pointed shoulder flaps
-      const flap = new THREE.Shape(); flap.moveTo(0, 0); flap.quadraticCurveTo(0.1, 0.05, 0.3, 0.17); flap.quadraticCurveTo(0.14, -0.02, 0.04, -0.1); flap.lineTo(0, 0);
-      const f = M(extrude(flap, 0.02, 0.012), teal, this.cape, 0.52 * sx, -0.02, -0.04);
-      f.scale.x = sx;
-    }
-    const arc = M(new THREE.TorusGeometry(0.22, 0.02, 12, 40, Math.PI), gold, this.cape, 0, -0.03, -0.03);
-    arc.rotation.x = -Math.PI / 2;
 
     // ---------------- neck with gold pistons
     this.neck = new THREE.Group(); this.neck.position.y = 0.55; this.chest.add(this.neck);

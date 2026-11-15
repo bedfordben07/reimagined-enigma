@@ -155,107 +155,177 @@ export class Robot {
   eyeWorld(i, out) { i %= this.eyes.length; this.eyes[i].updateWorldMatrix(true, false); return out.setFromMatrixPosition(this.eyes[i].matrixWorld); }
 
   // s: {dt, flying, grounded, hSpeed, fwdSpeed, sideSpeed, vSpeed, boost, aimPitch, aimYawRel, charge, punchT, holding, throwT, laser}
+  // Procedural animation. s: {dt, flying, grounded, hSpeed, fwdSpeed, sideSpeed, vSpeed, boost, aimPitch,
+  // aimYawRel, turnRate, charge (0..1+), punchT (1 -> 0), holding, throwWind (0 -> 1), throwT (1 -> 0), laser}
   animate(s) {
-    const k = Math.min(1, s.dt * 12);
-    const kk = Math.min(1, s.dt * 6);
-    let bodyPitch = 0, bodyRoll = 0;
-    const L = { sx: 0, sz: -0.08, el: -0.12 }, R = { sx: 0, sz: 0.08, el: -0.12 };
-    let lHip = 0, rHip = 0, lKn = 0, rKn = 0, chestYaw = 0, spinePitch = 0;
-    let headX = 0, headY = 0;
-    let jet = 0;
+    const dt = s.dt;
+    this.t = (this.t || 0) + dt;
+    const t = this.t;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const sstep = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+    // pose targets
+    const P = {
+      bodyY: 1.15, bodyX: 0, bodyZ: 0, bodyYaw: 0, spineX: 0, spineY: 0, chestY: 0, chestX: 0, headX: 0, headY: 0, headZ: 0,
+      L: { sx: 0.05, sy: 0, sz: -0.1, el: -0.15, curl: 0.25 }, R: { sx: 0.05, sy: 0, sz: 0.1, el: -0.15, curl: 0.25 },
+      lHip: 0, rHip: 0, lHipZ: 0, rHipZ: 0, lKn: 0.05, rKn: 0.05, lAn: 0, rAn: 0,
+    };
+    let rate = 10, armRate = 12, jet = 0;
 
     if (s.flying) {
-      this.hover += s.dt;
-      const f = Math.min(1, Math.max(0, s.fwdSpeed / 90));
-      bodyPitch = f * 1.4 + Math.min(0.25, s.fwdSpeed / 60) * 0.3;
-      bodyRoll = -Math.max(-0.6, Math.min(0.6, s.sideSpeed / 40));
-      bodyPitch -= Math.max(-0.3, Math.min(0.3, s.vSpeed / 60)) * (1 - f);
-      const bob = Math.sin(this.hover * 2.2);
-      lHip = 0.12 + bob * 0.05 + f * 0.1; rHip = -0.05 - bob * 0.05 + f * 0.15;
-      lKn = 0.35 - f * 0.25; rKn = 0.6 - f * 0.45;
-      L.sx = -0.15 + f * 0.2; L.sz = -0.25 + f * 0.15; L.el = -0.35;
-      R.sx = -0.15 + f * 0.2; R.sz = 0.25 - f * 0.15; R.el = -0.35;
-      if (s.boost && s.fwdSpeed > 40) { // classic flying-fist pose
-        R.sx = -Math.PI + 0.05; R.sz = 0.12; R.el = 0; this.punchFist = 1;
-        L.sx = 0.1; L.sz = -0.12; L.el = -0.05;
+      this.hover += dt;
+      const f = clamp(s.fwdSpeed / 90, 0, 1);
+      const cruise = sstep(f / 0.35);        // 0 = hovering, 1 = travelling
+      const fast = sstep((f - 0.35) / 0.4);  // horizontal superhero flight
+      const bank = clamp(-s.sideSpeed / 35 - s.turnRate * 0.35, -0.85, 0.85);
+      // hovering idle: upright and slightly reclined, arms spread with open hands, one knee drawn up
+      const bob = Math.sin(t * 1.7), sway = Math.sin(t * 0.83);
+      const hover = {
+        bodyX: -0.1 + bob * 0.02, bodyZ: sway * 0.05, bodyY: 1.15 + bob * 0.07,
+        L: { sx: -0.35 + sway * 0.06, sy: -0.3, sz: -0.75 - bob * 0.05, el: -0.45, curl: 0.05 },
+        R: { sx: -0.25 - sway * 0.06, sy: 0.3, sz: 0.65 + bob * 0.05, el: -0.55, curl: 0.05 },
+        lHip: -0.08 + bob * 0.03, rHip: 0.2, lKn: 0.18, rKn: 0.75 + bob * 0.05, lAn: 0.45, rAn: 0.55, headX: -0.12,
+      };
+      // gliding: body tips into travel, arms trail back along the sides, legs together with pointed toes
+      const glide = {
+        bodyX: 0.25 + fast * 1.25, bodyZ: bank, bodyY: 1.15,
+        L: { sx: 0.25 - fast * 0.1, sy: 0, sz: -0.22 - (1 - fast) * 0.2, el: -0.2, curl: 0.15 },
+        R: { sx: 0.25 - fast * 0.1, sy: 0, sz: 0.22 + (1 - fast) * 0.2, el: -0.2, curl: 0.15 },
+        lHip: -0.05 + Math.sin(t * 5) * 0.04 * fast, rHip: -0.05 - Math.sin(t * 5) * 0.04 * fast,
+        lKn: 0.15 + (1 - fast) * 0.2, rKn: 0.3 + (1 - fast) * 0.25, lAn: 0.65, rAn: 0.65, headX: -0.25 - fast * 0.9,
+      };
+      const mix = (a, b) => a + (b - a) * cruise;
+      P.bodyX = mix(hover.bodyX, glide.bodyX); P.bodyZ = mix(hover.bodyZ, glide.bodyZ); P.bodyY = mix(hover.bodyY, glide.bodyY);
+      for (const k of ['sx', 'sy', 'sz', 'el', 'curl']) { P.L[k] = mix(hover.L[k], glide.L[k]); P.R[k] = mix(hover.R[k], glide.R[k]); }
+      for (const k of ['lHip', 'rHip', 'lKn', 'rKn', 'lAn', 'rAn', 'headX']) P[k] = mix(hover[k], glide[k]);
+      // climbing / diving while slow
+      const vy = clamp(s.vSpeed / 25, -1, 1) * (1 - cruise);
+      P.bodyX -= vy * 0.2; P.headX -= vy * 0.3;
+      if (vy < 0) { P.lKn += -vy * 0.6; P.rKn += -vy * 0.4; P.lHip += -vy * 0.4; P.rHip += -vy * 0.3; }
+      P.bodyX = Math.max(P.bodyX, -0.4) + (fast > 0 ? 0 : 0);
+      if (s.boost && s.fwdSpeed > 40) { // flying-fist pose at super speed
+        P.R = { sx: -Math.PI + 0.05, sy: 0, sz: 0.1, el: 0, curl: 1 };
+        P.L = { sx: 0.12, sy: 0, sz: -0.14, el: -0.05, curl: 0.4 };
       }
-      jet = 0.25 + f * 0.75;
+      jet = 0.3 + f * 0.7;
+      rate = 6; armRate = 7;
+    } else if (!s.grounded) {
+      // jumping / falling: knees tuck on the way up, legs reach for the ground coming down
+      const up = clamp(s.vSpeed / 12, -1, 1);
+      P.lHip = 0.5 * Math.max(0, up) + 0.15; P.rHip = 0.1; P.lKn = 0.9 * Math.max(0, up) + 0.25; P.rKn = 0.45;
+      P.L.sx = -0.6 - up * 0.3; P.R.sx = -0.4 - up * 0.3; P.L.sz = -0.5; P.R.sz = 0.5; P.L.el = -0.6; P.R.el = -0.6;
+      P.bodyX = 0.1 - up * 0.08; P.lAn = 0.3; P.rAn = 0.3;
     } else {
       const sp = s.hSpeed;
-      this.phase += s.dt * (2 + sp * 0.75);
-      const a = Math.min(1, sp / 6);
+      const a = sstep(sp / 4), sprint = sstep((sp - 9) / 8);
+      this.phase += dt * (2.2 + sp * 0.78);
       const ph = this.phase;
-      if (!s.grounded) { lHip = -0.5; rHip = 0.3; lKn = 0.9; rKn = 0.4; L.sx = -0.4; R.sx = -0.4; L.sz = -0.5; R.sz = 0.5; }
-      else {
-        lHip = Math.sin(ph) * 0.65 * a; rHip = -Math.sin(ph) * 0.65 * a;
-        lKn = Math.max(0, -Math.cos(ph)) * 1.0 * a + 0.05; rKn = Math.max(0, Math.cos(ph)) * 1.0 * a + 0.05;
-        L.sx = -lHip * 0.7; R.sx = -rHip * 0.7; L.el = -0.15 - a * 0.3; R.el = -0.15 - a * 0.3;
-        bodyPitch = a * 0.12;
-        this.body.position.y = 1.15 + Math.abs(Math.sin(ph)) * 0.05 * a - 0.04 * a;
+      if (a > 0.01) {
+        // run cycle: long stride, high knee recovery, pumping arms, hips and shoulders counter-rotating
+        const stride = 0.55 + 0.4 * sprint;
+        const lS = Math.sin(ph), rS = Math.sin(ph + Math.PI);
+        const lC = Math.cos(ph), rC = Math.cos(ph + Math.PI);
+        P.lHip = lS * stride * a; P.rHip = rS * stride * a;
+        P.lKn = a * (0.15 + (0.75 + 0.65 * sprint) * Math.max(0, lC)) + 0.05;
+        P.rKn = a * (0.15 + (0.75 + 0.65 * sprint) * Math.max(0, rC)) + 0.05;
+        P.lAn = a * (-0.25 * lS + 0.35 * Math.max(0, lC));
+        P.rAn = a * (-0.25 * rS + 0.35 * Math.max(0, rC));
+        P.L.sx = -rS * (0.75 + 0.35 * sprint) * a; P.R.sx = -lS * (0.75 + 0.35 * sprint) * a;
+        P.L.el = -0.25 - a * (1.05 + 0.2 * sprint) + rS * 0.25 * a; P.R.el = -0.25 - a * (1.05 + 0.2 * sprint) + lS * 0.25 * a;
+        P.L.sz = -0.12; P.R.sz = 0.12; P.L.curl = P.R.curl = 0.7;
+        P.bodyX = a * (0.1 + 0.25 * sprint);
+        P.bodyY = 1.15 - 0.05 * a + Math.abs(lC) * 0.07 * a;
+        P.bodyYaw = -lS * 0.12 * a; P.chestY = lS * 0.22 * a;
+        P.bodyZ = clamp(-s.turnRate * 0.06, -0.15, 0.15);
+        P.headX = -P.bodyX * 0.6;
+        rate = 16; armRate = 16;
+      } else {
+        // standing: slow breathing, weight shifting, arms loose
+        const br = Math.sin(t * 1.6);
+        P.chestX = br * 0.025; P.bodyY = 1.15 + br * 0.006; P.bodyZ = Math.sin(t * 0.5) * 0.015;
+        P.L.sz = -0.12 - br * 0.02; P.R.sz = 0.12 + br * 0.02; P.L.el = P.R.el = -0.2;
+        P.lKn = 0.06; P.rKn = 0.1;
       }
     }
-    if (s.flying || !s.grounded) this.body.position.y = lerpA(this.body.position.y, 1.15, k);
 
-    // aim: face the target with head
-    const localAim = s.aimPitch;
-    if (s.laser || s.charge > 0 || s.punchT > 0) {
-      headX = Math.max(-1.1, Math.min(0.9, -localAim - bodyPitch));
-    } else headX = -bodyPitch * 0.6;
-    headY = Math.max(-1.1, Math.min(1.1, s.aimYawRel));
+    // head follows the aim when attacking
+    const aim = s.aimPitch;
+    if (s.laser || s.charge > 0 || s.punchT > 0) P.headX = clamp(-aim - P.bodyX, -1.1, 0.9);
+    P.headY = clamp(s.aimYawRel, -1.1, 1.1);
 
-    // punch
-    let fist = s.boost && s.flying ? 1 : 0.25;
+    // charged punch: the whole body coils with tension, trembling harder the longer it's held
     if (s.charge > 0) {
-      const c = Math.min(1, s.charge);
-      R.sx = 0.7 + c * 0.3; R.sz = 0.35; R.el = -2.1;
-      chestYaw = 0.4 * c; fist = 1; spinePitch = -0.1;
+      const c = Math.min(1, s.charge), shake = (Math.random() - 0.5) * 0.05 * c * c;
+      P.spineX = 0.38 * c + shake; P.chestY = 0.6 * c + shake; P.chestX = 0.12 * c; P.bodyYaw = 0.25 * c;
+      P.R = { sx: 0.85 + 0.45 * c, sy: 0.2, sz: 0.35, el: -2.35, curl: 1 };
+      P.L = { sx: -1.05, sy: -0.2, sz: -0.25, el: -1.7, curl: 0.8 };
+      if (s.flying) { P.lHip = 0.7 * c; P.rHip = 0.45 * c; P.lKn = 1.1 * c; P.rKn = 0.9 * c; P.bodyX = -0.15 * c; }
+      else { P.bodyY = 1.15 - 0.2 * c; P.lHip = 0.55 * c; P.rHip = -0.1; P.lKn = 0.8 * c; P.rKn = 0.55 * c + 0.1; P.lAn = -0.25 * c; P.bodyX = 0.15 * c; }
+      P.headX += 0.1 * c;
+      rate = 9; armRate = 10;
     }
+    // release: snap open, drive the hip and shoulder through, lunge into the fist
+    let snap = false;
     if (s.punchT > 0) {
-      const t = s.punchT; // 1 -> 0
-      const ext = t > 0.25 ? 1 : t / 0.25;
-      R.sx = lerpA(R.sx, -Math.PI / 2 - localAim - bodyPitch, ext);
-      R.sz = lerpA(R.sz, 0.05, ext); R.el = lerpA(R.el, 0, ext);
-      chestYaw = -0.45 * ext; spinePitch = 0.12 * ext; fist = 1;
-      L.sx = 0.5 * ext; L.el = -1.2 * ext;
+      const u = 1 - s.punchT;
+      const ext = u < 0.12 ? sstep(u / 0.12) : 1;
+      const rec = u > 0.65 ? sstep((u - 0.65) / 0.35) : 0;
+      const k = ext * (1 - rec);
+      P.R = { sx: -Math.PI / 2 - aim - P.bodyX, sy: 0, sz: 0.04, el: 0, curl: 1 };
+      P.L = { sx: 0.75 * k, sy: 0, sz: -0.3, el: -1.5 * k, curl: 0.9 };
+      P.chestY = -0.6 * k; P.bodyYaw = -0.25 * k; P.spineX = 0.18 * k; P.chestX = 0.06 * k;
+      P.bodyX += 0.2 * k;
+      if (!s.flying && s.grounded) { P.lHip = 0.55 * k; P.lKn = 0.45 * k; P.rHip = -0.5 * k; P.rKn = 0.12; P.bodyY = 1.15 - 0.12 * k; P.lAn = -0.2 * k; P.rAn = 0.35 * k; }
+      if (s.flying) { P.lHip = -0.1; P.rHip = -0.3 * k; P.lKn = 0.2; P.rKn = 0.1; }
+      snap = u < 0.2;
+      if (u >= 0.65) { rate = 8; armRate = 8; }
     }
-    if (s.holding) { L.sx = -2.7 + Math.sin(this.hover * 3) * 0.03; L.sz = -0.15; L.el = -0.25; }
-    if (s.throwT > 0) { const t = s.throwT; L.sx = lerpA(-1.0, -2.7, t); L.el = -0.1; chestYaw = -0.3 * t; }
-    this.punchFist = lerpA(this.punchFist, fist, k);
+    // carrying the dummy overhead with the left hand
+    if (s.holding && !(s.throwWind > 0)) { P.L = { sx: -2.7 + Math.sin(t * 3) * 0.03, sy: 0, sz: -0.15, el: -0.25, curl: 1 }; P.spineX -= 0.05; }
+    // throw wind-up: lean and twist back, cock the arm behind the head, counterbalance with the right arm
+    if (s.throwWind > 0) {
+      const w = sstep(s.throwWind);
+      P.L = { sx: -2.7 - 0.85 * w, sy: 0.2 * w, sz: -0.25, el: -0.25 - 0.5 * w, curl: 1 };
+      P.R = { sx: -1.1 * w, sy: 0, sz: 0.35, el: -0.4, curl: 0.4 };
+      P.chestY = -0.75 * w; P.bodyYaw = -0.3 * w; P.spineX = -0.3 * w; P.bodyX += -0.15 * w;
+      if (!s.flying && s.grounded) { P.rHip = 0.35 * w; P.rKn = 0.35 * w; P.lHip = -0.35 * w; P.lKn = 0.5 * w; P.bodyY = 1.15 - 0.1 * w; }
+      rate = 14; armRate = 14;
+    }
+    // throw release: whip the arm through and fold forward over the front leg
+    if (s.throwT > 0) {
+      const u = 1 - s.throwT;
+      const k = u < 0.6 ? 1 : 1 - sstep((u - 0.6) / 0.4);
+      P.L = { sx: -0.25 * k + P.L.sx * (1 - k), sy: -0.3 * k, sz: -0.2, el: -0.05, curl: 0.1 };
+      P.R = { sx: 0.8 * k, sy: 0, sz: 0.3, el: -0.9 * k, curl: 0.5 };
+      P.chestY = 0.7 * k; P.bodyYaw = 0.3 * k; P.spineX = 0.4 * k; P.bodyX += 0.25 * k;
+      if (!s.flying && s.grounded) { P.lHip = 0.6 * k; P.lKn = 0.4 * k; P.rHip = -0.55 * k; P.rKn = 0.15; P.bodyY = 1.15 - 0.15 * k; P.rAn = 0.4 * k; }
+      snap = u < 0.25;
+    }
 
-    this.body.rotation.x = lerpA(this.body.rotation.x, bodyPitch, kk);
-    this.body.rotation.z = lerpA(this.body.rotation.z, bodyRoll, kk);
-    this.spine.rotation.x = lerpA(this.spine.rotation.x, spinePitch, k);
-    this.chest.rotation.y = lerpA(this.chest.rotation.y, chestYaw, k);
-    this.head.rotation.x = lerpA(this.head.rotation.x, headX, k);
-    this.neck.rotation.y = lerpA(this.neck.rotation.y, headY - chestYaw, k);
-    const fast = s.punchT > 0.25 ? 1 : k;
-    for (const [side, P] of [[-1, L], [1, R]]) {
+    // apply with smoothing (snapping for explosive moments)
+    const ka = snap ? 1 : Math.min(1, dt * armRate), kb = snap ? Math.min(1, dt * 30) : Math.min(1, dt * rate);
+    const L = (o, key, v, k) => { o[key] = lerpA(o[key], v, k); };
+    L(this.body.position, 'y', P.bodyY, kb);
+    L(this.body.rotation, 'x', P.bodyX, kb); L(this.body.rotation, 'z', P.bodyZ, kb); L(this.body.rotation, 'y', P.bodyYaw, kb);
+    L(this.spine.rotation, 'x', P.spineX, kb); L(this.spine.rotation, 'y', P.spineY, kb);
+    L(this.chest.rotation, 'y', P.chestY, kb); L(this.chest.rotation, 'x', P.chestX, kb);
+    L(this.head.rotation, 'x', P.headX, Math.min(1, dt * 10));
+    L(this.neck.rotation, 'y', P.headY - P.chestY - P.bodyYaw, Math.min(1, dt * 10));
+    for (const [side, A] of [[-1, P.L], [1, P.R]]) {
       const a = this.arms[side];
-      const kp = side === 1 ? fast : k;
-      a.sh.rotation.x = lerpA(a.sh.rotation.x, P.sx, kp);
-      a.sh.rotation.z = lerpA(a.sh.rotation.z, P.sz, kp);
-      a.el.rotation.x = lerpA(a.el.rotation.x, P.el, kp);
-      const curl = side === 1 ? this.punchFist : (s.holding ? 1 : 0.25);
-      a.fingers.rotation.x = lerpA(a.fingers.rotation.x, -curl * 1.7, k);
+      L(a.sh.rotation, 'x', A.sx, ka); L(a.sh.rotation, 'y', A.sy, ka); L(a.sh.rotation, 'z', A.sz, ka);
+      L(a.el.rotation, 'x', A.el, ka);
+      L(a.fingers.rotation, 'x', -A.curl * 1.7, Math.min(1, dt * 14));
     }
     const lg = this.legs;
-    lg[-1].hip.rotation.x = lerpA(lg[-1].hip.rotation.x, -lHip, k);
-    lg[1].hip.rotation.x = lerpA(lg[1].hip.rotation.x, -rHip, k);
-    lg[-1].kn.rotation.x = lerpA(lg[-1].kn.rotation.x, lKn, k);
-    lg[1].kn.rotation.x = lerpA(lg[1].kn.rotation.x, rKn, k);
-    this.jetMat.opacity = lerpA(this.jetMat.opacity, jet * (0.55 + Math.random() * 0.2), k);
+    L(lg[-1].hip.rotation, 'x', -P.lHip, kb); L(lg[1].hip.rotation, 'x', -P.rHip, kb);
+    L(lg[-1].kn.rotation, 'x', P.lKn, kb); L(lg[1].kn.rotation, 'x', P.rKn, kb);
+    L(lg[-1].an.rotation, 'x', P.lAn, kb); L(lg[1].an.rotation, 'x', P.rAn, kb);
+    this.punchFist = P.R.curl;
+
+    this.jetMat.opacity = lerpA(this.jetMat.opacity, jet * (0.55 + Math.random() * 0.2), Math.min(1, dt * 12));
     for (const side of [-1, 1]) lg[side].jet.scale.set(1, 0.6 + jet * 1.4 + Math.random() * 0.2, 1);
-    const eyeBoost = s.laser ? 2.2 : 1;
+    const eyeBoost = s.laser ? 2.2 : 1 + (s.charge > 0 ? Math.min(1, s.charge) * 0.6 : 0);
     this.eyeMat.emissive.copy(this.eyeColor).multiplyScalar(1 / Math.max(this.eyeColor.r, this.eyeColor.g, this.eyeColor.b));
     this.eyeMat.emissiveIntensity = this.eyeIntensity * eyeBoost;
-    if (this.cape) {
-      // the cape streams back with speed and flutters
-      const f = s.flying ? Math.min(1, Math.max(0, s.fwdSpeed / 70)) : Math.min(0.3, s.hSpeed / 40);
-      this.capeT = (this.capeT || 0) + s.dt * (3 + f * 20);
-      const world = f * 1.3 + (s.flying ? 0.08 : 0) + Math.sin(this.capeT) * (0.02 + f * 0.06);
-      const want = Math.max(-0.35, world - this.body.rotation.x - this.spine.rotation.x);
-      this.cape.rotation.x = lerpA(this.cape.rotation.x, want, kk);
-      this.cape.scale.y = lerpA(this.cape.scale.y, 1 + f * 0.25, kk);
-    }
   }
 }

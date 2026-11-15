@@ -188,7 +188,7 @@ dummy.spawn(new THREE.Vector3(0, 0, 3), 0);
 // ---------------------------------------------------------------- player
 const player = {
   pos: new THREE.Vector3(0, 0, 13), vel: new THREE.Vector3(), flying: false, grounded: true,
-  yaw: Math.PI, camYaw: Math.PI, camPitch: -0.08, camDist: 5.5, holding: false, throwT: 0,
+  yaw: Math.PI, camYaw: Math.PI, camPitch: -0.08, camDist: 5.5, holding: false, throwT: 0, throwWind: 0, lastYaw: Math.PI, turnRate: 0,
   charge: 0, charging: false, punchT: 0, punchDir: new THREE.Vector3(), punchPow: 0, punchHit: false, laser: false, laserTick: 0,
 };
 const keys = new Set();
@@ -283,22 +283,29 @@ function toggleFlight() { if (player.flying) player.flying = false; else startFl
 function respawnDummy() {
   const f = fwdH(tmp);
   const p = player.pos.clone().addScaledVector(f, 5); p.y = 0;
-  if (player.holding) player.holding = false;
+  player.holding = false; player.throwWind = 0;
   dummy.spawn(p, player.camYaw + Math.PI);
 }
 function rebuildTown() {
   debris.clear(); buildVoxelTown(vox); fx.clearScorch();
-  if (player.holding) player.holding = false;
+  player.holding = false; player.throwWind = 0;
 }
 
 function tryGrab() {
   const c = chestPos(tmp); dummy.chest(tmp2);
   if (tmp2.distanceTo(c) < 3.6) { player.holding = true; dummy.grab(robot.handWorld(-1, tmp3)); }
 }
+// Throwing is a short wind-up (lean and twist back), then the release with a whipping follow-through.
+const THROW_WIND = 0.3;
 function throwDummy() {
-  player.holding = false; player.throwT = 1;
+  if (!player.holding || player.throwWind > 0) return;
+  player.throwWind = 0.001;
+}
+function releaseThrow() {
+  player.holding = false; player.throwWind = 0; player.throwT = 1;
   const d = aimDirFrom(robot.handWorld(-1, tmp3), tmp);
-  dummy.release(tmp2.copy(d).multiplyScalar(95).add(player.vel));
+  dummy.release(tmp2.copy(d).multiplyScalar(105).add(player.vel));
+  shake = Math.min(1, shake + 0.2);
   sfx.whoosh();
 }
 
@@ -679,12 +686,15 @@ function tick(rdt) {
   const v = player.vel;
   const cy = Math.cos(player.yaw), sy = Math.sin(player.yaw);
   let yawRel = player.camYaw - player.yaw; yawRel = Math.atan2(Math.sin(yawRel), Math.cos(yawRel));
-  player.throwT = Math.max(0, player.throwT - dt * 4);
+  player.throwT = Math.max(0, player.throwT - dt * 3);
+  if (player.throwWind > 0) { player.throwWind += dt / THROW_WIND; if (player.throwWind >= 1) releaseThrow(); }
+  { let d = player.yaw - player.lastYaw; d = Math.atan2(Math.sin(d), Math.cos(d)); player.lastYaw = player.yaw;
+    player.turnRate += ((dt > 0 ? d / dt : 0) - player.turnRate) * Math.min(1, dt * 6); }
   robot.animate({
     dt, flying: player.flying, grounded: player.grounded, hSpeed: Math.hypot(v.x, v.z),
     fwdSpeed: v.x * sy + v.z * cy, sideSpeed: v.x * cy - v.z * sy, vSpeed: v.y,
     boost: keys.has('ShiftLeft') || keys.has('ShiftRight'), aimPitch: player.camPitch, aimYawRel: yawRel,
-    charge: player.charging ? player.charge / 1.1 : 0, punchT: Math.max(0, player.punchT / 0.4), holding: player.holding, throwT: player.throwT, laser: player.laser,
+    charge: player.charging ? player.charge / 1.1 : 0, punchT: Math.max(0, player.punchT / 0.4), holding: player.holding, throwWind: player.throwWind, throwT: player.throwT, turnRate: player.turnRate, laser: player.laser,
   });
   robot.root.updateMatrixWorld(true);
   updateCamera(rdt);

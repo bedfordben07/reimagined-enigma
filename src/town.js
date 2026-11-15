@@ -136,6 +136,21 @@ export const LAYOUT = [
   { t: 'house', x: -23, z: -36, w: 10, d: 11, floors: 2, wall: MAT.PLASTER, trim: MAT.TRIM_DARK, front: 'n', tint: [1, 1, 1] },
   // SE block: corner shop + park
   { t: 'block', x: 9, z: -21.5, w: 11, d: 12, floors: 2, wall: MAT.PLASTER_BLUE, trim: MAT.TRIM, front: 'w', tint: [0.95, 1, 1] },
+  // ---- east district (x 49..83)
+  { t: 'block', x: 52, z: 9.5, w: 13, d: 12, floors: 5, wall: MAT.BRICK, trim: MAT.TRIM, front: 'w', tint: [0.95, 0.92, 0.9] },
+  { t: 'block', x: 67, z: 9.5, w: 13, d: 11, floors: 3, wall: MAT.CONCRETE, trim: MAT.TRIM_DARK, front: 's', tint: [1, 1, 1] },
+  { t: 'house', x: 52, z: 25, w: 10, d: 11, floors: 2, wall: MAT.PLASTER, trim: MAT.TRIM_DARK, front: 'w', tint: [1, 0.96, 0.9] },
+  { t: 'block', x: 66, z: 23.5, w: 14, d: 12.5, floors: 9, wall: MAT.CONCRETE, trim: MAT.TRIM_DARK, front: 'w', tint: [0.92, 0.95, 1] },
+  { t: 'block', x: 52, z: -36, w: 28, d: 12, floors: 2, wall: MAT.BRICK_TAN, trim: MAT.TRIM_DARK, front: 's', tint: [1, 1, 1] },
+  { t: 'block', x: 52, z: -21.5, w: 12, d: 11, floors: 4, wall: MAT.PLASTER_BLUE, trim: MAT.TRIM, front: 'n', tint: [1, 1, 1] },
+  { t: 'block', x: 67, z: -21.5, w: 13, d: 11, floors: 3, wall: MAT.BRICK, trim: MAT.TRIM, front: 'n', tint: [1, 0.95, 0.92] },
+  // ---- west district (x -83..-49)
+  { t: 'block', x: -80, z: 9.5, w: 12, d: 12, floors: 4, wall: MAT.PLASTER, trim: MAT.TRIM, front: 's', tint: [0.98, 0.95, 0.88] },
+  { t: 'block', x: -66, z: 9.5, w: 13, d: 13, floors: 6, wall: MAT.BRICK_TAN, trim: MAT.TRIM_DARK, front: 'e', tint: [1, 1, 1] },
+  { t: 'house', x: -80, z: 25, w: 10, d: 11, floors: 2, wall: MAT.BRICK, trim: MAT.TRIM, front: 's', tint: [0.95, 1, 1] },
+  { t: 'house', x: -63, z: 25, w: 10, d: 11, floors: 2, wall: MAT.PLASTER_BLUE, trim: MAT.TRIM, front: 'e', tint: [1, 1, 1] },
+  { t: 'block', x: -80, z: -36, w: 14, d: 12, floors: 3, wall: MAT.CONCRETE, trim: MAT.TRIM, front: 's', tint: [1, 0.98, 0.95] },
+  { t: 'block', x: -63, z: -21.5, w: 11, d: 12, floors: 5, wall: MAT.BRICK, trim: MAT.TRIM_DARK, front: 'n', tint: [0.92, 0.9, 0.9] },
 ];
 
 export function buildVoxelTown(vox) {
@@ -165,7 +180,8 @@ export function buildScenery(scene, renderer) {
     return m;
   };
   const roads = [ // [cx, cz, along x?, length]
-    [0, 0, false, 140], [0, 0, true, 140], [44, 0, false, 140], [-44, 0, false, 140], [0, 44, true, 140], [0, -44, true, 140],
+    [0, 0, false, 140], [44, 0, false, 140], [-44, 0, false, 140], [88, 0, false, 140], [-88, 0, false, 140],
+    [0, 0, true, 230], [0, 44, true, 230], [0, -44, true, 230],
   ];
   for (const [x, z, alongX, len] of roads) {
     const r = new THREE.Mesh(new THREE.PlaneGeometry(10, len), roadMat(len));
@@ -175,10 +191,10 @@ export function buildScenery(scene, renderer) {
   // lane markings
   const dashMat = new THREE.MeshStandardMaterial({ color: 0xe8e2c8, roughness: 0.7, metalness: 0 });
   const dashGeo = new THREE.PlaneGeometry(0.18, 2.4); dashGeo.rotateX(-Math.PI / 2);
-  const dashes = new THREE.InstancedMesh(dashGeo, dashMat, 400); let di = 0;
+  const dashes = new THREE.InstancedMesh(dashGeo, dashMat, 1200); let di = 0;
   const m4 = new THREE.Matrix4();
-  for (const [x, z, alongX] of roads) {
-    for (let s = -68; s <= 68; s += 5) {
+  for (const [x, z, alongX, len] of roads) {
+    for (let s = -len / 2 + 2; s <= len / 2 - 2; s += 5) {
       const px = alongX ? x + s : x, pz = alongX ? z : z + s;
       if ((Math.abs(px) % 44 < 6 || Math.abs(px) % 44 > 38) && (Math.abs(pz) % 44 < 6 || Math.abs(pz) % 44 > 38)) continue;
       m4.makeRotationY(alongX ? Math.PI / 2 : 0); m4.setPosition(px, 0.02, pz);
@@ -203,9 +219,9 @@ export function buildScenery(scene, renderer) {
   const swMat = new THREE.MeshStandardMaterial({ map: pav.map, normalMap: pav.normalMap, aoMap: pav.ormMap, roughnessMap: pav.ormMap, roughness: 1 });
   for (const t of [swMat.map, swMat.normalMap, swMat.roughnessMap]) { t.repeat.set(1, 1); t.anisotropy = aniso; }
   const curbMat = T.pbr(T.concreteTex(8, '#a29f98', false));
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+  for (const bx of [-66, -22, 22, 66]) for (const sz of [-1, 1]) {
     // each block spans 5..39 from the road centres; ring of sidewalk 3 m wide
-    const cx = sx * 22, cz = sz * 22, size = 34;
+    const cx = bx, cz = sz * 22, size = 34;
     for (const [w, d, ox, oz] of [[size, 3, 0, -size / 2 + 1.5], [size, 3, 0, size / 2 - 1.5], [3, size - 6, -size / 2 + 1.5, 0], [3, size - 6, size / 2 - 1.5, 0]]) {
       const g = new THREE.BoxGeometry(w, 0.15, d);
       const uv = g.attributes.uv; const pos = g.attributes.position;
@@ -226,6 +242,7 @@ export function buildScenery(scene, renderer) {
   const lampLights = [];
   const lampPos = [];
   for (const s of [-30, -15, 15, 30]) { lampPos.push([5.6, s, -1], [-5.6, s, 1], [s, 5.6, -2], [s, -5.6, 2]); }
+  for (const s of [-80, -66, -52, 52, 66, 80]) { lampPos.push([s, 5.6, -2], [s, -5.6, 2]); }
   for (const [x, z, f] of lampPos) {
     const g = new THREE.Group();
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 6, 10), poleMat); pole.position.y = 3; pole.castShadow = true; g.add(pole);
@@ -265,11 +282,13 @@ export function buildScenery(scene, renderer) {
   const r = T.rng(42);
   for (let i = 0; i < 22; i++) treeSpots.push([8 + r() * 30, -8 - r() * 30]);
   for (const s of [-32, -20, 20, 32]) { treeSpots.push([6.8, s + 2.5], [-6.8, s - 2.5]); }
+  for (const s of [-74, -59, 59, 74]) { treeSpots.push([s + 2.5, 6.8], [s - 2.5, -6.8]); }
+  for (let i = 0; i < 9; i++) treeSpots.push([-79 + r() * 12, -20 + r() * 11]); // west pocket park
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeSpots.length);
   const leaves = new THREE.InstancedMesh(leafGeo, leafMat, treeSpots.length * 3);
   let li = 0; const c = new THREE.Color();
   treeSpots.forEach(([x, z], i) => {
-    if (x < 22 && z > -23) { x += 14; } // keep clear of the corner shop
+    if (i < 22 && x < 22 && z > -23) { x += 14; } // keep clear of the corner shop
     const s = 0.8 + r() * 0.5;
     m4.compose(new THREE.Vector3(x, 0.1, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 6), new THREE.Vector3(s, s, s));
     trunks.setMatrixAt(i, m4);
