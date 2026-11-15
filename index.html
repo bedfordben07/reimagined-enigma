@@ -55,6 +55,8 @@
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0d0f10; font-size: 14px; letter-spacing: 0.3em; color: var(--amber); }
   @media (max-width: 640px) { #help { display: none; } #hudR { font-size: 11px; } }
 </style>
+<!-- polyfills import maps for older Safari/Chrome so the three.js modules still load -->
+<script async src="https://cdn.jsdelivr.net/npm/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
@@ -120,5 +122,23 @@
 </div>
 
 <div id="loading">BUILDING TOWN…</div>
+<script>
+  // Explain plainly when this device can't run the game instead of hanging on the loading screen.
+  (function () {
+    function fail(msg) {
+      var el = document.getElementById('loading');
+      el.hidden = false;
+      el.style.cssText += ';letter-spacing:0;text-align:center;padding:24px;line-height:1.5;font-size:15px;';
+      el.textContent = msg;
+    }
+    var ok = false;
+    try { var c = document.createElement('canvas'); ok = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
+    if (!ok) fail('Rubble Town needs WebGL, which this browser or device has turned off. Try the latest Chrome, Edge, Firefox or Safari on a computer.');
+    window.addEventListener('error', function (e) {
+      if (!window.__game) fail('Rubble Town could not start in this browser (' + (e.message || 'script error') + '). Try the latest Chrome, Edge, Firefox or Safari on a computer.');
+    });
+    setTimeout(function () { if (!window.__game && ok) fail('Rubble Town is taking too long to start. This browser may be too old: try the latest Chrome, Edge, Firefox or Safari on a computer.'); }, 25000);
+  })();
+</script>
 
 <script type="module" src="./src/main.js"></script>
