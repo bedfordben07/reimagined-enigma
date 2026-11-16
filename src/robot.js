@@ -1,149 +1,218 @@
-// The player android, modelled after the concept sketch: white shell, olive plate carrier,
-// dark mechanical joints, orange-striped forearms and glowing yellow eyes.
+// The player avatar ("Sentinel"): an original sleek android. Brushed-silver sculpted armour over a
+// dark exposed mechanical core, cable bundles at the neck and waist, articulated three-joint
+// fingers and glowing seams. Built from smooth lathes and bevel-extruded plates.
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { fabricTex, brushedMetalTex, paintedArmorTex, pbr } from './textures.js';
+import { brushedMetalTex, pbr } from './textures.js';
+import { lathe, extrude, roundRect, smoothSym, smoothShape, cable, mesher, toX } from './geom.js';
 
 const lerpA = (a, b, k) => a + (b - a) * k;
 
 export class Robot {
   constructor() {
-    this.name = 'Android';
-    this.eyeColor = new THREE.Color(1, 0.72, 0.12);
-    this.eyeIntensity = 4;
-    this.laserCore = new THREE.Color(12, 9, 4);
-    this.laserGlow = new THREE.Color(3.5, 0.9, 0.1);
+    this.name = 'Sentinel';
+    this.eyeColor = new THREE.Color(1, 0.32, 0.08);
+    this.eyeIntensity = 5;
+    this.laserCore = new THREE.Color(12, 5, 2.2);
+    this.laserGlow = new THREE.Color(4, 0.7, 0.1);
     this.build();
+    this._addHandJets();
     this.phase = 0;
     this.punchFist = 0;
     this.hover = 0;
   }
 
-  build() {
-    // PBR set: painted shell, brushed gunmetal joints, matte cloth carrier, emissive eyes
-    const white = pbr(paintedArmorTex(5, '#d9dedd', 0.42), { metalness: 1, clearcoat: 0.25, clearcoatRoughness: 0.5 }, THREE.MeshPhysicalMaterial);
-    const dark = pbr(brushedMetalTex(31, '#2e3134', 0.35), { metalness: 0.85 });
-    const joint = pbr(brushedMetalTex(32, '#5b6064', 0.38), { metalness: 0.85 });
-    const fab = fabricTex(4);
-    const olive = pbr(fab, { color: 0xc8d0b0, roughness: 0.85 / 0.95 });
-    const oliveDark = pbr(fab, { color: 0xa3ab8c, roughness: 0.85 / 0.95 });
-    const tan = new THREE.MeshStandardMaterial({ color: 0x9a9c84, roughness: 0.85, metalness: 0 });
-    const orange = new THREE.MeshStandardMaterial({ color: 0xc4634a, roughness: 0.7, metalness: 0 });
-    const black = new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.3, metalness: 0.2 });
-    this.eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffc840, emissiveIntensity: 4, roughness: 0.2 });
-    const redLed = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff3020, emissiveIntensity: 3, roughness: 0.3 });
-    this.jetMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 2.6, 0.8), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  // Thrusters in the palms: a bright core and a softer outer flame, scaled by thrust each frame.
+  _addHandJets() {
+    this.handJets = [];
+    const coreMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 4.5, 3), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    const outerMat = new THREE.MeshBasicMaterial({ color: this.laserGlow.clone().multiplyScalar(0.9), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    // wide at the palm, tapering away along the hand's -Y
+    const cg = new THREE.ConeGeometry(0.045, 0.45, 16, 1, true); cg.rotateX(Math.PI); cg.translate(0, -0.225, 0);
+    const og = new THREE.ConeGeometry(0.085, 0.7, 16, 1, true); og.rotateX(Math.PI); og.translate(0, -0.35, 0);
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group(); g.position.set(0, -0.12, 0.0);
+      const core = new THREE.Mesh(cg, coreMat), outer = new THREE.Mesh(og, outerMat);
+      core.userData.noOutline = outer.userData.noOutline = true;
+      g.add(core, outer);
+      this.arms[side].hand.add(g);
+      this.handJets.push({ g, core, outer, side });
+    }
+    this.handJetMats = [coreMat, outerMat];
+    this.thrust = 0;
+  }
 
-    const M = (geo, mat, parent, x = 0, y = 0, z = 0) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
-      parent.add(m); return m;
-    };
-    const RB = (w, h, d, r = 0.04) => new RoundedBoxGeometry(w, h, d, 3, r);
-    const CylX = (r, l, seg = 20) => { const g = new THREE.CylinderGeometry(r, r, l, seg); g.rotateZ(Math.PI / 2); return g; };
+  handJetWorld(i, out) { const j = this.handJets[i]; j.g.updateWorldMatrix(true, false); return out.setFromMatrixPosition(j.g.matrixWorld); }
+  handJetDir(i, out) { const j = this.handJets[i]; j.g.updateWorldMatrix(true, false); return out.set(0, -1, 0).transformDirection(j.g.matrixWorld); }
+
+  build() {
+    const silver = pbr(brushedMetalTex(51, '#d4d8dc', 0.3), { metalness: 0.82, envMapIntensity: 1.9, clearcoat: 0.35, clearcoatRoughness: 0.35 }, THREE.MeshPhysicalMaterial);
+    const steel = pbr(brushedMetalTex(52, '#9aa1a8', 0.34), { metalness: 0.85, envMapIntensity: 1.6 });
+    const graphite = pbr(brushedMetalTex(53, '#33383e', 0.4), { metalness: 0.85 });
+    const core = new THREE.MeshStandardMaterial({ color: 0x111316, roughness: 0.5, metalness: 0.5 });
+    const rubber = new THREE.MeshStandardMaterial({ color: 0x0c0d0f, roughness: 0.7, metalness: 0.1 });
+    this.eyeMat = new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xff4a14, emissiveIntensity: 5, roughness: 0.2 });
+    this.glowMat = new THREE.MeshStandardMaterial({ color: 0x200500, emissive: 0xff3a10, emissiveIntensity: 2.6, roughness: 0.3 });
+    this.jetMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 1.4, 0.4), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    const glow = this.glowMat;
+    const M = mesher();
 
     this.root = new THREE.Group();
     this.body = new THREE.Group(); this.body.position.y = 1.15; this.root.add(this.body);
 
-    // hips
-    M(RB(0.46, 0.24, 0.3, 0.07), white, this.body, 0, 0, 0);
-    M(RB(0.16, 0.16, 0.05, 0.02), joint, this.body, 0, -0.02, 0.15);
-    // spine
+    // ---------------- pelvis: silver girdle over a dark core, glowing hip seams
+    M(lathe([[0, 0.1], [0.15, 0.1], [0.19, 0.05], [0.2, -0.02], [0.16, -0.09], [0.08, -0.14], [0, -0.15]], 48, 0, Math.PI * 2, 4), core, this.body, 0, 0, 0).scale.z = 0.72;
+    const girdle = smoothSym([[0.0, -0.13], [0.07, -0.12], [0.16, -0.02], [0.2, 0.06], [0.19, 0.1], [0.0, 0.06]]);
+    M(extrude(girdle, 0.04, 0.02), silver, this.body, 0, 0, 0.12);
+    M(extrude(girdle, 0.04, 0.02), silver, this.body, 0, 0, -0.12);
+    for (const sx of [-1, 1]) {
+      M(toX(lathe([[0, 0.04], [0.07, 0.04], [0.08, 0.0], [0.07, -0.04], [0, -0.04]], 32)), graphite, this.body, 0.2 * sx, -0.03, 0);
+      M(new THREE.TorusGeometry(0.052, 0.008, 8, 32), glow, this.body, 0.235 * sx, -0.03, 0).rotation.y = Math.PI / 2;
+    }
+
+    // ---------------- exposed mechanical abdomen: ribbed spine, cables, glowing core line
     this.spine = new THREE.Group(); this.spine.position.y = 0.12; this.body.add(this.spine);
-    M(new THREE.CylinderGeometry(0.13, 0.15, 0.22, 20), joint, this.spine, 0, 0.08, 0);
-    for (const sx of [-0.09, 0.09]) M(new THREE.CylinderGeometry(0.018, 0.018, 0.24, 8), dark, this.spine, sx, 0.08, 0.12);
-    // chest
+    const rib = [];
+    for (let i = 0; i <= 8; i++) rib.push([i % 2 ? 0.11 : 0.135, 0.22 - i * 0.026]);
+    M(lathe([[0, 0.23], ...rib, [0, 0.0]], 40), core, this.spine, 0, 0, -0.01).scale.z = 0.78;
+    for (const sx of [-1, 1]) {
+      M(cable([[0.1 * sx, -0.02, 0.05], [0.13 * sx, 0.1, 0.08], [0.12 * sx, 0.24, 0.06]], 0.014), rubber, this.spine);
+      M(cable([[0.06 * sx, -0.02, -0.09], [0.08 * sx, 0.1, -0.11], [0.07 * sx, 0.25, -0.1]], 0.012), rubber, this.spine);
+      // oblique armour plates
+      const obl = smoothSym([[0.0, -0.06], [0.03, -0.05], [0.04, 0.06], [0.02, 0.1], [0.0, 0.1]]);
+      const o = M(extrude(obl, 0.02, 0.012), steel, this.spine, 0.12 * sx, 0.1, 0.06); o.rotation.y = 0.9 * sx;
+    }
+    M(extrude(roundRect(0.022, 0.2, 0.01), 0.01, 0.005), glow, this.spine, 0, 0.11, 0.105);
+
+    // ---------------- chest: dark core with layered, sculpted silver plates
     this.chest = new THREE.Group(); this.chest.position.y = 0.22; this.spine.add(this.chest);
-    M(RB(0.5, 0.52, 0.34, 0.09), white, this.chest, 0, 0.24, 0);
-    // plate carrier
-    M(RB(0.58, 0.46, 0.4, 0.05), olive, this.chest, 0, 0.24, 0.01);
-    M(RB(0.5, 0.06, 0.03, 0.01), tan, this.chest, 0, 0.36, 0.215);
-    M(RB(0.4, 0.04, 0.03, 0.01), tan, this.chest, -0.03, 0.29, 0.215);
-    for (let i = 0; i < 4; i++) {
-      const x = -0.195 + i * 0.13;
-      M(RB(0.12, 0.17, 0.07, 0.02), oliveDark, this.chest, x, 0.12, 0.235);
-      M(RB(0.122, 0.05, 0.075, 0.015), olive, this.chest, x, 0.2, 0.24);
-      M(new THREE.BoxGeometry(0.02, 0.06, 0.01), tan, this.chest, x, 0.17, 0.276);
+    const torso = smoothSym([[0.15, 0.0], [0.22, 0.1], [0.28, 0.3], [0.29, 0.44], [0.2, 0.52], [0.0, 0.54]]);
+    M(extrude(torso, 0.22, 0.07, 6), core, this.chest, 0, 0, -0.01);
+    for (const sx of [-1, 1]) {
+      // pectoral plate, angled outward, with a glowing seam underneath
+      const pec = smoothSym([[0.0, 0.0], [0.1, 0.01], [0.15, 0.09], [0.14, 0.2], [0.06, 0.24], [0.0, 0.24]]);
+      const p = M(extrude(pec, 0.04, 0.03, 5), silver, this.chest, 0.12 * sx, 0.24, 0.17); p.rotation.y = 0.28 * sx; p.rotation.x = -0.08;
+      const seam = new THREE.Shape(); seam.moveTo(0, 0); seam.lineTo(0.15, 0.04); seam.lineTo(0.15, 0.055); seam.lineTo(0, 0.016);
+      const sm = M(extrude(seam, 0.008, 0.004), glow, this.chest, 0.02 * sx, 0.22, 0.21); sm.scale.x = sx;
+      // upper-back / trapezius plate
+      const tr = smoothSym([[0.0, 0.0], [0.12, 0.02], [0.16, 0.1], [0.08, 0.15], [0.0, 0.15]]);
+      const t = M(extrude(tr, 0.04, 0.025), silver, this.chest, 0.11 * sx, 0.36, -0.15); t.rotation.y = -0.3 * sx;
+      // collarbone ridge
+      const cb = M(lathe([[0.0, 0.11], [0.022, 0.1], [0.026, 0.0], [0.022, -0.1], [0, -0.11]], 16), steel, this.chest, 0.13 * sx, 0.5, 0.06);
+      cb.rotation.z = (Math.PI / 2 - 0.25) * sx;
     }
-    // shoulder straps and back panel
-    for (const sx of [-0.17, 0.17]) M(RB(0.1, 0.06, 0.38, 0.02), olive, this.chest, sx, 0.48, 0.0);
-    M(RB(0.5, 0.4, 0.06, 0.02), oliveDark, this.chest, 0, 0.26, -0.21);
-    // collar
-    M(new THREE.TorusGeometry(0.11, 0.035, 10, 24), joint, this.chest, 0, 0.5, 0).rotation.x = Math.PI / 2;
+    // back armour: a broad sculpted plate over the shoulder blades and a lower spine guard
+    M(extrude(smoothSym([[0.0, 0.0], [0.13, 0.02], [0.22, 0.14], [0.25, 0.3], [0.2, 0.42], [0.0, 0.45]]), 0.05, 0.03, 5), silver, this.chest, 0, 0.05, -0.15);
+    M(extrude(smoothSym([[0.0, -0.1], [0.06, -0.08], [0.08, 0.05], [0.0, 0.08]]), 0.03, 0.015), steel, this.chest, 0, -0.02, -0.14);
+    // sternum and abdominal chevrons
+    M(extrude(smoothSym([[0.0, 0.0], [0.04, 0.03], [0.045, 0.2], [0.02, 0.26], [0.0, 0.27]]), 0.03, 0.015), steel, this.chest, 0, 0.18, 0.2);
+    for (let i = 0; i < 3; i++) {
+      const ch = new THREE.Shape(); ch.moveTo(-0.1, 0); ch.lineTo(0, -0.035); ch.lineTo(0.1, 0); ch.lineTo(0.1, 0.03); ch.lineTo(0, -0.005); ch.lineTo(-0.1, 0.03);
+      M(extrude(ch, 0.025, 0.01), silver, this.chest, 0, 0.12 - i * 0.055, 0.155 - i * 0.012);
+    }
+    // neck collar ring
+    M(lathe([[0.12, 0.04], [0.135, 0.0], [0.15, -0.04]], 40), steel, this.chest, 0, 0.55, 0);
 
-    // neck + head
+    // ---------------- neck: vertebrae and a cable bundle
     this.neck = new THREE.Group(); this.neck.position.y = 0.5; this.chest.add(this.neck);
-    M(new THREE.CylinderGeometry(0.06, 0.075, 0.16, 14), joint, this.neck, 0, 0.06, 0);
-    for (const sx of [-0.05, 0.05]) M(new THREE.CylinderGeometry(0.014, 0.014, 0.16, 8), dark, this.neck, sx, 0.06, 0.05);
-    this.head = new THREE.Group(); this.head.position.y = 0.16; this.neck.add(this.head);
-    const skull = M(new THREE.SphereGeometry(0.19, 40, 30), white, this.head, 0, 0.1, 0);
-    skull.scale.set(0.86, 1.08, 0.92);
-    M(new THREE.SphereGeometry(0.15, 30, 20), white, this.head, 0, 0.02, 0.03).scale.set(0.82, 0.7, 0.95);
-    this.eyes = [];
-    for (const sx of [-0.068, 0.068]) {
-      const sock = M(new THREE.CylinderGeometry(0.044, 0.04, 0.05, 20), black, this.head, sx, 0.11, 0.152);
-      sock.rotation.x = Math.PI / 2 - 0.12;
-      const eye = M(new THREE.SphereGeometry(0.026, 16, 12), this.eyeMat, this.head, sx, 0.112, 0.172);
-      eye.castShadow = false;
-      this.eyes.push(eye);
+    for (let i = 0; i < 3; i++) M(lathe([[0.045, 0.012], [0.055, 0.0], [0.045, -0.012]], 20), graphite, this.neck, 0, 0.04 + i * 0.045, -0.015);
+    for (const [x, z] of [[-0.04, 0.02], [0.04, 0.02], [0, 0.04], [-0.055, -0.02], [0.055, -0.02]]) {
+      M(cable([[x, -0.02, z], [x * 1.1, 0.08, z + 0.01], [x * 0.8, 0.17, z]], 0.011, 12), rubber, this.neck);
     }
-    M(new THREE.BoxGeometry(0.07, 0.006, 0.01), black, this.head, 0, 0.0, 0.163);
 
-    // arms
+    // ---------------- head: elongated helmet, recessed dark face, angular glowing eyes, central ridge
+    this.head = new THREE.Group(); this.head.position.y = 0.16; this.neck.add(this.head);
+    const skull = [[0, 0.3], [0.06, 0.29], [0.11, 0.25], [0.135, 0.18], [0.14, 0.09], [0.125, 0.0], [0.09, -0.06], [0.04, -0.08], [0, -0.085]];
+    M(lathe(skull, 64, 0, Math.PI * 2, 4), silver, this.head, 0, 0, -0.01).scale.set(0.88, 1, 1.05);
+    // faceplate: a smooth shield shape set slightly into the helmet front
+    const face = smoothSym([[0.0, -0.075], [0.05, -0.06], [0.085, 0.04], [0.095, 0.13], [0.06, 0.19], [0.0, 0.2]]);
+    M(extrude(face, 0.03, 0.015), core, this.head, 0, 0.0, 0.115);
+    // brow ridge and centre crest
+    M(extrude(smoothSym([[0.0, 0.0], [0.09, 0.0], [0.1, 0.02], [0.05, 0.035], [0.0, 0.04]]), 0.04, 0.012), silver, this.head, 0, 0.14, 0.12).rotation.x = -0.25;
+    const crest = new THREE.Shape(); crest.moveTo(-0.15, 0); crest.quadraticCurveTo(0.0, 0.05, 0.16, 0.0); crest.lineTo(0.13, -0.02); crest.lineTo(-0.14, -0.02);
+    M(extrude(crest, 0.018, 0.008), steel, this.head, 0, 0.29, -0.02).rotation.y = Math.PI / 2;
+    // angled eye slits
+    this.eyes = [];
+    for (const sx of [-1, 1]) {
+      const sl = new THREE.Shape(); sl.moveTo(0, 0); sl.lineTo(0.055, 0.018); sl.lineTo(0.05, 0.03); sl.lineTo(-0.002, 0.016);
+      const e = M(extrude(sl, 0.006, 0.004), this.eyeMat, this.head, 0.012 * sx, 0.095, 0.145);
+      e.scale.x = sx; e.castShadow = false; e.userData.noOutline = true;
+      const anchor = new THREE.Object3D(); anchor.position.set(0.04 * sx, 0.107, 0.15); this.head.add(anchor);
+      this.eyes.push(anchor);
+      // side sensor discs
+      M(toX(lathe([[0, 0.012], [0.04, 0.012], [0.045, 0.0], [0.04, -0.012], [0, -0.012]], 24)), graphite, this.head, 0.125 * sx, 0.1, -0.02);
+      M(new THREE.TorusGeometry(0.028, 0.005, 8, 24), glow, this.head, 0.138 * sx, 0.1, -0.02).rotation.y = Math.PI / 2;
+    }
+
+    // ---------------- arms
     this.arms = {};
     for (const side of [-1, 1]) {
-      const sh = new THREE.Group(); sh.position.set(0.33 * side, 0.4, 0); this.chest.add(sh);
-      M(CylX(0.085, 0.16), joint, sh, 0.03 * side, 0, 0);
-      M(RB(0.1, 0.16, 0.12, 0.02), dark, sh, 0.06 * side, -0.06, 0);
-      if (side === 1) {
-        const pad = M(RB(0.22, 0.12, 0.26, 0.05), oliveDark, sh, 0.06, 0.06, 0);
-        pad.rotation.z = -0.35;
-        M(RB(0.08, 0.05, 0.12, 0.01), tan, pad, 0.03, 0.05, 0.0);
-      }
-      M(RB(0.15, 0.36, 0.16, 0.05), white, sh, 0.06 * side, -0.26, 0);
-      M(RB(0.06, 0.08, 0.02, 0.01), tan, sh, 0.06 * side + 0.07 * side, -0.2, 0.03).rotation.y = Math.PI / 2;
-      const el = new THREE.Group(); el.position.set(0.06 * side, -0.47, 0); sh.add(el);
-      M(CylX(0.068, 0.13), dark, el, 0, 0, 0);
-      M(new THREE.CylinderGeometry(0.1, 0.112, 0.4, 24), white, el, 0, -0.24, 0);
-      M(new THREE.CylinderGeometry(0.115, 0.115, 0.1, 24), orange, el, 0, -0.21, 0);
-      M(new THREE.CylinderGeometry(0.105, 0.098, 0.06, 24), dark, el, 0, -0.46, 0);
+      const sh = new THREE.Group(); sh.position.set(0.36 * side, 0.42, 0); this.chest.add(sh);
+      // deltoid dome with a dark groove
+      const dl = M(lathe([[0, 0.14], [0.09, 0.13], [0.15, 0.08], [0.165, 0.0], [0.155, -0.08], [0.12, -0.13], [0, -0.14]], 48, 0, Math.PI * 2, 3), silver, sh, 0.05 * side, 0.01, 0);
+      dl.scale.set(1, 1, 1.05);
+      M(new THREE.TorusGeometry(0.155, 0.01, 8, 48), core, sh, 0.05 * side, 0.01, 0).rotation.y = Math.PI / 2;
+      M(toX(lathe([[0, 0.05], [0.07, 0.05], [0.08, 0.0], [0.07, -0.05], [0, -0.05]], 28)), graphite, sh, -0.02 * side, 0, 0);
+      // bicep: muscular bulge, dark inner strip with a cable
+      M(lathe([[0, 0.0], [0.07, -0.04], [0.095, -0.12], [0.1, -0.22], [0.085, -0.34], [0.065, -0.41], [0, -0.42]], 40, 0, Math.PI * 2, 3), silver, sh, 0.04 * side, -0.05, 0.005).scale.set(1, 1, 1.08);
+      M(cable([[0.04 * side - 0.06 * side, -0.12, -0.06], [0.04 * side - 0.08 * side, -0.3, -0.05], [0.04 * side - 0.05 * side, -0.45, -0.03]], 0.012, 12), rubber, sh);
+      const el = new THREE.Group(); el.position.set(0.04 * side, -0.48, 0); sh.add(el);
+      M(toX(lathe([[0, 0.065], [0.055, 0.065], [0.07, 0.03], [0.07, -0.03], [0.055, -0.065], [0, -0.065]], 28)), graphite, el, 0, 0, 0);
+      M(lathe([[0, 0.02], [0.05, 0.015], [0.06, -0.02], [0, -0.03]], 20), steel, el, 0, 0.02, -0.06).scale.set(1, 1, 0.7);
+      // forearm: swells below the elbow then tapers to the wrist; glowing strip on the outside
+      M(lathe([[0, 0.0], [0.075, -0.02], [0.098, -0.09], [0.094, -0.2], [0.078, -0.33], [0.06, -0.41], [0, -0.42]], 40, 0, Math.PI * 2, 3), silver, el, 0, -0.03, 0).scale.set(1, 1, 1.1);
+      const fs = M(extrude(roundRect(0.016, 0.2, 0.008), 0.008, 0.004), glow, el, 0.09 * side, -0.2, 0); fs.rotation.y = Math.PI / 2 * side;
+      M(lathe([[0.062, 0.02], [0.066, 0.0], [0.06, -0.025], [0, -0.03]], 28), graphite, el, 0, -0.45, 0);
+      // hand: sculpted palm, knuckle discs, three-joint fingers with pointed tips
       const hand = new THREE.Group(); hand.position.set(0, -0.5, 0); el.add(hand);
-      M(RB(0.12, 0.14, 0.07, 0.02), dark, hand, 0, -0.07, 0);
-      M(new THREE.BoxGeometry(0.03, 0.012, 0.01), redLed, hand, 0.0, -0.04, 0.037);
-      const fingers = new THREE.Group(); fingers.position.set(0, -0.14, 0); hand.add(fingers);
+      const palm = smoothSym([[0.04, -0.075], [0.065, -0.05], [0.068, 0.02], [0.05, 0.05], [0.0, 0.055]]);
+      M(extrude(palm, 0.04, 0.02), graphite, hand, 0, -0.06, 0);
+      M(extrude(smoothSym([[0.0, -0.05], [0.055, -0.045], [0.058, 0.02], [0.03, 0.04], [0.0, 0.04]]), 0.01, 0.008), silver, hand, 0, -0.06, 0.03);
+      const fingers = new THREE.Group(); fingers.position.set(0, -0.13, 0); hand.add(fingers);
+      const segG = [0.04, 0.032, 0.026].map((l) => lathe([[0, 0.004], [0.012, 0.0], [0.013, -l * 0.5], [0.011, -l], [0, -l - 0.004]], 12));
+      const knG = toX(lathe([[0, 0.012], [0.012, 0.012], [0.013, 0], [0.012, -0.012], [0, -0.012]], 12));
+      const tipG = lathe([[0, 0], [0.011, -0.003], [0.008, -0.02], [0, -0.034]], 10);
       for (let f = 0; f < 4; f++) {
-        const g = M(RB(0.026, 0.1, 0.034, 0.008), dark, fingers, -0.045 + f * 0.03, -0.05, 0);
-        g.scale.y = f === 0 || f === 3 ? 0.85 : 1;
+        const x = -0.045 + f * 0.03, len = f === 1 || f === 2 ? 1 : 0.88;
+        let parent = new THREE.Group(); parent.position.set(x, 0, 0); fingers.add(parent);
+        for (let k = 0; k < 3; k++) {
+          M(knG, core, parent, 0, 0, 0);
+          M(segG[k], k === 0 ? steel : silver, parent, 0, 0, 0).scale.y = len;
+          const next = new THREE.Group(); next.position.y = -[0.04, 0.032, 0.026][k] * len - 0.006; next.rotation.x = -0.18; parent.add(next);
+          parent = next;
+        }
+        M(tipG, steel, parent, 0, 0.004, 0);
       }
-      const thumb = M(RB(0.026, 0.08, 0.03, 0.008), dark, hand, -0.065 * side, -0.08, 0.03);
-      thumb.rotation.z = 0.5 * side;
+      const th = new THREE.Group(); th.position.set(-0.06 * side, -0.07, 0.025); th.rotation.set(0.3, 0, 0.6 * side); hand.add(th);
+      M(knG, core, th); M(segG[0], steel, th);
+      const th2 = new THREE.Group(); th2.position.y = -0.046; th2.rotation.x = -0.2; th.add(th2); M(segG[1], silver, th2); M(tipG, steel, th2, 0, -0.034, 0);
       this.arms[side] = { sh, el, hand, fingers };
     }
 
-    // legs
+    // ---------------- legs
     this.legs = {};
+    const thigh = lathe([[0, 0.02], [0.08, 0.0], [0.11, -0.07], [0.118, -0.18], [0.105, -0.32], [0.085, -0.42], [0.07, -0.47], [0, -0.48]], 44, 0, Math.PI * 2, 3);
+    const calf = lathe([[0, 0.0], [0.065, -0.02], [0.086, -0.1], [0.082, -0.2], [0.065, -0.33], [0.05, -0.42], [0, -0.43]], 44, 0, Math.PI * 2, 3);
+    const footShape = smoothShape([[-0.1, 0.0], [0.14, 0.0], [0.22, 0.012], [0.2, 0.04], [0.1, 0.07], [0.0, 0.1], [-0.08, 0.1], [-0.11, 0.05]]);
+    const foot = extrude(footShape, 0.08, 0.025, 4);
     for (const side of [-1, 1]) {
-      const hip = new THREE.Group(); hip.position.set(0.15 * side, -0.06, 0); this.body.add(hip);
-      M(CylX(0.08, 0.12), dark, hip, 0, 0, 0);
-      M(RB(0.06, 0.16, 0.08, 0.02), joint, hip, 0.02 * side, -0.08, 0.05);
-      M(RB(0.19, 0.4, 0.21, 0.06), white, hip, 0, -0.27, 0);
+      const hip = new THREE.Group(); hip.position.set(0.12 * side, -0.07, 0); this.body.add(hip);
+      M(thigh, silver, hip, 0, -0.02, 0.005).scale.set(1, 1, 1.12);
+      M(cable([[-0.06 * side, -0.05, -0.07], [-0.07 * side, -0.25, -0.08], [-0.04 * side, -0.46, -0.05]], 0.012, 12), rubber, hip);
+      const ts = M(extrude(roundRect(0.016, 0.18, 0.008), 0.008, 0.004), glow, hip, 0.112 * side, -0.24, 0.02); ts.rotation.y = Math.PI / 2 * side;
       const kn = new THREE.Group(); kn.position.set(0, -0.5, 0); hip.add(kn);
-      M(CylX(0.085, 0.16, 24), dark, kn, 0, 0, 0);
-      M(CylX(0.06, 0.18, 16), joint, kn, 0, 0, 0);
-      M(RB(0.17, 0.38, 0.19, 0.05), white, kn, 0, -0.24, 0);
-      M(RB(0.06, 0.05, 0.02, 0.01), tan, kn, 0, -0.32, 0.1);
+      M(toX(lathe([[0, 0.06], [0.06, 0.06], [0.072, 0.0], [0.06, -0.06], [0, -0.06]], 28)), graphite, kn, 0, 0, 0);
+      M(lathe([[0, 0.06], [0.045, 0.05], [0.06, 0.0], [0.045, -0.05], [0, -0.06]], 28, 0, Math.PI * 2, 3), silver, kn, 0, 0.0, 0.065).scale.set(1, 1.15, 0.6);
+      M(calf, silver, kn, 0, -0.03, -0.005).scale.set(1, 1, 1.1);
+      M(extrude(smoothSym([[0.0, -0.18], [0.035, -0.15], [0.04, 0.12], [0.0, 0.16]]), 0.02, 0.012), steel, kn, 0, -0.18, 0.07);
       const an = new THREE.Group(); an.position.set(0, -0.47, 0); kn.add(an);
-      for (const sx of [-0.04, 0.04]) M(RB(0.03, 0.12, 0.05, 0.01), dark, an, sx, 0.0, 0);
-      M(RB(0.15, 0.05, 0.28, 0.02), dark, an, 0, -0.06, 0.04);
+      M(lathe([[0, 0.035], [0.05, 0.035], [0.058, 0.0], [0.05, -0.03], [0, -0.03]], 24), graphite, an, 0, 0, 0);
+      const f = M(foot, silver, an, 0, -0.1, 0.03); f.rotation.y = -Math.PI / 2;
+      M(extrude(roundRect(0.3, 0.012, 0.005), 0.085, 0.004), rubber, an, 0, -0.1, 0.05).rotation.y = Math.PI / 2;
       const jet = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.5, 16, 1, true), this.jetMat);
-      jet.rotation.x = Math.PI; jet.position.set(0, -0.35, 0.02);
+      jet.rotation.x = Math.PI; jet.position.set(0, -0.36, 0.03); jet.userData.noOutline = true;
       an.add(jet);
       this.legs[side] = { hip, kn, an, jet };
     }
-
-    this.phase = 0;
-    this.punchFist = 0;
-    this.hover = 0;
   }
 
   // Kick a joint's spring (e.g. absorb a landing): positive dy pushes the body down.
@@ -367,6 +436,22 @@ export class Robot {
     this.punchFist = P.R.curl;
 
     this.jetMat.opacity = lerpA(this.jetMat.opacity, jet * (0.55 + Math.random() * 0.2), Math.min(1, dt * 12));
+    // palm thrusters: drive flight, off for a clenched fist; flicker with a little noise
+    const thrust = s.flying ? Math.min(1.3, 0.3 + clamp(s.fwdSpeed / 90, 0, 1) * 0.7 + (s.boost ? 0.3 : 0) + Math.max(0, s.vSpeed) / 40) : 0;
+    this.thrust = lerpA(this.thrust, thrust, Math.min(1, dt * 8));
+    if (this.handJets) {
+      for (const j of this.handJets) {
+        const open = 1 - Math.min(1, (j.side === 1 ? P.R.curl : P.L.curl));
+        const k = this.thrust * open, fl = 0.85 + Math.random() * 0.3;
+        j.g.visible = k > 0.02;
+        j.core.scale.set(0.8 + k * 0.4, (0.4 + k) * fl, 0.8 + k * 0.4);
+        j.outer.scale.set(0.8 + k * 0.5, (0.35 + k * 1.2) * fl, 0.8 + k * 0.5);
+        j.k = k;
+      }
+      this.handJetMats[0].opacity = Math.min(1, this.thrust * 1.2);
+      this.handJetMats[1].opacity = Math.min(0.75, this.thrust * 0.8);
+    }
+    if (this.glowMat) this.glowMat.emissiveIntensity = 2.4 + Math.sin(t * 2.2) * 0.3 + (s.charge > 0 ? Math.min(1, s.charge) * 4 : 0) + (s.laser ? 1.5 : 0);
     for (const side of [-1, 1]) lg[side].jet.scale.set(1, 0.6 + jet * 1.4 + Math.random() * 0.2, 1);
     const eyeBoost = s.laser ? 2.2 : 1 + (s.charge > 0 ? Math.min(1, s.charge) * 0.6 : 0);
     this.eyeMat.emissive.copy(this.eyeColor).multiplyScalar(1 / Math.max(this.eyeColor.r, this.eyeColor.g, this.eyeColor.b));

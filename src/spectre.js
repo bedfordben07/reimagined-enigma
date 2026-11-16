@@ -5,47 +5,7 @@ import * as THREE from 'three';
 import { Robot } from './robot.js';
 import { fabricTex, brushedMetalTex, paintedArmorTex, pbr } from './textures.js';
 
-const V2 = (x, y) => new THREE.Vector2(x, y);
-
-// Lathe around Y from [radius, y] pairs (top to bottom), smooth normals.
-function lathe(profile, seg = 48, phiStart = 0, phiLen = Math.PI * 2) {
-  // LatheGeometry faces outward when the profile runs bottom -> top
-  if (profile[0][1] > profile[profile.length - 1][1]) profile = [...profile].reverse();
-  const g = new THREE.LatheGeometry(profile.map(([r, y]) => V2(Math.max(0, r), y)), seg, phiStart, phiLen);
-  g.computeVertexNormals();
-  return g;
-}
-
-// Extrude a 2D outline with a soft bevel, centred on its depth.
-function extrude(shape, depth, bevel = 0.02, segs = 4) {
-  const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: segs, curveSegments: 24 });
-  g.translate(0, 0, -depth / 2);
-  g.computeVertexNormals();
-  return g;
-}
-
-function roundRect(w, h, r) {
-  const s = new THREE.Shape(), x = -w / 2, y = -h / 2;
-  s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
-  s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r);
-  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y);
-  return s;
-}
-
-// Mirror-symmetric outline from right-half points (bottom to top), x >= 0.
-function symShape(pts) {
-  const s = new THREE.Shape();
-  s.moveTo(-pts[0][0], pts[0][1]);
-  for (const [x, y] of pts) s.lineTo(x, y);
-  for (let i = pts.length - 1; i >= 0; i--) s.lineTo(-pts[i][0], pts[i][1]);
-  return s;
-}
-function smoothSym(pts, div = 6) {
-  // Catmull-Rom through the right-half points, then mirror
-  const curve = new THREE.SplineCurve(pts.map(([x, y]) => V2(x, y)));
-  return symShape(curve.getPoints(pts.length * div).map((p) => [p.x, p.y]));
-}
+import { V2, lathe, extrude, roundRect, symShape, smoothSym } from './geom.js';
 
 export class Spectre extends Robot {
   constructor() {

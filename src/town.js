@@ -4,7 +4,7 @@ import { VS } from './voxels.js';
 import * as T from './textures.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
-export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11 };
+export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11, GLASS_LIT: 12 };
 
 export function makeVoxelMaterials() {
   const std = (tex, extra = {}) => T.pbr(tex, { metalness: extra.metalness ?? 0, ...extra });
@@ -16,6 +16,9 @@ export function makeVoxelMaterials() {
   defs[MAT.CONCRETE] = { material: std(T.concreteTex(15, '#a7a49d')), dust: 0xa9a6a0 };
   defs[MAT.TRIM] = { material: std(T.concreteTex(16, '#d8d1c4')), dust: 0xcac4b8 };
   defs[MAT.GLASS] = { material: std(T.glassTex(17), { metalness: 0.9, roughness: 1, envMapIntensity: 1.5 }), dust: 0xd0e0ea, glass: true, noTint: true };
+  // windows with a warm room light behind them
+  { const lit = std(T.glassTex(23), { metalness: 0.6, roughness: 1, envMapIntensity: 1.1, emissive: 0xffb36a, emissiveIntensity: 0.9 });
+    lit.emissiveMap = T.windowGlowTex(); defs[MAT.GLASS_LIT] = { material: lit, dust: 0xd0e0ea, glass: true, noTint: true }; }
   defs[MAT.ROOF] = { material: std(T.roofTex(18)), dust: 0x6a6a6a };
   defs[MAT.SLAB] = { material: std(T.concreteTex(19, '#8c8984')), dust: 0x9a9792 };
   defs[MAT.TILE] = { material: std(T.tileTex(20)), dust: 0x9a5a48 };
@@ -24,6 +27,13 @@ export function makeVoxelMaterials() {
 }
 
 const STOREY = 6; // cells per storey (3 m)
+
+// Stable per-window random so a whole window is either lit or dark.
+function litHash(b, st, w, side) {
+  let h = (b * 374761393 + st * 668265263 + w * 2246822519 + String(side).charCodeAt(0) * 3266489917) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
 // Rectangular block with windows, a shopfront, floor slabs and a parapet.
 function block(vox, o) {
@@ -57,11 +67,11 @@ function block(vox, o) {
             const du = Math.abs(u - doorC);
             if (du <= 1 && ly <= 4) m = 0; // doorway
             else if (du === 2 && ly <= 4) m = o.trim;
-            else if (ly >= 1 && ly <= 4 && u > 2 && u < L - 3) m = MAT.GLASS;
+            else if (ly >= 1 && ly <= 4 && u > 2 && u < L - 3) m = litHash(b, 0, Math.floor(u / 6), side) < 0.3 ? MAT.GLASS_LIT : MAT.GLASS;
             else if (ly === 5) m = MAT.TRIM_DARK;
           } else {
             const pu = (u - 2) % 5;
-            if (ly >= 2 && ly <= 4 && pu >= 1 && pu <= 3 && u < L - 3) m = MAT.GLASS;
+            if (ly >= 2 && ly <= 4 && pu >= 1 && pu <= 3 && u < L - 3) m = litHash(b, st, Math.floor((u - 2) / 5), side) < 0.22 ? MAT.GLASS_LIT : MAT.GLASS;
             else if (ly === 1 && pu >= 1 && pu <= 3 && u < L - 3) m = o.trim; // sill
           }
         }
@@ -100,7 +110,7 @@ function house(vox, o) {
         const c = Math.floor(L / 2);
         if (!corner) {
           if (front && st === 0 && Math.abs(u - c) <= 1 && ly <= 4) m = 0;
-          else if (ly >= 2 && ly <= 4 && ((u >= 2 && u <= 4) || (u >= L - 5 && u <= L - 3))) m = MAT.GLASS;
+          else if (ly >= 2 && ly <= 4 && ((u >= 2 && u <= 4) || (u >= L - 5 && u <= L - 3))) m = litHash(b, st, u < L / 2 ? 0 : 1, edgeZ ? 1 : 2) < 0.3 ? MAT.GLASS_LIT : MAT.GLASS;
         }
       }
       if (m) vox.set(x0 + x, y, z0 + z, m, b);

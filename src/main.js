@@ -57,6 +57,29 @@ const sky = makeSky(); sky.scale.setScalar(5000); scene.add(sky);
   scene.environment = pmrem.fromScene(envScene, 0.02, 0.1, 1000).texture;
   scene.environmentIntensity = 0.9;
 }
+// Drifting cloud layer: procedural fbm on a dome, lit warm on the sun side, fading at the horizon.
+const clouds = new THREE.Mesh(new THREE.SphereGeometry(2400, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uSun: { value: sunDir.clone() } },
+  transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
+  vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform float uTime; uniform vec3 uSun; varying vec3 vDir;
+    float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+      return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
+    float fbm(vec2 p){ float a = 0.5, s = 0.0; for (int i = 0; i < 6; i++){ s += a * n(p); p = p * 2.03 + 17.1; a *= 0.5; } return s; }
+    void main(){
+      if (vDir.y < 0.0) discard;
+      vec2 p = vDir.xz / (vDir.y + 0.12) * 1.4 + vec2(uTime * 0.012, uTime * 0.004);
+      float d = fbm(p), d2 = fbm(p + uSun.xz * 0.08);
+      float cov = smoothstep(0.48, 0.78, d);
+      float shade = clamp(0.55 + (d - d2) * 3.0, 0.0, 1.0);            // brighter edges facing the sun
+      float sunSide = pow(max(dot(normalize(vDir), uSun), 0.0), 3.0);
+      vec3 lit = mix(vec3(0.62, 0.64, 0.7), vec3(1.0, 0.86, 0.68), shade) * (0.75 + sunSide * 0.5);
+      float fade = smoothstep(0.02, 0.22, vDir.y);
+      gl_FragColor = vec4(lit, cov * 0.85 * fade);
+    }`,
+}));
+clouds.renderOrder = -1; scene.add(clouds);
 scene.fog = new THREE.FogExp2(0xb3b4b0, 0.0028); // atmospheric haze matched to the horizon
 
 // Lighting rig: warm golden-hour key (sun), cool sky/ground hemisphere fill, cool rim behind the player.
@@ -67,6 +90,8 @@ sun.shadow.camera.near = 1; sun.shadow.camera.far = 500;
 sun.shadow.bias = -0.00025; sun.shadow.normalBias = 0.035; // no acne on voxel faces, no peter-panning at feet
 scene.add(sun, sun.target);
 const hemi = new THREE.HemisphereLight(0x7090b5, 0x2a2520, 1.0); scene.add(hemi);
+// palm-thruster glow (two lights kept in the scene so the shader light count never changes)
+const handLights = [0, 1].map(() => { const l = new THREE.PointLight(0xff8a3a, 0, 9, 2); scene.add(l); return l; });
 const rim = new THREE.DirectionalLight(0xb8d4ff, 2.2); // placed behind the player each frame, facing the camera
 scene.add(rim, rim.target);
 // street-lamp light pools: a fixed set of spot lights moved to the lamps nearest the player
@@ -528,7 +553,7 @@ gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings
 gtao.blendIntensity = 0.9;
 {
   const ov = gtao.overrideVisibility.bind(gtao);
-  gtao.overrideVisibility = () => { ov(); fx.fx.visible = false; fx.scorch.visible = false; sky.visible = false; };
+  gtao.overrideVisibility = () => { ov(); fx.fx.visible = false; fx.scorch.visible = false; sky.visible = false; clouds.visible = false; };
 }
 composer.addPass(gtao);
 // threshold above 1: only HDR emissives (eyes, lasers, sparks, bulbs) bloom, never lit surfaces
@@ -635,6 +660,39 @@ function speedLines(dt) {
   }
 }
 
+// ---------------------------------------------------------------- dummy speech bubble
+const bubble = $('bubble');
+function updateBubble() {
+  const sp = dummy.speech;
+  const head = tmp.copy(dummy.p[0]); head.y += 0.45;
+  const d = head.distanceTo(camera.position);
+  if (!sp || d > 70) { bubble.hidden = true; return; }
+  head.project(camera);
+  if (head.z > 1 || Math.abs(head.x) > 1.1 || Math.abs(head.y) > 1.1) { bubble.hidden = true; return; }
+  bubble.hidden = false;
+  if (bubble.textContent !== sp.text) bubble.textContent = sp.text;
+  bubble.style.transform = `translate(${(head.x * 0.5 + 0.5) * innerWidth}px, ${(-head.y * 0.5 + 0.5) * innerHeight}px) translate(-50%, -100%) scale(${Math.max(0.7, Math.min(1.1, 14 / d))})`;
+  bubble.style.opacity = Math.min(1, sp.t * 2);
+}
+
+// palm thrusters: exhaust sparks and heat haze from each open hand, plus a warm light
+function updateHandThrust(dt) {
+  const jets = robot.handJets || [];
+  for (let i = 0; i < 2; i++) {
+    const j = jets[i], l = handLights[i];
+    const k = j && j.g.visible ? j.k : 0;
+    if (k < 0.05) { l.intensity = 0; continue; }
+    const p = robot.handJetWorld(i, tmp), dir = robot.handJetDir(i, tmp2);
+    l.position.copy(p).addScaledVector(dir, 0.25); l.intensity = k * (6 + Math.random() * 3);
+    const n = Math.random() < k * dt * 90 ? 1 + (k > 0.8 ? 1 : 0) : 0;
+    for (let e = 0; e < n; e++) {
+      const v = tmp3.copy(dir).multiplyScalar(14 + Math.random() * 10).add(rndVec(new THREE.Vector3(), 3)).addScaledVector(player.vel, 0.6);
+      fx.sparks.emit(p, v, new THREE.Color(5, 2.4, 0.8), 0.12 + Math.random() * 0.15, 0.2, 0.015);
+    }
+    if (Math.random() < k * dt * 12) { dustColor.setRGB(0.5, 0.47, 0.45); fx.dust.emit(tmp3.copy(p).addScaledVector(dir, 0.6), tmp2.copy(dir).multiplyScalar(4).addScaledVector(player.vel, 0.3), dustColor, 0.25, 0.5, 1.2, 0.12); }
+  }
+}
+
 // ---------------------------------------------------------------- HUD
 const hud = { speed: $('speed'), mode: $('mode'), fps: $('fps'), rubble: $('rubble'), charge: $('chargeRing'), grab: $('grabHint') };
 let fpsAcc = 0, fpsN = 0, fpsT = 0, autoT = 0, autoSamples = [];
@@ -718,13 +776,20 @@ function tick(rdt) {
   debris.update(dt, dt > 1 / 70 ? 3 : 2);
   vox.updateIntegrity(dt, detach);
   vox.flush();
+  dummy.think(dt, {
+    playerPos: player.pos, charging: player.charging, speed: player.vel.length(),
+    laserNear: player.laser && aim.point.distanceTo(dummy.chest(tmp)) < 5, laserOnMe: player.laser && aim.kind === 'dummy',
+  });
   dummy.update(dt);
+  updateBubble();
+  updateHandThrust(dt);
   speedLines(dt);
   fx.update(dt, camera);
   fx.dust.uniforms.uScale.value = renderer.domElement.height * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
   sfx.set(player.vel.length(), player.laser);
   updateSunShadow();
   finish.uniforms.uTime.value = time % 100;
+  clouds.position.copy(camera.position); clouds.material.uniforms.uTime.value = time;
   updateHud(rdt);
 }
 // advance the game without rendering (used by automated tests)

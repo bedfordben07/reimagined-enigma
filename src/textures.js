@@ -376,3 +376,15 @@ export function paintedArmorTex(seed, baseHex, roughness = 0.45) {
 export function pbr(tex, params = {}, Mat = THREE.MeshStandardMaterial) {
   return new Mat({ map: tex.map, normalMap: tex.normalMap, aoMap: tex.ormMap, roughnessMap: tex.ormMap, metalnessMap: tex.ormMap, roughness: 1, metalness: 0, ...params });
 }
+
+// Emissive mask for lit windows: glowing pane with a soft warm gradient, dark frame.
+export function windowGlowTex() {
+  const n = 128, c = document.createElement('canvas'); c.width = c.height = n;
+  const x = c.getContext('2d');
+  x.fillStyle = '#000'; x.fillRect(0, 0, n, n);
+  const g = x.createLinearGradient(0, 0, 0, n);
+  g.addColorStop(0, '#6a5a48'); g.addColorStop(0.6, '#ffffff'); g.addColorStop(1, '#c9b8a0');
+  x.fillStyle = g; x.fillRect(8, 8, n - 16, n - 16);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}

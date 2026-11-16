@@ -32,7 +32,7 @@ High and steps down automatically if the frame rate drops).
 | `E` | grab the dummy, press again (or click) to throw it |
 | `R` | new dummy in front of you |
 | `T` | rebuild the town |
-| `V` | switch character (Android / Spectre V-01) |
+| `V` | switch character (Sentinel / Spectre V-01) |
 | `O` | ink outlines on/off |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
@@ -45,7 +45,8 @@ High and steps down automatically if the frame rate drops).
 - `src/debris.js` — broken blocks become rigid rubble (box corner contacts with friction,
   chunk-to-chunk contacts, sleeping). Fast rubble can knock out more blocks.
 - `src/dummy.js` — Verlet ragdoll. Body parts moving fast enough punch holes in walls.
-- `src/robot.js` — the procedural android model and its poses (walk, hover, superhero flight,
+- `src/geom.js` — shared lathe / bevel-extrude / cable builders for the characters.
+- `src/robot.js` — the Sentinel avatar model, palm thrusters and its poses (walk, hover, superhero flight,
   punch wind-up/strike, laser aim, carrying).
 - `src/spectre.js` — Spectre V-01: caped purple mecha with a red mono-eye laser, built on the same rig.
 - `src/outline.js` — optional inverted-hull ink outline for the characters.
