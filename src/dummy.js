@@ -5,6 +5,7 @@ import { dummyTex, brushedMetalTex, pbr } from './textures.js';
 import { lathe, extrude, roundRect, smoothSym, smoothShape, toX } from './geom.js';
 
 // Lines it says, by situation.
+export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug'];
 const LINES = {
   greet: ['Hi there!', 'Test subject reporting!', 'Be gentle?', 'Oh good, you again.', 'Ready when you are!'],
   hit: ['OOF!', 'Not the face!', 'Ow ow ow!', 'Was that necessary?!', 'My warranty!', 'AAAAH!', 'Rude!'],
@@ -89,7 +90,8 @@ export class Dummy {
     this.burn = 0;
     this.lastHitTime = 0;
     this.time = 0; this.blinkT = 2; this.lastSay = 0; this.speech = null;
-    this.mood = 'idle'; this.moodT = 0; this.moodW = { wave: 0, cower: 0, taunt: 0, dizzy: 0 };
+    this.mood = 'idle'; this.moodT = 0; this.moodW = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0 };
+    this.cmd = null; this.walkPh = 0; this.brainOn = false; this.brainMood = 'cheerful'; this.onEvent = null;
     this.greetReady = true; this.wasThreat = false; this.heldSince = 0; this.bigHit = 0;
     this.player = new THREE.Vector3(); this.headQ = new THREE.Quaternion();
     this._buildMeshes();
@@ -219,6 +221,8 @@ export class Dummy {
     const sp = vel.length();
     if (sp > 45) this.bigHit = 1;
     if (sp > 3) this.say(sp > 45 ? LINES.big : LINES.hit, sp > 45);
+    if (sp > 3) this.onEvent?.(sp > 45 ? 'You just got hit extremely hard and sent flying.' : 'You just got hit.');
+    this.cmd = null;
     return true;
   }
 
@@ -243,10 +247,10 @@ export class Dummy {
     return best;
   }
 
-  grab(target) { this.restT = 0; this.heldSince = this.time; this.say(LINES.grabbed, true); this.mode = 'held'; this.holdTarget.copy(target); }
+  grab(target) { this.restT = 0; this.heldSince = this.time; this.say(LINES.grabbed, true); this.onEvent?.('The player grabbed you and is holding you over their head.'); this.cmd = null; this.mode = 'held'; this.holdTarget.copy(target); }
   release(vel) {
     this.mode = 'ragdoll'; this.bigHit = 1;
-    if (vel.length() > 30) this.say(LINES.thrown, true);
+    if (vel.length() > 30) { this.say(LINES.thrown, true); this.onEvent?.('The player just threw you as hard as they can.'); }
     for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]).addScaledVector(vel, -this.h);
   }
 
@@ -293,6 +297,7 @@ export class Dummy {
         // shake it off: dizzy after a big one, then put its fists up
         if (this.bigHit) { this.mood = 'dizzy'; this.moodT = 1.6; this.moodW.dizzy = 1; this.say(['Whoa... stars...', 'Which one of you is real?', '...ow.']); }
         else { this.mood = 'taunt'; this.moodT = 2.2; this.moodW.taunt = 1; this.say(LINES.getup); }
+        this.onEvent?.(this.bigHit ? 'You got back up after a huge hit and you are dizzy.' : 'You got back on your feet.');
         this.bigHit = 0;
       }
       return;
@@ -341,7 +346,7 @@ export class Dummy {
           const vel = _a.copy(_v).divideScalar(h);
           const n = this.ctx.smash(p, 0.75 + Math.min(0.9, speed * 0.012), { vel, inherit: 0.55, outward: 3 });
           if (n > 0) {
-            if (Math.random() < 0.3) this.say(LINES.wall);
+            if (Math.random() < 0.3) { this.say(LINES.wall); this.onEvent?.('You were smashed through a wall.'); }
             // every body part loses a little momentum per wall
             for (let j = 0; j < this.n; j++) {
               _b.subVectors(this.p[j], this.o[j]).multiplyScalar(0.06);
@@ -375,40 +380,76 @@ export class Dummy {
     this.speech = { text: Array.isArray(lines) ? lines[Math.floor(Math.random() * lines.length)] : lines, t: 2.4 };
   }
 
+  // An action chosen by the dummy's brain (Claude, when connected): plays for `secs` seconds.
+  command(name, secs = 3) {
+    if (!ACTIONS.includes(name)) name = 'idle';
+    this.cmd = { name, t: Math.max(1, Math.min(6, secs || 3)) };
+  }
+
   // Called every frame with what the player is doing, to pick a mood and react.
   think(dt, ctx) {
     this.time += dt;
     if (this.speech) { this.speech.t -= dt; if (this.speech.t <= 0) this.speech = null; }
     this.player.copy(ctx.playerPos);
-    const d = Math.hypot(ctx.playerPos.x - this.root.x, ctx.playerPos.z - this.root.z);
+    const dx = ctx.playerPos.x - this.root.x, dz = ctx.playerPos.z - this.root.z, d = Math.hypot(dx, dz);
     const W = this.moodW;
-    const want = { wave: 0, cower: 0, taunt: 0, dizzy: 0 };
+    const want = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0 };
+    if (this.cmd) { this.cmd.t -= dt; if (this.cmd.t <= 0) this.cmd = null; }
+    let faceTarget = Math.atan2(dx, dz), turnRate = 2.5;
     if (this.mode === 'stand') {
       this.moodT = Math.max(0, this.moodT - dt);
       const threatened = (ctx.charging && d < 14) || (ctx.laserNear && d < 40) || (ctx.speed > 40 && d < 20);
-      if (threatened) {
+      const c = this.cmd && this.cmd.name;
+      if (c && c !== 'idle') {
+        // the brain is in charge
+        if (c === 'flee' || c === 'approach') {
+          const away = c === 'flee';
+          if (!away && d < 3.5) this.cmd = null;
+          else {
+            const dir = away ? Math.atan2(-dx, -dz) : faceTarget;
+            this._walk(dt, dir, away ? 3.4 : 2.2);
+            want.walk = 1; faceTarget = dir; turnRate = 8;
+          }
+        } else if (c in want) want[c] = 1;
+      } else if (threatened) {
         want.cower = 1;
-        if (!this.wasThreat) this.say(ctx.laserNear ? LINES.laserNear : LINES.cower);
+        if (!this.wasThreat && !this.brainOn) this.say(ctx.laserNear ? LINES.laserNear : LINES.cower);
       } else if (this.mood === 'dizzy' && this.moodT > 0) want.dizzy = 1;
       else if (this.mood === 'taunt' && this.moodT > 0) want.taunt = 1;
       else if (this.mood === 'wave' && this.moodT > 0) want.wave = 1;
       else {
-        if (this.mood === 'dizzy') { this.mood = 'taunt'; this.moodT = 2.2; this.say(LINES.taunt); }
+        if (this.mood === 'dizzy') { this.mood = 'taunt'; this.moodT = 2.2; if (!this.brainOn) this.say(LINES.taunt); }
         else this.mood = 'idle';
-        if (d < 14 && this.greetReady) { this.greetReady = false; this.mood = 'wave'; this.moodT = 2.4; this.say(LINES.greet); }
+        if (d < 14 && this.greetReady) { this.greetReady = false; this.mood = 'wave'; this.moodT = 2.4; if (!this.brainOn) this.say(LINES.greet); this.onEvent?.('The player walked up to you.'); }
       }
       if (d > 30) this.greetReady = true;
+      if (threatened && !this.wasThreat) this.onEvent?.(ctx.laserNear ? 'The player is firing laser eyes right next to you.' : ctx.charging ? 'The player is charging up a punch near you.' : 'The player is flying at you at high speed.');
       this.wasThreat = threatened;
-      // turn to face the player
+      // turn to face the player (or the way it's walking)
       if (d < 35 && d > 0.5) {
-        const target = Math.atan2(ctx.playerPos.x - this.root.x, ctx.playerPos.z - this.root.z);
-        let dy = target - this.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-        this.yaw += dy * Math.min(1, dt * (threatened ? 6 : 2.5));
+        let dy = faceTarget - this.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        this.yaw += dy * Math.min(1, dt * (threatened ? 6 : turnRate));
       }
     }
     for (const k in W) W[k] += (want[k] - W[k]) * Math.min(1, dt * (k === 'cower' ? 9 : 5));
-    if (this.mode === 'held' && this.time - this.heldSince > 2.5 && Math.random() < dt * 0.5) this.say(LINES.held);
-    if (this.burn > 0 && ctx.laserOnMe && Math.random() < dt * 2) this.say(LINES.laser);
+    if (this.mode === 'held' && this.time - this.heldSince > 2.5 && Math.random() < dt * 0.5 && !this.brainOn) this.say(LINES.held);
+    if (this.burn > 0 && ctx.laserOnMe && Math.random() < dt * 2 && !this.brainOn) this.say(LINES.laser);
+  }
+
+  // Walk the standing dummy along the ground; walls stop it, stepping off a roof edge drops it.
+  _walk(dt, dir, speed) {
+    const nx = this.root.x + Math.sin(dir) * speed * dt, nz = this.root.z + Math.cos(dir) * speed * dt;
+    const y = this.root.y, v = this.voxels;
+    if (v.solidAt(nx, y + 0.6, nz) || v.solidAt(nx, y + 1.4, nz) || Math.abs(nx) > 110 || Math.abs(nz) > 110) { this.cmd = null; return; }
+    this.root.x = nx; this.root.z = nz;
+    this.walkPh += dt * speed * 3.4;
+    if (y > 0.01 && !v.solidAt(nx, y - 0.25, nz)) {
+      // walked off the edge
+      this.mode = 'ragdoll';
+      this.push(new THREE.Vector3(Math.sin(dir) * speed, 1, Math.cos(dir) * speed));
+      this.say(['Oh no.', 'Whoops!', 'That was not there before!'], true);
+      this.cmd = null;
+    }
   }
 
   // Standing pose with mood layers blended in (local space, facing +Z).
@@ -419,12 +460,10 @@ export class Dummy {
     // breathing and a slow weight shift
     if (upper) { y += Math.sin(t * 1.8) * 0.008; x += Math.sin(t * 0.6) * 0.012; }
     const blend = (w, tx, ty, tz) => { if (w <= 0.001) return; x += (tx - b[0]) * w; y += (ty - b[1]) * w; z += (tz - b[2]) * w; };
-    // wave hello with the right hand
     if (W.wave > 0) {
       if (name === 'rel') blend(W.wave, 0.36, 1.5, 0.05);
       if (name === 'rha') blend(W.wave, 0.4 + Math.sin(t * 11) * 0.09, 1.8, 0.08);
     }
-    // cower: crouch, arms up over the face
     if (W.cower > 0) {
       const c = W.cower, dip = 0.24 * c;
       if (name === 'lha') blend(c, -0.07, 1.62, 0.2); if (name === 'rha') blend(c, 0.07, 1.6, 0.2);
@@ -433,7 +472,6 @@ export class Dummy {
       if (name === 'head') { z += 0.05 * c; x += Math.sin(t * 30) * 0.006 * c; }
       if (name === 'lkn' || name === 'rkn') { z += 0.16 * c; y -= 0.08 * c; }
     }
-    // taunt: boxing guard and a bouncy hop
     if (W.taunt > 0) {
       const k = W.taunt, hop = Math.abs(Math.sin(t * 7)) * 0.07 * k, jab = Math.max(0, Math.sin(t * 3.5)) ** 8;
       if (name === 'lha') blend(k, -0.1, 1.38, 0.26 + jab * 0.22); if (name === 'rha') blend(k, 0.12, 1.33, 0.2);
@@ -441,10 +479,41 @@ export class Dummy {
       if (name !== 'lft' && name !== 'rft') y += hop - 0.04 * k;
       if (name === 'lkn' || name === 'rkn') z += 0.05 * k;
     }
-    // dizzy: head and shoulders circle
     if (W.dizzy > 0) {
       const k = W.dizzy;
       if (upper) { x += Math.sin(t * 5) * 0.05 * k * (name === 'head' ? 1.6 : 1); z += Math.cos(t * 5) * 0.05 * k * (name === 'head' ? 1.6 : 1); }
+    }
+    if (W.dance > 0) {
+      // hip sway, bouncing knees, arms pumping up in turn
+      const k = W.dance, s6 = Math.sin(t * 6), bounce = Math.abs(Math.sin(t * 6)) * 0.07;
+      if (name === 'lha') blend(k, -0.36, 1.45 + Math.max(0, s6) * 0.45, 0.1); if (name === 'rha') blend(k, 0.36, 1.45 + Math.max(0, -s6) * 0.45, 0.1);
+      if (name === 'lel') blend(k, -0.36, 1.38, 0.05); if (name === 'rel') blend(k, 0.36, 1.38, 0.05);
+      if (name === 'lhp' || name === 'rhp') x += s6 * 0.07 * k;
+      if (upper) x -= s6 * 0.04 * k;
+      if (name !== 'lft' && name !== 'rft') y -= bounce * k;
+    }
+    if (W.point > 0) {
+      const k = W.point;
+      if (name === 'rel') blend(k, 0.25, 1.42, 0.24); if (name === 'rha') blend(k, 0.2, 1.45, 0.52);
+      if (name === 'lel') blend(k, -0.37, 1.15, -0.06); if (name === 'lha') blend(k, -0.27, 0.98, 0.06);
+    }
+    if (W.shrug > 0) {
+      const k = W.shrug;
+      if (name === 'lel') blend(k, -0.3, 1.12, 0.06); if (name === 'rel') blend(k, 0.3, 1.12, 0.06);
+      if (name === 'lha') blend(k, -0.42, 1.14, 0.26); if (name === 'rha') blend(k, 0.42, 1.14, 0.26);
+      if (name === 'lsh' || name === 'rsh') y += 0.05 * k;
+      if (name === 'head') x += 0.04 * k;
+    }
+    if (W.walk > 0) {
+      const k = W.walk, ph = this.walkPh, sL = Math.sin(ph), cL = Math.cos(ph);
+      if (name === 'lft') { z += sL * 0.26 * k; y += Math.max(0, cL) * 0.1 * k; }
+      if (name === 'rft') { z -= sL * 0.26 * k; y += Math.max(0, -cL) * 0.1 * k; }
+      if (name === 'lkn') { z += sL * 0.14 * k + 0.04 * k; y += Math.max(0, cL) * 0.05 * k; }
+      if (name === 'rkn') { z -= sL * 0.14 * k - 0.04 * k; y += Math.max(0, -cL) * 0.05 * k; }
+      if (name === 'lha' || name === 'lel') z -= sL * (name === 'lha' ? 0.2 : 0.08) * k;
+      if (name === 'rha' || name === 'rel') z += sL * (name === 'rha' ? 0.2 : 0.08) * k;
+      if (name !== 'lft' && name !== 'rft') y += Math.abs(cL) * 0.03 * k;
+      if (upper) z += 0.04 * k;
     }
     return out.set(x, y, z);
   }
@@ -490,17 +559,21 @@ export class Dummy {
     if (this.blinkT < -0.12) this.blinkT = 1.5 + Math.random() * 3.5;
     const blink = this.blinkT < 0 ? 0.12 : 1;
     const W = this.moodW, ragdoll = this.mode === 'ragdoll' || this.mode === 'held';
-    const scared = Math.max(W.cower, ragdoll ? 1 : 0), angry = W.taunt, dizzy = W.dizzy;
+    const bm = this.brainOn && this.mode === 'stand' ? this.brainMood : '';
+    const scared = Math.max(W.cower, ragdoll ? 1 : 0, bm === 'scared' ? 0.6 : 0), angry = Math.max(W.taunt, bm === 'annoyed' ? 0.8 : 0), dizzy = W.dizzy;
+    const happy = bm === 'cheerful' ? 1 : 0, smug = bm === 'cocky' || bm === 'smug' ? 1 : 0;
+    const talking = this.speech && this.speech.t > 1.0 ? Math.abs(Math.sin(this.time * 17)) : 0;
     for (const e of this.eyesD) {
       const open = (1 + scared * 0.35) * blink;
       e.ball.scale.set(1 + scared * 0.25, open * (ragdoll ? 0.25 + Math.abs(Math.sin(this.time * 3)) * 0.2 : 1), 0.6);
       const sp = dizzy > 0.1 ? [Math.cos(this.time * 9 * e.sx) * 0.012, Math.sin(this.time * 9) * 0.012] : [Math.sin(this.time * 0.7 + e.sx) * 0.004, 0];
       e.pu.position.set(sp[0], sp[1], 0.017);
       e.pu.scale.setScalar(1 - scared * 0.35);
-      e.brow.rotation.z = e.sx * (angry * 0.45 - scared * 0.35);
-      e.brow.position.y = 0.078 + scared * 0.012 - angry * 0.006;
+      e.brow.rotation.z = e.sx * (angry * 0.45 - scared * 0.35 - happy * 0.15) + (smug && e.sx < 0 ? -0.25 : 0);
+      e.brow.position.y = 0.078 + scared * 0.012 - angry * 0.006 + happy * 0.008 + (smug && e.sx < 0 ? 0.012 : 0);
     }
-    this.mouth.scale.set(1 - scared * 0.3 + angry * 0.2, 1 + scared * 3.5, 1);
+    this.mouth.scale.set(1 - scared * 0.3 + angry * 0.2 + happy * 0.45 + smug * 0.2, 1 + scared * 3.5 + talking * 3, 1);
+    this.mouth.rotation.z = smug ? 0.25 : 0;
     for (const [a, b, m] of this.limbs) {
       m.position.lerpVectors(P[a], P[b], 0.5);
       _v.subVectors(P[b], P[a]).normalize();

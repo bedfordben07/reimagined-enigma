@@ -261,6 +261,7 @@ export class Robot {
     const dt = s.dt;
     this.t = (this.t || 0) + dt;
     const t = this.t;
+    this.lookOff = 0;
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const sstep = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
     // pose targets
@@ -335,27 +336,39 @@ export class Robot {
         P.lHipZ = 0.05; P.rHipZ = -0.05;
         P.bodyX = a * (0.1 + 0.25 * sprint);
         P.bodyY = 1.15 - 0.05 * a + Math.abs(lC) * 0.07 * a;
-        P.bodyYaw = -lS * 0.12 * a; P.chestY = lS * 0.22 * a;
-        P.bodyZ = clamp(-s.turnRate * 0.06, -0.15, 0.15);
+        P.bodyYaw = -lS * 0.16 * a; P.chestY = lS * 0.3 * a; P.spineY = lS * 0.06 * a;
+        P.bodyZ = clamp(-s.turnRate * 0.06, -0.15, 0.15) + lS * 0.05 * a; P.headZ = -lS * 0.04 * a;
         P.headX = -P.bodyX * 0.6;
         rate = 16; armRate = 16;
       } else {
-        // standing: a wide, planted power stance. Feet apart, knees soft, chest up, arms held off the
-        // bulk of the body with clenched fists; slow breathing and a little weight shift.
-        const br = Math.sin(t * 1.6), shift = Math.sin(t * 0.45);
-        P.chestX = -0.06 + br * 0.025; P.bodyY = 1.12 + br * 0.006; P.bodyZ = shift * 0.02;
-        P.lHipZ = 0.16 + shift * 0.02; P.rHipZ = -0.16 + shift * 0.02; P.lAn = 0; P.rAn = 0;
-        P.lHip = 0.06; P.rHip = -0.05; P.lKn = 0.14; P.rKn = 0.12;
-        P.L = { sx: -0.12, sy: 0.15, sz: -0.3 - br * 0.02, el: -0.42, curl: 1 };
-        P.R = { sx: -0.08, sy: -0.15, sz: 0.3 + br * 0.02, el: -0.38, curl: 1 };
-        P.headX = 0.08;
-      }
+        // standing: wide planted power stance, but alive. Weight drifts from leg to leg (hip drops on the
+        // loaded side, other knee softens), the spine curves a little, arms hang and sway like pendulums,
+        // and every few seconds there is a fidget: a look around, a shoulder roll, a fist flex or a neck crack.
+        const br = Math.sin(t * 1.6), shift = Math.sin(t * 0.37) * 0.8 + Math.sin(t * 0.9) * 0.2, sway = Math.sin(t * 1.15);
+        P.chestX = -0.07 + br * 0.03; P.spineX = 0.04 + br * 0.01; P.bodyY = 1.11 + br * 0.008 - Math.abs(shift) * 0.012;
+        P.bodyZ = shift * 0.055; P.chestY = Math.sin(t * 0.27) * 0.06; P.bodyYaw = Math.sin(t * 0.21) * 0.05;
+        P.lHipZ = 0.15 - shift * 0.05; P.rHipZ = -0.15 - shift * 0.05; P.lAn = 0; P.rAn = 0;
+        P.lHip = 0.05; P.rHip = -0.04; P.lKn = 0.1 + Math.max(0, -shift) * 0.16; P.rKn = 0.1 + Math.max(0, shift) * 0.16;
+        P.L = { sx: -0.1 + sway * 0.035, sy: 0.15, sz: -0.28 - br * 0.025 - shift * 0.03, el: -0.4 - br * 0.05, curl: 0.9 };
+        P.R = { sx: -0.06 - sway * 0.035, sy: -0.15, sz: 0.28 + br * 0.025 - shift * 0.03, el: -0.36 - br * 0.05, curl: 0.9 };
+        P.headX = 0.06 + br * 0.015; P.headZ = -shift * 0.04;
+        // fidgets
+        this.fidgetT = (this.fidgetT ?? 4) - dt;
+        if (this.fidgetT <= 0) { this.fidget = ['look', 'roll', 'fist', 'neck', 'look'][Math.floor(Math.random() * 5)]; this.fidgetDur = 1.6; this.fidgetT = 4.5 + Math.random() * 5; this.fidgetDir = Math.random() < 0.5 ? -1 : 1; }
+        if (this.fidget && this.fidgetDur > 0) {
+          this.fidgetDur -= dt;
+          const f = Math.sin(Math.min(1, 1 - this.fidgetDur / 1.6) * Math.PI); // 0 -> 1 -> 0
+          if (this.fidget === 'look') { this.lookOff = this.fidgetDir * 0.75 * f; P.chestY += this.fidgetDir * 0.12 * f; }
+          if (this.fidget === 'roll') { P.chestX -= 0.12 * f; P.L.sx += 0.25 * Math.sin(f * Math.PI); P.R.sx += 0.25 * Math.sin(f * Math.PI); P.L.sz -= 0.1 * f; P.R.sz += 0.1 * f; }
+          if (this.fidget === 'fist') { P.R.el = -1.3 * f - 0.36; P.R.sx -= 0.5 * f; P.R.curl = 0.5 + Math.abs(Math.sin(f * 9)) * 0.5; P.headX += 0.15 * f; this.lookOff = 0.35 * f; }
+          if (this.fidget === 'neck') { P.headZ += this.fidgetDir * 0.35 * f; }
+        }      }
     }
 
     // head follows the aim when attacking
     const aim = s.aimPitch;
     if (s.laser || s.charge > 0 || s.punchT > 0) P.headX = clamp(-aim - P.bodyX, -1.1, 0.9);
-    P.headY = clamp(s.aimYawRel, -1.1, 1.1);
+    P.headY = clamp(s.aimYawRel + (s.charge > 0 || s.laser || s.punchT > 0 ? 0 : (this.lookOff || 0)), -1.1, 1.1);
 
     // charged punch: the whole body coils with tension, trembling harder the longer it's held
     if (s.charge > 0) {
@@ -431,23 +444,24 @@ export class Robot {
     const wBody = (rate > 12 ? 14 : 10) * action, wArm = (armRate > 12 ? 17 : 13) * action, wLeg = rate > 12 ? 24 : 15;
     const pos = this.body.position, rot = this.body.rotation;
     pos.uuid = this.body.uuid + 'p'; rot.uuid = this.body.uuid + 'r';
-    spring(pos, 'y', P.bodyY, wBody * 1.1, 0.55);
-    spring(rot, 'x', P.bodyX, wBody, 0.7); spring(rot, 'z', P.bodyZ, wBody * 0.8, 0.6); spring(rot, 'y', P.bodyYaw, wBody, 0.65);
+    spring(pos, 'y', P.bodyY, wBody * 1.1, 0.45);
+    spring(rot, 'x', P.bodyX, wBody, 0.6); spring(rot, 'z', P.bodyZ, wBody * 0.8, 0.45); spring(rot, 'y', P.bodyYaw, wBody, 0.5);
     const spR = this.spine.rotation, chR = this.chest.rotation;
     spR.uuid = this.spine.uuid; chR.uuid = this.chest.uuid;
-    spring(spR, 'x', P.spineX, wBody * 1.1, 0.6); spring(spR, 'y', P.spineY, wBody, 0.6);
-    spring(chR, 'y', P.chestY, wBody * 1.15, 0.5); spring(chR, 'x', P.chestX, wBody, 0.6);
+    spring(spR, 'x', P.spineX, wBody * 1.1, 0.5); spring(spR, 'y', P.spineY, wBody, 0.45);
+    spring(chR, 'y', P.chestY, wBody * 1.15, 0.4); spring(chR, 'x', P.chestX, wBody, 0.5);
     // the head trails the body slightly and stabilises against the run
     const hR = this.head.rotation, nR = this.neck.rotation;
     hR.uuid = this.head.uuid; nR.uuid = this.neck.uuid;
-    spring(hR, 'x', P.headX + (s.grounded && !s.flying ? -this.body.rotation.x * 0.15 : 0), 11, 0.7);
+    spring(hR, 'x', P.headX + (s.grounded && !s.flying ? -this.body.rotation.x * 0.15 : 0), 11, 0.6);
+    spring(hR, 'z', P.headZ, 9, 0.55);
     spring(nR, 'y', P.headY - this.chest.rotation.y - this.body.rotation.y, 11, 0.7);
     for (const [side, A] of [[-1, P.L], [1, P.R]]) {
       const a = this.arms[side];
       const r1 = a.sh.rotation, r2 = a.el.rotation, r3 = a.fingers.rotation;
       r1.uuid = a.sh.uuid; r2.uuid = a.el.uuid; r3.uuid = a.fingers.uuid;
-      spring(r1, 'x', A.sx, wArm, 0.55); spring(r1, 'y', A.sy, wArm, 0.6); spring(r1, 'z', A.sz, wArm, 0.6);
-      spring(r2, 'x', A.el, wArm * 1.25, 0.5); // forearm lags and whips past the upper arm
+      spring(r1, 'x', A.sx, wArm, 0.42); spring(r1, 'y', A.sy, wArm, 0.5); spring(r1, 'z', A.sz, wArm, 0.45);
+      spring(r2, 'x', A.el, wArm * 1.25, 0.38); // forearm lags and whips past the upper arm
       spring(r3, 'x', -A.curl * 1.7, 20, 0.8);
     }
     const lg = this.legs;

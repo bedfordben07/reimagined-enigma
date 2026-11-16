@@ -34,6 +34,7 @@ High and steps down automatically if the frame rate drops).
 | `T` | rebuild the town |
 | `V` | switch character (Sentinel / Spectre V-01) |
 | `O` | ink outlines on/off |
+| `Enter` | talk to the dummy |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
 
@@ -50,6 +51,7 @@ High and steps down automatically if the frame rate drops).
   punch wind-up/strike, laser aim, carrying).
 - `src/spectre.js` — Spectre V-01: caped purple mecha with a red mono-eye laser, built on the same rig.
 - `src/outline.js` — optional inverted-hull ink outline for the characters.
+- `src/brain.js` — when opened inside claude.ai (and the viewer allows it), Claude decides what the dummy does and says.
 - `src/effects.js` — dust, sparks, shockwaves, laser beams, scorch marks.
 - `src/textures.js` — all textures (brick, plaster, concrete, glass, asphalt…) are generated
   procedurally at start-up, with normal and roughness maps.
