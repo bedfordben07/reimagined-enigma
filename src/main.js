@@ -245,43 +245,77 @@ setFights(dummy.fights);
 // knock the player back with a jolt
 dummy.ctx.hitPlayer = (dir, power, kind) => {
   const d = dir.clone().setY(0).normalize();
-  player.vel.addScaledVector(d, power); player.vel.y += power * (kind === 'tackle' ? 0.45 : 0.3);
-  player.grounded = false; player.charging = false;
+  // real knockback: big launch plus a short loss of control so it carries (hard hits smash you through walls)
+  const up = { tackle: 0.35, slam: 0.75, uppercut: 1.0, rock: 0.35, punch: 0.3 }[kind] ?? 0.3;
+  player.vel.set(player.vel.x * 0.3, Math.max(0, player.vel.y * 0.3), player.vel.z * 0.3);
+  player.vel.addScaledVector(d, power); player.vel.y += power * up;
+  player.stun = power >= 8 ? 0.25 + power / 90 : 0;
+  player.grounded = false; player.charging = false; player.punchT = 0;
+  if (power >= 30) hitstop = Math.max(hitstop, 0.05 + power / 900);
   robot.hitReact(power);
   const c = chestPos(new THREE.Vector3());
   for (let i = 0; i < 24; i++) fx.sparks.emit(c, rndVec(new THREE.Vector3(), 14).addScaledVector(d, 6), new THREE.Color(5, 4, 2.5), 0.2 + Math.random() * 0.25, 0.6, 0.02);
   fx.wave(c, 1.6, 0.22);
-  shake = Math.min(1, shake + 0.25 + power / 80);
-  sfx.boom(0.35 + power / 60);
+  shake = Math.min(1, shake + 0.25 + power / 60);
+  sfx.boom(0.4 + power / 45);
   tagged++; $('tagHud').textContent = tagged;
   brain.event(`You hit the player with a ${kind}! That is ${tagged} hits on them so far.`);
 };
 // hurl a chunk of rubble on a ballistic arc, leading the player
 const rocks = [];
-dummy.ctx.throwRock = (from) => {
+dummy.ctx.throwRock = (from, spread = 0, size = 1) => {
   const aim = chestPos(new THREE.Vector3());
   const dist = Math.hypot(aim.x - from.x, aim.z - from.z);
-  const T = Math.max(0.3, dist / 24);
-  aim.addScaledVector(player.vel, T * 0.6);
+  const T = Math.max(0.3, dist / 30);
+  aim.addScaledVector(player.vel, T * 0.8);
+  if (spread) { const side = new THREE.Vector3(aim.z - from.z, 0, -(aim.x - from.x)).normalize(); aim.addScaledVector(side, spread * 2.2); }
   const v = new THREE.Vector3((aim.x - from.x) / T, (aim.y - from.y) / T + 0.5 * 20 * T, (aim.z - from.z) / T);
-  const it = debris.spawn(from, v, MAT.CONCRETE, new THREE.Color(0.75, 0.73, 0.7), 0.55);
-  if (it) rocks.push({ it, life: 5 });
+  const it = debris.spawn(from, v, MAT.CONCRETE, new THREE.Color(0.75, 0.73, 0.7), 0.6 * size);
+  if (it) rocks.push({ it, life: 5, prev: v.length(), size });
   sfx.whoosh();
 };
+dummy.ctx.whoosh = () => sfx.whoosh();
+// the rock bursts where it lands: a small blast that hurts if you're near it
+function rockBurst(p, size) {
+  smash(p, 1.1 * size, { outward: 6, up: 3 });
+  fx.wave(p, 2.6 * size, 0.25, new THREE.Color(1.6, 1.3, 1.0));
+  debris.blast(p, 4, 10);
+  dustColor.setRGB(0.6, 0.57, 0.53);
+  for (let i = 0; i < 8; i++) fx.dust.emit(p, rndVec(tmp3, 6), dustColor, 1.2, 1.4, 2, 0.4);
+  const c = chestPos(new THREE.Vector3()), dd = c.distanceTo(p);
+  if (dd < 3.2) dummy.ctx.hitPlayer(c.clone().sub(p), 26 * size * (1 - dd / 4), 'rock');
+  sfx.boom(0.3);
+}
 function updateRocks(dt) {
   const c = chestPos(tmp3);
   for (let i = rocks.length - 1; i >= 0; i--) {
     const r = rocks[i];
     r.life -= dt;
-    if (r.it.dead || r.life <= 0 || r.it.asleep) { rocks.splice(i, 1); continue; }
-    if (r.it.v.lengthSq() > 25 && r.it.p.distanceTo(c) < 1.3) {
-      dummy.ctx.hitPlayer(r.it.v.clone(), 13, 'rock');
+    if (r.it.dead || r.life <= 0) { rocks.splice(i, 1); continue; }
+    const sp = r.it.v.length();
+    if (sp > 5 && r.it.p.distanceTo(c) < 1.4) {
+      dummy.ctx.hitPlayer(r.it.v.clone(), 30 * r.size, 'rock');
+      rockBurst(r.it.p.clone(), r.size * 0.7);
       r.it.v.multiplyScalar(-0.25);
       dummy.say(['Bullseye!', 'Nothing but brick!', 'Ha! Got you!'], true);
-      rocks.splice(i, 1);
+      rocks.splice(i, 1); continue;
     }
+    if (r.prev > 10 && sp < r.prev * 0.55) { rockBurst(r.it.p.clone(), r.size); rocks.splice(i, 1); continue; } // hit something
+    r.prev = sp;
   }
 }
+// leaping ground slam: shockwave that breaks what it lands on and launches you if you're close
+dummy.ctx.slam = (p) => {
+  smash(p.clone().add(new THREE.Vector3(0, 0.2, 0)), 2.6, { outward: 9, up: 6, max: 600 });
+  fx.ring(p, 16, 0.6); fx.wave(p.clone().add(new THREE.Vector3(0, 0.6, 0)), 7, 0.35, new THREE.Color(1.8, 1.6, 1.3));
+  debris.blast(p, 12, 24, null, 0.9);
+  dustColor.set(0xb9ad98);
+  for (let i = 0; i < 36; i++) { const a = Math.random() * 6.28; fx.dust.emit(tmp.set(p.x, p.y + 0.4, p.z), tmp2.set(Math.cos(a) * 15, 0.6, Math.sin(a) * 15), dustColor, 1.6, 1.6 + Math.random(), 2.4, 0.45); }
+  const dd = Math.hypot(player.pos.x - p.x, player.pos.z - p.z);
+  if (dd < 9 && Math.abs(player.pos.y - p.y) < 4) dummy.ctx.hitPlayer(new THREE.Vector3(player.pos.x - p.x, 0, player.pos.z - p.z), 14 + 32 * (1 - dd / 9), 'slam');
+  shake = Math.min(1, shake + Math.max(0.15, 0.7 - p.distanceTo(camera.position) / 60));
+  sfx.boom(1.1);
+};
 
 // talk to the dummy: Enter opens a box, Enter sends, Esc closes
 const talkBox = $('talk'), talkInput = $('talkInput');
@@ -448,6 +482,7 @@ function onPrimaryUp() {
   const power = 0.3 + Math.min(1, player.charge / 1.1) * 1.0;
   player.punchPow = power; player.punchT = 0.4; player.punchHit = false;
   aimDirFrom(chestPos(tmp), player.punchDir);
+  if (dummy.chest(tmp2).distanceTo(player.pos) < 9) dummy.tryDodge(player.punchDir);
   player.vel.addScaledVector(player.punchDir, 22 + 30 * power);
   if (!player.flying && player.punchDir.y > 0.3) player.grounded = false;
   player.charge = 0;
@@ -563,6 +598,7 @@ function laserBlast(p, n, dir) {
 // ---------------------------------------------------------------- movement + collision
 const BODY = [0.4, 1.15, 1.9];
 function updatePlayer(dt) {
+  player.stun = Math.max(0, (player.stun || 0) - dt);
   const f3 = fwd3(new THREE.Vector3()), fh = fwdH(new THREE.Vector3()), rt = rightH(new THREE.Vector3());
   const ix = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
   const iz = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
@@ -578,11 +614,12 @@ function updatePlayer(dt) {
     const speed = (boost ? 125 : 26) * charging;
     if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed);
     const rate = boost ? 1.8 : 4;
-    v.lerp(wish, 1 - Math.exp(-rate * dt));
+    if (player.stun > 0) v.multiplyScalar(Math.exp(-0.7 * dt)); // knocked back: no control until it wears off
+    else v.lerp(wish, 1 - Math.exp(-rate * dt));
   } else {
     const wish = new THREE.Vector3().addScaledVector(fh, iz).addScaledVector(rt, ix);
     if (wish.lengthSq() > 0) wish.normalize().multiplyScalar((boost ? 17 : 8) * charging);
-    const k = 1 - Math.exp(-(player.grounded && player.punchT <= 0 ? 12 : 2.5) * dt);
+    const k = player.stun > 0 ? (player.grounded ? 1 - Math.exp(-2 * dt) : 0) : 1 - Math.exp(-(player.grounded && player.punchT <= 0 ? 12 : 2.5) * dt);
     v.x += (wish.x - v.x) * k; v.z += (wish.z - v.z) * k;
     v.y -= 32 * dt;
   }

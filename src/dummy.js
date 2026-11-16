@@ -5,12 +5,16 @@ import { dummyTex, brushedMetalTex, pbr } from './textures.js';
 import { lathe, extrude, roundRect, smoothSym, smoothShape, toX } from './geom.js';
 
 // Lines it says, by situation.
-export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug', 'punch', 'throw', 'charge'];
-const ATTACKS = ['punch', 'throw', 'charge'];
+export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug', 'punch', 'combo', 'throw', 'volley', 'charge', 'slam'];
+const ATTACKS = ['punch', 'combo', 'throw', 'volley', 'charge', 'slam'];
 const LINES = {
   punch: ['My turn!', 'Taste rubber!', 'Haaa-YAH!', 'Fist of fury!', 'Incoming!'],
   throw: ['Catch!', 'Eat brick!', 'Special delivery!', 'Fore!', 'Think fast!'],
   charge: ['CHAAARGE!', 'Here I come!', 'Full tackle!', 'Out of my way!'],
+  combo: ['One-two-THREE!', 'Combo time!', 'Ora ora ora!', 'Hold still!'],
+  volley: ['Rubble storm!', 'Incoming x3!', 'Dodge THIS!', 'Bricks for days!'],
+  slam: ['Up we go!', 'Ground pound!', 'Heads up!'],
+  shrug: ['Is that it?', 'Tickles.', 'Nice try.', 'Barely felt it.', 'Again?'],
   bounce: ["OW! You're made of METAL!", 'Bad idea. Bad idea.', 'I regret that.', 'Like hitting a wall...'],
   scored: ['GOT YOU!', 'Ha! Bullseye!', 'How do YOU like it?', 'Point to the dummy!', 'Boom!'],
   greet: ['Hi there!', 'Test subject reporting!', 'Be gentle?', 'Oh good, you again.', 'Ready when you are!'],
@@ -101,6 +105,7 @@ export class Dummy {
     this.time = 0; this.blinkT = 2; this.lastSay = 0; this.speech = null;
     this.mood = 'idle'; this.moodT = 0; this.moodW = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0, wind: 0, jab: 0, throwW: 0, throwF: 0, lean: 0 };
     this.atk = null; this.anger = 0; this.atkCool = 0; this.fights = true; this.runFast = false;
+    this.poise = 45; this.stagger = 0; this.dodge = null;
     this.cmd = null; this.walkPh = 0; this.brainOn = false; this.brainMood = 'cheerful'; this.onEvent = null;
     this.greetReady = true; this.wasThreat = false; this.heldSince = 0; this.bigHit = 0;
     this.player = new THREE.Vector3(); this.headQ = new THREE.Quaternion();
@@ -220,7 +225,18 @@ export class Dummy {
       any = true;
     }
     if (!any) return false;
+    // poise: while on its feet it shrugs off lighter hits with a stagger, until the poise breaks
+    const spd = vel.length();
+    if (this.mode === 'stand' && this.atk?.phase !== 'air' && spd < 32 && this.poise > spd * 0.6) {
+      this.poise -= spd * 0.6 + 3;
+      this.stagger = Math.max(this.stagger || 0, 0.25 + spd * 0.01);
+      this.root.x += vel.x * 0.02; this.root.z += vel.z * 0.02;
+      if (spd > 6) { this.say(LINES.shrug); this.anger += 0.5; }
+      return true;
+    }
+    this.poise = 0;
     if (this.mode === 'stand' || this.mode === 'getup') this.mode = 'ragdoll';
+    this.atk = null; this.runFast = false; this.dodge = null;
     this.restT = 0;
     for (let i = 0; i < this.n; i++) {
       const d = this.p[i].distanceTo(center);
@@ -293,7 +309,7 @@ export class Dummy {
     if (this.mode === 'getup') {
       this.getT += h;
       const ss = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
-      const T1 = 0.6, T2 = 0.75;
+      const T1 = 0.35, T2 = 0.45; // springs back up like a fighter
       for (let i = 0; i < this.n; i++) {
         const kneel = this._poseAt(KNEEL, this.toRoot, this.toYaw, i, _a);
         if (this.getT < T1) this.p[i].lerpVectors(this.from[i], kneel, ss(this.getT / T1));
@@ -318,7 +334,7 @@ export class Dummy {
     if (this.mode === 'ragdoll') {
       let maxV = 0;
       for (let i = 0; i < this.n; i++) maxV = Math.max(maxV, this.p[i].distanceToSquared(this.o[i]));
-      if (Math.sqrt(maxV) / h < 1.1) { this.restT += h; if (this.restT > 0.7) { this.restT = 0; this._startGetup(); return; } }
+      if (Math.sqrt(maxV) / h < 1.4) { this.restT += h; if (this.restT > 0.4) { this.restT = 0; this._startGetup(); return; } }
       else this.restT = 0;
     }
     if (this.mode === 'stand') { this._setPose(); for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]); return; }
@@ -422,10 +438,38 @@ export class Dummy {
   }
 
   startAttack(kind, quiet = false) {
-    this.atk = { kind, phase: kind === 'throw' ? 'windup' : 'approach', t: 0 };
-    this.anger = Math.max(0, this.anger - 1); this.atkCool = Math.max(1.2, 3 - this.anger * 0.6) + Math.random() * 1.5; // angrier = faster
-    if (!quiet || !this.speech) this.say(LINES[kind], true);
-    this.onEvent?.(`You decided to ${kind === 'punch' ? 'punch' : kind === 'throw' ? 'throw rubble at' : 'tackle'} the player.`);
+    this.atk = { kind, phase: kind === 'throw' || kind === 'volley' ? 'windup' : kind === 'slam' ? 'crouch' : 'approach', t: 0, n: 0 };
+    this.anger = Math.max(0, this.anger - 0.6);
+    this.atkCool = Math.max(0.7, 1.9 - this.anger * 0.35) + Math.random() * 0.9; // angrier = relentless
+    if (!quiet || !this.speech) this.say(LINES[kind] || LINES.punch, true);
+    const what = { punch: 'punch', combo: 'hit with a three-punch combo', throw: 'throw rubble at', volley: 'hurl a volley of rubble at', charge: 'tackle', slam: 'leap at and ground-slam' }[kind];
+    this.onEvent?.(`You decided to ${what} the player.`);
+  }
+
+  // Pick the attack that suits the range: up close combos, mid range leaps and tackles, far away volleys.
+  _chooseAttack(d, air) {
+    const r = Math.random();
+    if (air) return r < 0.55 ? 'volley' : 'slam';
+    if (d < 4) return r < 0.55 ? 'combo' : 'punch';
+    if (d < 16) return r < 0.45 ? 'slam' : r < 0.75 ? 'charge' : 'combo';
+    return r < 0.5 ? 'volley' : r < 0.75 ? 'charge' : 'throw';
+  }
+
+  // Where it would stand at (x, z): the top of whatever is below `fromY`, or the street.
+  _groundAt(x, z, fromY) {
+    for (let y = fromY; y > 0; y -= 0.25) if (this.voxels.solidAt(x, y, z)) return (Math.floor(y / 0.5) + 1) * 0.5;
+    return 0;
+  }
+
+  // Sidestep a punch it sees coming.
+  tryDodge(punchDir) {
+    if (this.mode !== 'stand' || this.dodge || this.time - (this.lastDodge || 0) < 2.5 || Math.random() > 0.45) return false;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    this.dodge = { x: -punchDir.z * side, z: punchDir.x * side, t: 0.24 };
+    this.lastDodge = this.time; this.atk = null;
+    this.say(['Too slow!', 'Missed me!', 'Nope!', 'Ole!'], true);
+    this.onEvent?.('You dodged the player\'s punch.');
+    return true;
   }
 
   // Runs the current attack. Returns the direction to face.
@@ -434,26 +478,57 @@ export class Dummy {
     A.t += dt;
     const next = (phase) => { A.phase = phase; A.t = 0; };
     const dirToPlayer = () => new THREE.Vector3(dx, 0, dz).normalize();
-    if (A.kind === 'punch') {
+    const strike = (power, kind) => { if (d < 3.0 && Math.abs(ctx.playerPos.y - this.root.y) < 2.5) { this.ctx.hitPlayer?.(dirToPlayer(), power, kind); return true; } return false; };
+    if (A.kind === 'punch' || A.kind === 'combo') {
+      const hits = A.kind === 'combo' ? 3 : 1;
       if (A.phase === 'approach') {
-        if (d < 1.9) next('windup');
-        else if (A.t > 5 || d > 30 || !this._walk(dt, toP, 4.4)) this.atk = null;
-        else want.walk = 1;
-      } else if (A.phase === 'windup') { want.wind = 1; if (A.t > 0.3) { next('strike'); if (d < 2.6) { this.ctx.hitPlayer?.(dirToPlayer(), 15, 'punch'); this.say(LINES.scored, true); } } }
-      else if (A.phase === 'strike') { want.jab = 1; if (A.t > 0.18) next('recover'); }
-      else { want.jab = 0.4; if (A.t > 0.4) this.atk = null; }
-    } else if (A.kind === 'throw') {
-      if (A.phase === 'windup') { want.throwW = 1; if (A.t > 0.55) { next('follow'); this.ctx.throwRock?.(this.p[ID.rha].clone()); } }
-      else { want.throwF = 1; if (A.t > 0.4) this.atk = null; }
+        if (d < 2.1) next('windup');
+        else if (A.t > 4 || d > 35 || !this._walk(dt, toP, 6.5)) this.atk = null;
+        else { want.walk = 1; want.lean = 0.4; this.runFast = true; }
+      } else if (A.phase === 'windup') {
+        this.runFast = false;
+        want.wind = 1;
+        if (d > 2.1 && d < 6) { this._walk(dt, toP, 7); want.walk = 0.6; } // press forward between blows
+        if (A.t > (A.n === 0 ? 0.24 : 0.1)) {
+          next('strike'); A.n++;
+          const last = A.n >= hits;
+          if (strike(last ? (hits === 3 ? 40 : 34) : 2, A.n === 3 ? 'uppercut' : last ? 'punch' : 'jab') && last) this.say(LINES.scored, true);
+          this.ctx.whoosh?.();
+        }
+      } else if (A.phase === 'strike') { want.jab = 1; if (A.t > 0.14) next(A.n < hits ? 'windup' : 'recover'); }
+      else { want.jab = 0.4; if (A.t > 0.3) this.atk = null; }
+    } else if (A.kind === 'throw' || A.kind === 'volley') {
+      const n = A.kind === 'volley' ? 3 : 1;
+      if (A.phase === 'windup') { want.throwW = 1; if (A.t > (A.n === 0 ? 0.45 : 0.18)) { next('follow'); A.n++; this.ctx.throwRock?.(this.p[ID.rha].clone(), A.n > 1 ? (A.n === 2 ? -1 : 1) : 0, A.kind === 'throw' ? 1.3 : 0.9); } }
+      else { want.throwF = 1; if (A.t > 0.22) { if (A.n < n) next('windup'); else this.atk = null; } }
+    } else if (A.kind === 'slam') {
+      // crouch, leap in an arc onto the player, then hit the ground hard
+      if (A.phase === 'crouch') {
+        want.wind = 1; want.cower = 0.35;
+        if (A.t > 0.28) {
+          A.from = this.root.clone();
+          A.to = new THREE.Vector3(ctx.playerPos.x - dirToPlayer().x * 1.2, 0, ctx.playerPos.z - dirToPlayer().z * 1.2);
+          A.to.y = this._groundAt(A.to.x, A.to.z, Math.max(ctx.playerPos.y + 1, this.root.y + 1));
+          A.peak = Math.max(A.from.y, A.to.y, ctx.playerPos.y) + 4.5;
+          A.dur = Math.min(1.0, 0.45 + A.from.distanceTo(A.to) / 30);
+          next('air'); this.say(['HAAA!', 'From above!', 'Death from above!'], true);
+        }
+      } else if (A.phase === 'air') {
+        const u = Math.min(1, A.t / A.dur);
+        const base = A.from.y + (A.to.y - A.from.y) * u;
+        this.root.set(A.from.x + (A.to.x - A.from.x) * u, base + 4 * (A.peak - Math.max(A.from.y, A.to.y)) * u * (1 - u), A.from.z + (A.to.z - A.from.z) * u);
+        want.taunt = 0; want.throwW = 0.6; want.lean = 0.3;
+        if (u >= 1) { this.root.copy(A.to); next('land'); this.ctx.slam?.(this.root.clone()); }
+      } else { want.cower = Math.max(0, 0.8 - A.t * 2); if (A.t > 0.45) this.atk = null; }
     } else { // charge
       want.walk = 1; want.lean = 1; this.runFast = true;
-      if (d < 1.5) {
+      if (d < 1.7) {
         const dir = dirToPlayer();
-        this.ctx.hitPlayer?.(dir, 24, 'tackle');
+        this.ctx.hitPlayer?.(dir, 48, 'tackle');
         this.atk = null; this.runFast = false;
-        this.push(dir.multiplyScalar(-7).add(new THREE.Vector3(0, 4.5, 0))); // bounces off the robot
-        this.say(LINES.bounce, true);
-      } else if (A.t > 3 || d > 40 || !this._walk(dt, toP, 8.5)) { this.atk = null; this.runFast = false; }
+        // it keeps its feet now: a short stumble instead of bouncing off
+        this.stagger = 0.4; this.say(['TACKLE!', 'Down you go!', 'Like a freight train!'], true);
+      } else if (A.t > 3 || d > 45 || !this._walk(dt, toP, 12)) { this.atk = null; this.runFast = false; }
     }
     return toP;
   }
@@ -473,15 +548,25 @@ export class Dummy {
       const threatened = (ctx.charging && d < 14) || (ctx.laserNear && d < 40) || (ctx.speed > 40 && d < 20);
       const c = this.cmd && this.cmd.name;
       this.anger = Math.max(0, this.anger - dt * 0.05);
+      this.poise = Math.min(45, this.poise + dt * 14);
+      if (this.dodge) {
+        this.dodge.t -= dt;
+        const nx = this.root.x + this.dodge.x * 13 * dt, nz = this.root.z + this.dodge.z * 13 * dt;
+        if (!this.voxels.solidAt(nx, this.root.y + 0.8, nz)) { this.root.x = nx; this.root.z = nz; }
+        want.lean = 0.5; want.cower = 0.3;
+        if (this.dodge.t <= 0) this.dodge = null;
+      }
+      if (this.stagger > 0) { this.stagger -= dt; want.cower = 0.5; want.dizzy = 0.4; }
       this.atkCool = Math.max(0, this.atkCool - dt);
       // scripted fighting back: once angry enough, pick an attack that suits the distance
       // it's spoiling for a fight from the start: attacks whenever it's ready and you're in range
       // (with Claude driving, Claude's own choice of action takes priority while it plays)
-      if (!this.atk && this.fights && !(this.cmd && this.cmd.name !== 'idle') && this.atkCool <= 0 && d < 35) {
-        this.startAttack(d < 7 ? 'punch' : (ctx.playerAir || Math.random() < 0.6) ? 'throw' : 'charge');
+      if (!this.atk && !this.dodge && !(this.stagger > 0) && this.fights && !(this.cmd && this.cmd.name !== 'idle') && this.atkCool <= 0 && d < 40) {
+        this.startAttack(this._chooseAttack(d, ctx.playerAir));
       }
       if (this.atk && !this.fights) this.atk = null;
-      if (this.atk) { faceTarget = this._attack(dt, ctx, d, dx, dz, want); turnRate = 12; }
+      if (this.dodge || this.stagger > 0) { /* busy */ }
+      else if (this.atk) { faceTarget = this._attack(dt, ctx, d, dx, dz, want); turnRate = 12; }
       else if (c && c !== 'idle') {
         // the brain is in charge
         if (c === 'flee' || c === 'approach') {
