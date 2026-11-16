@@ -194,7 +194,7 @@ export class Dummy {
   }
 
   spawn(pos, yaw) {
-    this.root.copy(pos); this.yaw = yaw; this.mode = 'stand'; this.burn = 0;
+    this.root.copy(pos); this.yaw = yaw; this.mode = 'stand'; this.burn = 0; this.atk = null; this.atkCool = 1.5;
     this._setPose();
     for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]);
   }
@@ -423,7 +423,7 @@ export class Dummy {
 
   startAttack(kind, quiet = false) {
     this.atk = { kind, phase: kind === 'throw' ? 'windup' : 'approach', t: 0 };
-    this.anger = Math.max(0, this.anger - 1.6); this.atkCool = 3.5 + Math.random() * 2;
+    this.anger = Math.max(0, this.anger - 1); this.atkCool = Math.max(1.2, 3 - this.anger * 0.6) + Math.random() * 1.5; // angrier = faster
     if (!quiet || !this.speech) this.say(LINES[kind], true);
     this.onEvent?.(`You decided to ${kind === 'punch' ? 'punch' : kind === 'throw' ? 'throw rubble at' : 'tackle'} the player.`);
   }
@@ -475,7 +475,9 @@ export class Dummy {
       this.anger = Math.max(0, this.anger - dt * 0.05);
       this.atkCool = Math.max(0, this.atkCool - dt);
       // scripted fighting back: once angry enough, pick an attack that suits the distance
-      if (!this.atk && this.fights && !this.brainOn && this.anger >= 1.5 && this.atkCool <= 0 && d < 30) {
+      // it's spoiling for a fight from the start: attacks whenever it's ready and you're in range
+      // (with Claude driving, Claude's own choice of action takes priority while it plays)
+      if (!this.atk && this.fights && !(this.cmd && this.cmd.name !== 'idle') && this.atkCool <= 0 && d < 35) {
         this.startAttack(d < 7 ? 'punch' : (ctx.playerAir || Math.random() < 0.6) ? 'throw' : 'charge');
       }
       if (this.atk && !this.fights) this.atk = null;
