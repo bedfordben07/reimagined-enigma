@@ -52,7 +52,7 @@ function block(vox, o) {
       let m = 0;
       if (y === topY) m = per ? o.trim : MAT.ROOF;
       else if (y > topY) { if (per) m = o.trim; }
-      else if (ly === 0 && st > 0) m = per ? o.trim : MAT.SLAB;
+      else if (ly === 0 && st > 0) m = per ? o.trim : (floors <= 5 || st % (floors > 8 ? 4 : 3) === 0 ? MAT.SLAB : 0);
       else if (per) {
         const corner = edgeX && edgeZ;
         // u = position along this wall, L = wall length
@@ -196,9 +196,46 @@ function outerBlocks() {
 }
 const OUTER = outerBlocks();
 
+// ---- outer ring (blocks centred at +-110): a skyscraper district, mid-rise streets, suburbs at the corners
+function ringBlocks() {
+  const out = [];
+  let seed = 4242;
+  const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const pick = (a) => a[Math.floor(r() * a.length)];
+  const C = [-110, -66, -22, 22, 66, 110];
+  for (const cz of C) for (const cx of C) {
+    if (Math.abs(cx) < 100 && Math.abs(cz) < 100) continue; // inner 4 x 4 already built
+    const x0 = cx - 14, z0 = cz - 14;
+    const corner = Math.abs(cx) > 100 && Math.abs(cz) > 100;
+    const front = Math.abs(cz) > 100 ? (cz > 0 ? 's' : 'n') : (cx > 0 ? 'w' : 'e');
+    const tint = () => [0.92 + r() * 0.1, 0.92 + r() * 0.1, 0.92 + r() * 0.1];
+    const B = (x, z, w, d, floors, t = 'block') => out.push({ t, x: x0 + x, z: z0 + z, w, d, floors, wall: pick(WALLS), trim: pick(TRIMS), front, tint: tint(), fixed: true });
+    // the north-east and south-west edges form a downtown of high-rises
+    const downtown = (cx > 0 && cz > 0) || (cx < 0 && cz < 0);
+    if (corner) {
+      for (const [x, z] of [[0, 1], [15, 1], [0, 16], [15, 16]]) B(x + 1, z, 10, 11, 2, 'house');
+    } else if (downtown) {
+      const k = r();
+      if (k < 0.4) { B(0, 0, 13, 13, 12 + Math.floor(r() * 9)); B(15, 15, 13, 13, 14 + Math.floor(r() * 8)); B(15, 0, 13, 12, 5 + Math.floor(r() * 4)); B(0, 16, 12, 12, 4 + Math.floor(r() * 3)); }
+      else if (k < 0.7) { B(6, 6, 16, 16, 17 + Math.floor(r() * 6)); PARKS.push([x0, z0 + 25, x0 + 28, z0 + 28]); }
+      else { B(0, 0, 28, 12, 7 + Math.floor(r() * 5)); B(0, 15, 13, 13, 11 + Math.floor(r() * 7)); B(15, 15, 13, 13, 6 + Math.floor(r() * 5)); }
+    } else {
+      const k = r();
+      if (k < 0.45) { B(0, 0, 13, 12, 3 + Math.floor(r() * 4)); B(15, 0, 13, 11, 2 + Math.floor(r() * 4)); B(1, 16, 10, 11, 2, 'house'); B(15, 15, 13, 13, 6 + Math.floor(r() * 6)); }
+      else if (k < 0.7) { B(0, 0, 28, 12, 2); B(0, 15, 12, 12, 3 + Math.floor(r() * 3)); B(16, 16, 10, 11, 2, 'house'); }
+      else { for (const [x, z] of [[0, 1], [15, 1], [0, 16]]) B(x + 1, z, 10, 11, 2, 'house'); PARKS.push([x0 + 15, z0 + 15, x0 + 28, z0 + 28]); }
+    }
+  }
+  return out;
+}
+const RING = ringBlocks();
+
 export function buildVoxelTown(vox) {
   vox.reset();
-  for (const o of [...LAYOUT, ...OUTER]) (o.t === 'house' ? house : block)(vox, o);
+  for (const o of [...LAYOUT, ...OUTER, ...RING]) {
+    if (o.t === 'house') house(vox, o);
+    else block(vox, o.floors >= 5 && !o.fixed ? { ...o, floors: Math.min(24, Math.round(o.floors * 1.9)) } : o);
+  }
   return vox.finalize();
 }
 
@@ -223,8 +260,7 @@ export function buildScenery(scene, renderer) {
     return m;
   };
   const roads = [ // [cx, cz, along x?, length]
-    [0, 0, false, 230], [44, 0, false, 230], [-44, 0, false, 230], [88, 0, false, 230], [-88, 0, false, 230],
-    [0, 0, true, 230], [0, 44, true, 230], [0, -44, true, 230], [0, 88, true, 230], [0, -88, true, 230],
+    ...[-132, -88, -44, 0, 44, 88, 132].flatMap((c) => [[c, 0, false, 300], [0, c, true, 300]]),
   ];
   for (const [x, z, alongX, len] of roads) {
     const r = new THREE.Mesh(new THREE.PlaneGeometry(10, len), roadMat(len));
@@ -262,7 +298,7 @@ export function buildScenery(scene, renderer) {
   const swMat = new THREE.MeshStandardMaterial({ map: pav.map, normalMap: pav.normalMap, aoMap: pav.ormMap, roughnessMap: pav.ormMap, roughness: 1 });
   for (const t of [swMat.map, swMat.normalMap, swMat.roughnessMap]) { t.repeat.set(1, 1); t.anisotropy = aniso; }
   const curbMat = T.pbr(T.concreteTex(8, '#a29f98', false));
-  for (const bx of [-66, -22, 22, 66]) for (const bz of [-66, -22, 22, 66]) {
+  for (const bx of [-110, -66, -22, 22, 66, 110]) for (const bz of [-110, -66, -22, 22, 66, 110]) {
     // each block spans 5..39 from the road centres; ring of sidewalk 3 m wide
     const cx = bx, cz = bz, size = 34;
     for (const [w, d, ox, oz] of [[size, 3, 0, -size / 2 + 1.5], [size, 3, 0, size / 2 - 1.5], [3, size - 6, -size / 2 + 1.5, 0], [3, size - 6, size / 2 - 1.5, 0]]) {
@@ -284,23 +320,30 @@ export function buildScenery(scene, renderer) {
   const shadeGeo = new THREE.LatheGeometry([[0.02, 0.1], [0.18, 0.08], [0.3, 0.0], [0.31, -0.03], [0.0, -0.03]].map(([x, y]) => new THREE.Vector2(x, y)), 32);
   const lampLights = [];
   const lampPos = [];
-  for (const s of [-30, -15, 15, 30]) { lampPos.push([5.6, s, -1], [-5.6, s, 1], [s, 5.6, -2], [s, -5.6, 2]); }
-  for (const s of [-80, -66, -52, 52, 66, 80]) { lampPos.push([s, 5.6, -2], [s, -5.6, 2], [5.6, s, -1], [-5.6, s, 1]); }
-  for (const s of [-74, -52, -30, -15, 15, 30, 52, 74]) { lampPos.push([s, 49.6, -2], [s, -49.6, 2]); }
-  for (const [x, z, f] of lampPos) {
-    const g = new THREE.Group();
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 6, 10), poleMat); pole.position.y = 3; pole.castShadow = true; g.add(pole);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.08, 0.08), poleMat); arm.position.set(0.6, 5.9, 0); arm.castShadow = true; g.add(arm);
-    const head = new THREE.Mesh(shadeGeo, poleMat); head.position.set(1.25, 5.82, 0); head.castShadow = true; g.add(head);
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), bulbMat); bulb.position.set(1.25, 5.8, 0); g.add(bulb);
-    g.position.set(x, 0.15, z);
-    g.rotation.y = f === -1 ? Math.PI : f === 1 ? 0 : f === -2 ? Math.PI / 2 : -Math.PI / 2;
-    group.add(g);
-    g.updateMatrixWorld(true);
-    const bp = new THREE.Vector3(1.25, 5.7, 0).applyMatrix4(g.matrixWorld);
-    lampLights.push(bp);
-    const pool = new THREE.Mesh(poolGeo, poolMat); pool.position.set(bp.x, 0.17, bp.z); pool.renderOrder = 1; group.add(pool);
+  const R = [-132, -88, -44, 0, 44, 88, 132];
+  for (const c of R) for (let s2 = -126; s2 <= 126; s2 += 22) {
+    if (R.some((q) => Math.abs(s2 - q) < 7)) continue; // keep intersections clear
+    lampPos.push([s2, c + 5.6, -2], [s2 + 11 > 126 ? s2 - 11 : s2 + 11, c - 5.6, 2]); // along east-west roads
+    lampPos.push([c + 5.6, s2, -1], [c - 5.6, s2 + 11 > 126 ? s2 - 11 : s2 + 11, 1]); // along north-south roads
   }
+  // one instanced mesh per lamp part keeps hundreds of lamps cheap to draw
+  const parts = [
+    [new THREE.CylinderGeometry(0.07, 0.1, 6, 10), poleMat, [0, 3, 0], true],
+    [new THREE.BoxGeometry(1.4, 0.08, 0.08), poleMat, [0.6, 5.9, 0], true],
+    [shadeGeo, poleMat, [1.25, 5.82, 0], true],
+    [new THREE.SphereGeometry(0.1, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), bulbMat, [1.25, 5.8, 0], false],
+  ].map(([geo, mat, off, shadow]) => { const im = new THREE.InstancedMesh(geo, mat, lampPos.length); im.castShadow = shadow; im.receiveShadow = true; group.add(im); return [im, off]; });
+  const pools = new THREE.InstancedMesh(poolGeo, poolMat, lampPos.length); pools.renderOrder = 1; group.add(pools);
+  const g0 = new THREE.Object3D(), lm = new THREE.Matrix4(), om = new THREE.Matrix4();
+  lampPos.forEach(([x, z, f], i) => {
+    g0.position.set(x, 0.15, z);
+    g0.rotation.set(0, f === -1 ? Math.PI : f === 1 ? 0 : f === -2 ? Math.PI / 2 : -Math.PI / 2, 0);
+    g0.updateMatrix();
+    for (const [im, off] of parts) { om.makeTranslation(off[0], off[1], off[2]); lm.multiplyMatrices(g0.matrix, om); im.setMatrixAt(i, lm); }
+    const bp = new THREE.Vector3(1.25, 5.7, 0).applyMatrix4(g0.matrix);
+    lampLights.push(bp);
+    lm.makeTranslation(bp.x, 0.17, bp.z); pools.setMatrixAt(i, lm);
+  });
 
   // trees (park in SE block + street trees)
   const trunkMat = T.pbr(T.concreteTex(9, '#5a4632', false), { roughness: 1 });
@@ -330,6 +373,7 @@ export function buildScenery(scene, renderer) {
   for (let i = 0; i < 9; i++) treeSpots.push([-79 + r() * 12, -20 + r() * 11]); // west pocket park
   for (const [ax, az, bx, bz] of PARKS) for (let i = 0; i < 5; i++) treeSpots.push([ax + 1 + r() * (bx - ax - 2), az + 1 + r() * (bz - az - 2)]);
   for (const s of [-74, -59, -30, -15, 15, 30, 59, 74]) treeSpots.push([s + 2.5, 50.8], [s - 2.5, -50.8]);
+  for (const s of [-118, -103, -74, -59, -30, -15, 15, 30, 59, 74, 103, 118]) treeSpots.push([s + 2.5, 94.8], [s - 2.5, -94.8], [94.8, s - 2.5], [-94.8, s + 2.5]);
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeSpots.length);
   const leaves = new THREE.InstancedMesh(leafGeo, leafMat, treeSpots.length * 3);
   let li = 0; const c = new THREE.Color();
@@ -352,7 +396,7 @@ export function buildScenery(scene, renderer) {
   // distant hills to close the horizon
   const hillMat = new THREE.MeshStandardMaterial({ color: 0x55663f, roughness: 1 });
   for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2 + r() * 0.2, d = 260 + r() * 80;
+    const a = (i / 14) * Math.PI * 2 + r() * 0.2, d = 390 + r() * 90;
     const h = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), hillMat);
     h.scale.set(70 + r() * 60, 18 + r() * 25, 50 + r() * 40);
     h.position.set(Math.cos(a) * d, -2, Math.sin(a) * d); h.rotation.y = r() * 3;

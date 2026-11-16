@@ -81,7 +81,7 @@ const clouds = new THREE.Mesh(new THREE.SphereGeometry(2400, 48, 24, 0, Math.PI 
     }`,
 }));
 clouds.renderOrder = -1; scene.add(clouds);
-scene.fog = new THREE.FogExp2(0xb3b4b0, 0.0028); // atmospheric haze matched to the horizon
+scene.fog = new THREE.FogExp2(0xb3b4b0, 0.0021); // atmospheric haze matched to the horizon
 
 // Lighting rig: warm golden-hour key (sun), cool sky/ground hemisphere fill, cool rim behind the player.
 const sun = new THREE.DirectionalLight(0xffe8c8, 5.0);

@@ -465,7 +465,7 @@ export class Dummy {
   _walk(dt, dir, speed) {
     const nx = this.root.x + Math.sin(dir) * speed * dt, nz = this.root.z + Math.cos(dir) * speed * dt;
     const y = this.root.y, v = this.voxels;
-    if (v.solidAt(nx, y + 0.6, nz) || v.solidAt(nx, y + 1.4, nz) || Math.abs(nx) > 110 || Math.abs(nz) > 110) { this.cmd = null; return; }
+    if (v.solidAt(nx, y + 0.6, nz) || v.solidAt(nx, y + 1.4, nz) || Math.abs(nx) > 135 || Math.abs(nz) > 135) { this.cmd = null; return; }
     this.root.x = nx; this.root.z = nz;
     this.walkPh += dt * speed * 3.4;
     if (y > 0.01 && !v.solidAt(nx, y - 0.25, nz)) {

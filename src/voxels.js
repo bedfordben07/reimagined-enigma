@@ -11,8 +11,8 @@ export class VoxelWorld {
   constructor(scene, matDefs) {
     this.scene = scene;
     this.matDefs = matDefs; // index = material id (1..n), {material, dust, glass}
-    this.ox = -90; this.oz = -90;
-    this.nx = 360; this.nz = 360; this.ny = 110;
+    this.ox = -138; this.oz = -138;
+    this.nx = 552; this.nz = 552; this.ny = 150; // 276 m square, 75 m tall
     this.occ = new Uint8Array(this.nx * this.ny * this.nz);
     this.bid = new Uint8Array(this.nx * this.ny * this.nz);
     this.buildings = [null];
@@ -64,7 +64,7 @@ export class VoxelWorld {
 
   _key(m, i) {
     const x = i % this.nx, z = Math.floor(i / this.nx) % this.nz;
-    return m * 64 + (z >> 6) * 8 + (x >> 6);
+    return m * 64 + (z >> 7) * 8 + (x >> 7); // 64 m chunks
   }
 
   finalize() {
