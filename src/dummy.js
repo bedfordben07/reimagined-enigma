@@ -57,6 +57,9 @@ const KNEEL = {
   lft: [-0.13, 0.08, -0.42], rft: [0.14, 0.08, 0.3],
 };
 const NAMES = Object.keys(POSE);
+// braced pose held while tumbling: arms a little out, knees slightly bent
+const BRACE = { ...POSE, lel: [-0.33, 1.15, 0.05], rel: [0.33, 1.15, 0.05], lha: [-0.42, 0.92, 0.12], rha: [0.42, 0.92, 0.12], lkn: [-0.14, 0.53, 0.08], rkn: [0.14, 0.53, 0.08], lft: [-0.15, 0.1, -0.02], rft: [0.15, 0.1, -0.02] };
+const LIMBS = ['head', 'lel', 'rel', 'lha', 'rha', 'lkn', 'rkn', 'lft', 'rft'];
 const ID = Object.fromEntries(NAMES.map((n, i) => [n, i]));
 const G = -20;
 const BREAK_SPEED = 17;
@@ -219,6 +222,7 @@ export class Dummy {
     }
     this.lastHitTime = performance.now();
     const sp = vel.length();
+    this.slack = Math.min(0.25, 0.05 + sp * 0.003);
     if (sp > 45) this.bigHit = 1;
     if (sp > 3) this.say(sp > 45 ? LINES.big : LINES.hit, sp > 45);
     if (sp > 3) this.onEvent?.(sp > 45 ? 'You just got hit extremely hard and sent flying.' : 'You just got hit.');
@@ -305,7 +309,7 @@ export class Dummy {
     if (this.mode === 'ragdoll') {
       let maxV = 0;
       for (let i = 0; i < this.n; i++) maxV = Math.max(maxV, this.p[i].distanceToSquared(this.o[i]));
-      if (Math.sqrt(maxV) / h < 0.7) { this.restT += h; if (this.restT > 1.4) { this.restT = 0; this._startGetup(); return; } }
+      if (Math.sqrt(maxV) / h < 1.1) { this.restT += h; if (this.restT > 0.7) { this.restT = 0; this._startGetup(); return; } }
       else this.restT = 0;
     }
     if (this.mode === 'stand') { this._setPose(); for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]); return; }
@@ -331,7 +335,28 @@ export class Dummy {
       }
       if (this.mode === 'held') this.p[ID.neck].copy(this.holdTarget);
     }
+    if (this.mode === 'ragdoll') this._muscles(h);
     this._collide(h);
+  }
+
+  // Active ragdoll: the limbs keep trying to hold a braced pose relative to the torso, so the dummy
+  // tumbles as one stiff body instead of flopping. Muscles go slack for a moment after each hit.
+  _muscles(h) {
+    this.slack = Math.max(0, (this.slack || 0) - h);
+    const k = this.slack > 0 ? 0.012 : 0.07;
+    const P = this.p;
+    const mid = _a.addVectors(P[ID.lhp], P[ID.rhp]).multiplyScalar(0.5);
+    const sh = _b.addVectors(P[ID.lsh], P[ID.rsh]).multiplyScalar(0.5);
+    _up.subVectors(sh, mid).normalize();
+    _rt.subVectors(P[ID.rsh], P[ID.lsh]).add(_v.subVectors(P[ID.rhp], P[ID.lhp]));
+    _rt.addScaledVector(_up, -_rt.dot(_up)).normalize();
+    _fw.crossVectors(_rt, _up);
+    for (const name of LIMBS) {
+      const i = ID[name], b = BRACE[name];
+      _c.copy(mid).addScaledVector(_rt, b[0]).addScaledVector(_up, b[1] - 0.95).addScaledVector(_fw, b[2]);
+      _d.subVectors(_c, P[i]).multiplyScalar(k);
+      P[i].add(_d); this.o[i].addScaledVector(_d, 0.6); // mostly a position correction, little added energy
+    }
   }
 
   _collide(h) {
@@ -366,7 +391,7 @@ export class Dummy {
         p.y = r;
         _v.subVectors(p, o);
         if (_v.y < 0) _v.y = -_v.y * 0.25;
-        _v.x *= 0.82; _v.z *= 0.82;
+        _v.x *= 0.7; _v.z *= 0.7;
         o.subVectors(p, _v);
       }
     }

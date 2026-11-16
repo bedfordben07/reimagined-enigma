@@ -484,6 +484,28 @@ function updateLaser(dt) {
     }
     debris.blast(p, 1.2, 3);
   }
+  // concussive pulse: every quarter second the beam detonates where it lands
+  player.laserPulse = (player.laserPulse ?? 0) - dt;
+  if (player.laserPulse <= 0 && hitKind !== 'sky') {
+    player.laserPulse = 0.26;
+    laserBlast(p.clone(), hitN.clone(), beamDir.clone());
+  }
+}
+
+function laserBlast(p, n, dir) {
+  const R = 1.5;
+  smash(p.clone().addScaledVector(dir, 0.4), R, { vel: n.clone().multiplyScalar(10).addScaledVector(dir, 6), inherit: 1, outward: 9, up: 4, max: 400 });
+  dummy.hit(p, 3.2, tmp2.subVectors(dummy.chest(tmp3), p).setY(0).normalize().multiplyScalar(14).addScaledVector(dir, 10).addScaledVector(UP, 7), 0.4);
+  debris.blast(p, 5, 16, dir, 0.5);
+  fx.wave(p, 3.4, 0.28, new THREE.Color(2.4, 1.0, 0.4));
+  if (p.y < 1) { fx.ring(p, 6, 0.45); fx.addScorch(p, 2.2); }
+  fx.punchLight.position.copy(p).addScaledVector(n, 0.5); fx.punchLight.intensity = Math.max(fx.punchLight.intensity, 45);
+  for (let i = 0; i < 26; i++) fx.sparks.emit(p, rndVec(tmp3, 26).addScaledVector(n, 8), new THREE.Color(6, 2.6, 0.7), 0.2 + Math.random() * 0.35, 0.8, 0.02);
+  dustColor.setRGB(0.42, 0.38, 0.35);
+  for (let i = 0; i < 8; i++) fx.dust.emit(p, rndVec(tmp3, 7).addScaledVector(n, 3), dustColor, 1 + Math.random(), 1.2 + Math.random(), 2.2, 0.35);
+  const dCam = p.distanceTo(camera.position);
+  shake = Math.min(1, shake + Math.max(0.05, 0.3 - dCam / 120));
+  sfx.boom(0.45);
 }
 
 // ---------------------------------------------------------------- movement + collision
@@ -522,12 +544,13 @@ function updatePlayer(dt) {
     player.pos.addScaledVector(v, h);
     const sp = v.length();
     // super-speed: plough straight through buildings
-    if (sp > 32) {
+    const sprinting = !player.flying && boost && Math.hypot(v.x, v.z) > 9;
+    if (sp > 32 || sprinting) {
       const dir = tmp.copy(v).divideScalar(sp);
-      const head = tmp2.copy(player.pos).add(new THREE.Vector3(0, 1.15, 0)).addScaledVector(dir, 1.1);
+      const head = tmp2.copy(player.pos).add(new THREE.Vector3(0, 1.15, 0)).addScaledVector(dir, sprinting ? 0.9 : 1.1);
       if (vox.solidAt(head.x, head.y, head.z) || vox.solidAt(head.x, head.y + 0.7, head.z) || vox.solidAt(head.x, head.y - 0.7, head.z)) {
-        const n = smash(head, 1.9, { vel: v, inherit: 0.75, outward: 7, up: 2 });
-        if (n) { v.multiplyScalar(0.985); shake = Math.min(1, shake + 0.12); }
+        const n = smash(head, sprinting && sp <= 32 ? 1.7 : 1.9, { vel: v, inherit: 0.75, outward: 7, up: 2 });
+        if (n) { v.multiplyScalar(sprinting ? 0.995 : 0.985); shake = Math.min(1, shake + 0.12); }
       }
     }
     for (const bh of BODY) {
