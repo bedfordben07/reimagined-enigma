@@ -29,12 +29,13 @@ High and steps down automatically if the frame rate drops).
 | `F` | toggle flight (drop from height for a super landing) |
 | Left click / `J` | punch, hold to charge a bigger one |
 | Right click / `K` | laser eyes (hold) |
-| `E` | grab the dummy, press again (or click) to throw it |
+| `E` | grab the dummy or lift a parked car; press again (or click) to throw it |
 | `R` | new dummy in front of you |
 | `T` | rebuild the town |
 | `V` | switch character (Sentinel / Spectre V-01) |
 | `O` | ink outlines on/off |
 | `Enter` | talk to the dummy |
+| `X` | stop / resume time (meter refills over ~10 s) |
 | `G` | dummy fights back on/off |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
@@ -53,6 +54,7 @@ High and steps down automatically if the frame rate drops).
 - `src/spectre.js` — Spectre V-01: caped purple mecha with a red mono-eye laser, built on the same rig.
 - `src/outline.js` — optional inverted-hull ink outline for the characters.
 - `src/brain.js` — when opened inside claude.ai (and the viewer allows it), Claude decides what the dummy does and says.
+- `src/cars.js` — parked cars: oriented-box rigid bodies, instanced; liftable, throwable, wall-smashing.
 - `src/effects.js` — dust, sparks, shockwaves, laser beams, scorch marks.
 - `src/textures.js` — all textures (brick, plaster, concrete, glass, asphalt…) are generated
   procedurally at start-up, with normal and roughness maps.

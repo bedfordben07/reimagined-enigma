@@ -1,12 +1,12 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { dummyTex, brushedMetalTex, pbr } from './textures.js';
+import { dummyTex, brushedMetalTex, pbr, hazardTex } from './textures.js';
 import { lathe, extrude, roundRect, smoothSym, smoothShape, toX } from './geom.js';
 
 // Lines it says, by situation.
-export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug', 'punch', 'combo', 'throw', 'volley', 'charge', 'slam'];
-const ATTACKS = ['punch', 'combo', 'throw', 'volley', 'charge', 'slam'];
+export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug', 'punch', 'combo', 'throw', 'volley', 'charge', 'slam', 'car'];
+const ATTACKS = ['punch', 'combo', 'throw', 'volley', 'charge', 'slam', 'car'];
 const LINES = {
   punch: ['My turn!', 'Taste rubber!', 'Haaa-YAH!', 'Fist of fury!', 'Incoming!'],
   throw: ['Catch!', 'Eat brick!', 'Special delivery!', 'Fore!', 'Think fast!'],
@@ -14,6 +14,7 @@ const LINES = {
   combo: ['One-two-THREE!', 'Combo time!', 'Ora ora ora!', 'Hold still!'],
   volley: ['Rubble storm!', 'Incoming x3!', 'Dodge THIS!', 'Bricks for days!'],
   slam: ['Up we go!', 'Ground pound!', 'Heads up!'],
+  car: ['Nice car. Mine now.', 'Hold my bolts...', 'Watch THIS!', 'Valet service!'],
   shrug: ['Is that it?', 'Tickles.', 'Nice try.', 'Barely felt it.', 'Again?'],
   bounce: ["OW! You're made of METAL!", 'Bad idea. Bad idea.', 'I regret that.', 'Like hitting a wall...'],
   scored: ['GOT YOU!', 'Ha! Bullseye!', 'How do YOU like it?', 'Point to the dummy!', 'Boom!'],
@@ -127,7 +128,13 @@ export class Dummy {
     const steel = pbr(brushedMetalTex(61, '#a9aeb3', 0.3), { metalness: 0.9 });
     const white = new THREE.MeshPhysicalMaterial({ color: 0xf4f1ea, roughness: 0.15, clearcoat: 1 });
     const pupil = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.1 });
-    this.mats = [yellow, headMat, plain, chestMat];
+    const hz = hazardTex(); hz.repeat.set(3, 1.5);
+    const hazard = new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: hz, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.3 });
+    const armor = pbr(brushedMetalTex(62, '#25282c', 0.38), { metalness: 0.8 });
+    this.glowMat = new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xff6a10, emissiveIntensity: 2.4, roughness: 0.3 });
+    const tape = new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: 0.9 });
+    const lens = new THREE.MeshPhysicalMaterial({ color: 0xff8a2a, metalness: 0.6, roughness: 0.08, clearcoat: 1, emissive: 0x401000, emissiveIntensity: 0.6 });
+    this.mats = [yellow, headMat, plain, chestMat, hazard];
     this.baseColors = this.mats.map((m) => m.color.clone());
     this.group = new THREE.Group();
     const M = (geo, mat, parent = this.group) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m; };
@@ -173,10 +180,10 @@ export class Dummy {
       const m = M(g, mat);
       this.limbs.push([ID[a], ID[b], m]);
     };
-    limb('lsh', 'lel', 0.068, 0.055, plain); limb('lel', 'lha', 0.058, 0.045, plain);
-    limb('rsh', 'rel', 0.068, 0.055, plain); limb('rel', 'rha', 0.058, 0.045, plain);
-    limb('lhp', 'lkn', 0.092, 0.068, plain); limb('lkn', 'lft', 0.072, 0.052, plain);
-    limb('rhp', 'rkn', 0.092, 0.068, plain); limb('rkn', 'rft', 0.072, 0.052, plain);
+    limb('lsh', 'lel', 0.068, 0.055, plain); limb('lel', 'lha', 0.058, 0.045, hazard);
+    limb('rsh', 'rel', 0.068, 0.055, plain); limb('rel', 'rha', 0.058, 0.045, hazard);
+    limb('lhp', 'lkn', 0.092, 0.068, plain); limb('lkn', 'lft', 0.072, 0.052, hazard);
+    limb('rhp', 'rkn', 0.092, 0.068, plain); limb('rkn', 'rft', 0.072, 0.052, hazard);
     // joints: rubber balls with a steel hinge bolt
     this.joints = [];
     for (const k of ['lel', 'rel', 'lkn', 'rkn', 'lsh', 'rsh']) {
@@ -195,6 +202,44 @@ export class Dummy {
     });
     const shoe = extrude(smoothShape([[-0.08, 0], [0.13, 0], [0.17, 0.03], [0.12, 0.07], [0.0, 0.09], [-0.08, 0.08]]), 0.09, 0.02, 3);
     this.feet = [ID.lft, ID.rft].map((i) => { const g = new THREE.Group(); this.group.add(g); const s = M(shoe, rubber, g); s.rotation.y = -Math.PI / 2; s.position.y = -0.07; return [i, g]; });
+
+    // ---- brawler kit: goggles, shoulder and knee armour, glowing joint rings, wrist tape, belt, red scarf
+    const head = this.head;
+    const band = M(new THREE.TorusGeometry(0.128, 0.016, 10, 40), rubber, head); band.position.y = 0.09; band.rotation.x = Math.PI / 2 - 0.25; band.scale.z = 1.05;
+    for (const sx of [-1, 1]) {
+      const cup = M(lathe([[0.0, 0.022], [0.03, 0.02], [0.036, 0.0], [0.03, -0.012], [0.0, -0.014]], 24), armor, head);
+      cup.position.set(0.046 * sx, 0.115, 0.1); cup.rotation.x = Math.PI / 2 + 0.55;
+      const gl = M(new THREE.SphereGeometry(0.03, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), lens, head);
+      gl.position.set(0.046 * sx, 0.125, 0.112); gl.rotation.x = Math.PI / 2 + 0.55; gl.scale.y = 0.45;
+    }
+    const pad = lathe([[0, 0.09], [0.06, 0.085], [0.1, 0.05], [0.115, 0.0], [0.11, -0.03], [0, -0.03]], 32, 0, Math.PI * 2, 3);
+    const padHaz = hazard.clone(); padHaz.map = hz.clone(); padHaz.map.repeat.set(2, 1); padHaz.map.needsUpdate = true;
+    this.mats.push(padHaz);
+    this.baseColors = this.mats.map((m) => m.color.clone());
+    for (const [i, g] of this.joints) {
+      const name = NAMES[i], sx = name[0] === 'l' ? -1 : 1;
+      if (name.endsWith('sh')) { const p = M(pad, padHaz, g); p.position.set(0.035 * sx, 0.04, 0); p.rotation.z = -sx * 0.55; p.scale.set(1, 0.9, 1.15); }
+      if (name.endsWith('kn')) { const p = M(lathe([[0, 0.05], [0.05, 0.045], [0.07, 0.0], [0.06, -0.05], [0, -0.06]], 24, 0, Math.PI * 2, 3), armor, g); p.position.set(0, 0, 0.06); p.scale.set(1, 1.1, 0.55); }
+      if (name.endsWith('el') || name.endsWith('kn')) { const r = M(new THREE.TorusGeometry(name.endsWith('kn') ? 0.075 : 0.063, 0.008, 8, 32), this.glowMat, g); r.rotation.y = Math.PI / 2; r.castShadow = false; }
+    }
+    for (const [, g] of this.hands) { const w = M(lathe([[0.046, 0.03], [0.05, 0.0], [0.046, -0.03]], 20), tape, g); w.position.y = 0.02; w.scale.z = 0.7; }
+    const belt = M(new THREE.TorusGeometry(0.15, 0.022, 10, 40), armor, this.pelvis); belt.rotation.x = Math.PI / 2; belt.position.y = 0.05; belt.scale.y = 0.72;
+    const buckle = M(extrude(roundRect(0.07, 0.05, 0.012), 0.012, 0.006), this.glowMat, this.pelvis); buckle.position.set(0, 0.05, 0.112);
+    for (const [, g] of this.feet) { const toe = M(lathe([[0, 0.04], [0.045, 0.03], [0.05, 0.0], [0, -0.01]], 20), plain, g); toe.position.set(0, -0.05, 0.12); toe.scale.set(1, 0.7, 1.1); }
+    // scarf: two tails simulated as short Verlet chains, drawn as ribbons
+    this.scarfMat = new THREE.MeshStandardMaterial({ color: 0xc8231c, roughness: 0.85, side: THREE.DoubleSide });
+    const knot = M(new THREE.TorusGeometry(0.075, 0.03, 10, 28), this.scarfMat, this.group); this.scarfKnot = knot;
+    this.scarf = [0, 1].map((k) => {
+      const n = 8, pts = [], prev = [];
+      for (let i = 0; i < n; i++) { pts.push(new THREE.Vector3()); prev.push(new THREE.Vector3()); }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
+      const idx = []; for (let i = 0; i < n - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      geo.setIndex(idx);
+      const mesh = new THREE.Mesh(geo, this.scarfMat); mesh.castShadow = true; mesh.frustumCulled = false; mesh.userData.noOutline = true;
+      this.group.add(mesh);
+      return { pts, prev, mesh, len: k ? 0.085 : 0.1, side: k ? 1 : -1, init: false };
+    });
     this.scene.add(this.group);
   }
 
@@ -227,7 +272,8 @@ export class Dummy {
     if (!any) return false;
     // poise: while on its feet it shrugs off lighter hits with a stagger, until the poise breaks
     const spd = vel.length();
-    if (this.mode === 'stand' && this.atk?.phase !== 'air' && spd < 32 && this.poise > spd * 0.6) {
+    if (this.frozen) this.frozenHits = (this.frozenHits || 0) + 1; // stored: it all lands when time resumes
+    if (this.mode === 'stand' && !this.frozen && this.atk?.phase !== 'air' && spd < 32 && this.poise > spd * 0.6) {
       this.poise -= spd * 0.6 + 3;
       this.stagger = Math.max(this.stagger || 0, 0.25 + spd * 0.01);
       this.root.x += vel.x * 0.02; this.root.z += vel.z * 0.02;
@@ -235,6 +281,7 @@ export class Dummy {
       return true;
     }
     this.poise = 0;
+    if (this.atk?.car && this.atk.car.held === 'dummy') this.ctx.dropCar?.(this.atk.car);
     if (this.mode === 'stand' || this.mode === 'getup') this.mode = 'ragdoll';
     this.atk = null; this.runFast = false; this.dodge = null;
     this.restT = 0;
@@ -276,7 +323,7 @@ export class Dummy {
     return best;
   }
 
-  grab(target) { this.restT = 0; this.heldSince = this.time; this.say(LINES.grabbed, true); this.onEvent?.('The player grabbed you and is holding you over their head.'); this.cmd = null; this.mode = 'held'; this.holdTarget.copy(target); }
+  grab(target) { if (this.atk?.car && this.atk.car.held === 'dummy') this.ctx.dropCar?.(this.atk.car); this.atk = null; this.restT = 0; this.heldSince = this.time; this.say(LINES.grabbed, true); this.onEvent?.('The player grabbed you and is holding you over their head.'); this.cmd = null; this.mode = 'held'; this.holdTarget.copy(target); }
   release(vel) {
     this.mode = 'ragdoll'; this.bigHit = 1; this.anger += 1.5; this.atk = null;
     if (vel.length() > 30) { this.say(LINES.thrown, true); this.onEvent?.('The player just threw you as hard as they can.'); }
@@ -422,6 +469,53 @@ export class Dummy {
     }
   }
 
+  // Scarf tails: anchored behind the neck, swing with gravity and stream back as the dummy moves.
+  _updateScarf(dt, mid, sh) {
+    const P = this.p;
+    const anchor = _e.copy(P[ID.neck]).addScaledVector(_fw, -0.07).addScaledVector(_up, -0.02);
+    this.scarfKnot.position.copy(P[ID.neck]).addScaledVector(_up, -0.03);
+    this.scarfKnot.quaternion.setFromUnitVectors(_y, _up);
+    const h = Math.min(dt, 1 / 30), frozen = this.frozen;
+    for (const t of this.scarf) {
+      const { pts, prev } = t;
+      const a = _c.copy(anchor).addScaledVector(_rt, t.side * 0.04);
+      if (!t.init) { for (let i = 0; i < pts.length; i++) { pts[i].copy(a).addScaledVector(_fw, -i * t.len); prev[i].copy(pts[i]); } t.init = true; }
+      if (!frozen) {
+        for (let i = 1; i < pts.length; i++) {
+          const p = pts[i], o = prev[i];
+          _d.subVectors(p, o).multiplyScalar(0.96);
+          o.copy(p); p.add(_d);
+          p.y -= 9 * h * h;
+          // a little flutter
+          p.addScaledVector(_rt, Math.sin(this.time * 9 + i * 0.9 + t.side) * 0.0015 * i);
+        }
+        pts[0].copy(a); prev[0].copy(a);
+        for (let it = 0; it < 4; it++) for (let i = 1; i < pts.length; i++) {
+          _d.subVectors(pts[i], pts[i - 1]); const L = _d.length() || 1e-6;
+          pts[i].copy(pts[i - 1]).addScaledVector(_d, t.len / L);
+          if (pts[i].y < 0.02) pts[i].y = 0.02;
+        }
+      }
+      // ribbon: two vertices per point, tapering toward the tip
+      const arr = t.mesh.geometry.attributes.position.array;
+      for (let i = 0; i < pts.length; i++) {
+        const w = 0.045 * (1 - i / pts.length * 0.55);
+        arr[i * 6] = pts[i].x - _rt.x * w; arr[i * 6 + 1] = pts[i].y - _rt.y * w; arr[i * 6 + 2] = pts[i].z - _rt.z * w;
+        arr[i * 6 + 3] = pts[i].x + _rt.x * w; arr[i * 6 + 4] = pts[i].y + _rt.y * w; arr[i * 6 + 5] = pts[i].z + _rt.z * w;
+      }
+      t.mesh.geometry.attributes.position.needsUpdate = true;
+      t.mesh.geometry.computeVertexNormals();
+    }
+  }
+
+  // Cap how fast stored-up hits can launch it (frozen time can stack a lot of momentum).
+  clampSpeed(max) {
+    for (let i = 0; i < this.n; i++) {
+      _v.subVectors(this.p[i], this.o[i]); const sp = _v.length() * 120;
+      if (sp > max) this.o[i].copy(this.p[i]).addScaledVector(_v, -max / sp);
+    }
+  }
+
   // ------------------------------------------------------------ personality
   say(lines, force = false) {
     const now = performance.now();
@@ -439,16 +533,18 @@ export class Dummy {
 
   startAttack(kind, quiet = false) {
     this.atk = { kind, phase: kind === 'throw' || kind === 'volley' ? 'windup' : kind === 'slam' ? 'crouch' : 'approach', t: 0, n: 0 };
+    if (kind === 'car') { this.atk.car = this.ctx.nearestCar?.(this.root, 22); if (!this.atk.car) { this.atk = null; return this.startAttack('volley', quiet); } this.atk.phase = 'fetch'; }
     this.anger = Math.max(0, this.anger - 0.6);
     this.atkCool = Math.max(0.7, 1.9 - this.anger * 0.35) + Math.random() * 0.9; // angrier = relentless
     if (!quiet || !this.speech) this.say(LINES[kind] || LINES.punch, true);
-    const what = { punch: 'punch', combo: 'hit with a three-punch combo', throw: 'throw rubble at', volley: 'hurl a volley of rubble at', charge: 'tackle', slam: 'leap at and ground-slam' }[kind];
+    const what = { punch: 'punch', combo: 'hit with a three-punch combo', throw: 'throw rubble at', volley: 'hurl a volley of rubble at', charge: 'tackle', slam: 'leap at and ground-slam', car: 'pick up a parked car and throw it at' }[kind];
     this.onEvent?.(`You decided to ${what} the player.`);
   }
 
   // Pick the attack that suits the range: up close combos, mid range leaps and tackles, far away volleys.
   _chooseAttack(d, air) {
     const r = Math.random();
+    if (d > 9 && r < 0.35 && this.ctx.nearestCar?.(this.root, 16)) return 'car';
     if (air) return r < 0.55 ? 'volley' : 'slam';
     if (d < 4) return r < 0.55 ? 'combo' : 'punch';
     if (d < 16) return r < 0.45 ? 'slam' : r < 0.75 ? 'charge' : 'combo';
@@ -501,6 +597,29 @@ export class Dummy {
       const n = A.kind === 'volley' ? 3 : 1;
       if (A.phase === 'windup') { want.throwW = 1; if (A.t > (A.n === 0 ? 0.45 : 0.18)) { next('follow'); A.n++; this.ctx.throwRock?.(this.p[ID.rha].clone(), A.n > 1 ? (A.n === 2 ? -1 : 1) : 0, A.kind === 'throw' ? 1.3 : 0.9); } }
       else { want.throwF = 1; if (A.t > 0.22) { if (A.n < n) next('windup'); else this.atk = null; } }
+    } else if (A.kind === 'car') {
+      const car = A.car;
+      if (!car || (car.held && car.held !== 'dummy')) { this.atk = null; return toP; }
+      if (A.phase === 'fetch') {
+        const cx = car.p.x - this.root.x, cz = car.p.z - this.root.z, cd = Math.hypot(cx, cz);
+        if (cd < 3) { this.ctx.holdCar(car); next('lift'); }
+        else if (A.t > 5 || !this._walk(dt, Math.atan2(cx, cz), 7)) this.atk = null;
+        else { want.walk = 1; this.runFast = true; return Math.atan2(cx, cz); }
+      } else {
+        this.runFast = false;
+        // hoist it overhead, lean back, then heave it
+        const u = Math.min(1, A.t / 0.5);
+        const lift = A.phase === 'lift' ? u : 1;
+        const back = A.phase === 'windup' ? Math.min(1, A.t / 0.3) : 0;
+        want.throwW = A.phase === 'follow' ? 0 : 1; want.throwF = A.phase === 'follow' ? 1 : 0;
+        if (A.phase !== 'follow') {
+          const pos = new THREE.Vector3(this.root.x, this.root.y + 1.0 + 1.6 * lift, this.root.z).addScaledVector(new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw)), -0.6 * back);
+          this.ctx.carryCar(car, pos, this.yaw + Math.PI / 2);
+        }
+        if (A.phase === 'lift' && A.t > 0.55) next('windup');
+        else if (A.phase === 'windup' && A.t > 0.32) { this.ctx.throwCar(car); next('follow'); this.say(['FORE!', 'CATCH!', 'Beep beep!'], true); }
+        else if (A.phase === 'follow' && A.t > 0.4) this.atk = null;
+      }
     } else if (A.kind === 'slam') {
       // crouch, leap in an arc onto the player, then hit the ground hard
       if (A.phase === 'crouch') {
@@ -724,6 +843,9 @@ export class Dummy {
       const k = Math.min(1, this.burn / 3);
       this.mats.forEach((m, i) => m.color.copy(this.baseColors[i]).lerp(_char, k * 0.85));
     } else this.mats.forEach((m, i) => m.color.copy(this.baseColors[i]));
+    // frozen in time: a cold blue sheen
+    this.frozenK = (this.frozenK || 0) + ((this.frozen ? 1 : 0) - (this.frozenK || 0)) * Math.min(1, dt * 8);
+    for (const m of this.mats) if (m.emissive) m.emissive.setRGB(0.05, 0.16, 0.42).multiplyScalar(this.frozenK);
     const P = this.p;
     const mid = _a.addVectors(P[ID.lhp], P[ID.rhp]).multiplyScalar(0.5);
     const sh = _b.addVectors(P[ID.lsh], P[ID.rsh]).multiplyScalar(0.5);
@@ -780,6 +902,7 @@ export class Dummy {
       m.quaternion.setFromUnitVectors(_y, _v);
     }
     for (const [i, g] of this.joints) { g.position.copy(P[i]); g.quaternion.copy(q); }
+    this._updateScarf(dt, mid, sh);
     for (const [i, g] of this.hands) {
       g.position.copy(P[i]);
       const el = i === ID.lha ? P[ID.lel] : P[ID.rel];

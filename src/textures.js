@@ -388,3 +388,40 @@ export function windowGlowTex() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+// Hazard stripes (yellow / black diagonals) for the dummy's armour.
+export function hazardTex() {
+  const n = 256, c = document.createElement('canvas'); c.width = c.height = n;
+  const x = c.getContext('2d');
+  x.fillStyle = '#efb622'; x.fillRect(0, 0, n, n);
+  x.fillStyle = '#141414';
+  for (let i = -n; i < n * 2; i += 64) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i + 32, 0); x.lineTo(i + 32 - n, n); x.lineTo(i - n, n); x.closePath(); x.fill(); }
+  const nz = noise2D(n, 91, 4, 4), img = x.getImageData(0, 0, n, n);
+  for (let i = 0; i < n * n; i++) { const k = 0.9 + nz[i] * 0.14; img.data[i * 4] *= k; img.data[i * 4 + 1] *= k; img.data[i * 4 + 2] *= k; }
+  x.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  return t;
+}
+
+// Striped canvas awning (one 0.5 m voxel face = two stripes).
+export function awningTex(hexA, hexB, seed) {
+  const n = 128, a = hexRGB(hexA), b = hexRGB(hexB);
+  const nz = noise2D(n, seed, 4, 3);
+  return build(n, (x, y) => {
+    const c = Math.floor(x / (n / 2)) % 2 ? a : b;
+    const v = nz[y * n + x], fold = 0.85 + 0.15 * Math.sin((x % (n / 2)) / (n / 2) * Math.PI);
+    const k = (0.88 + v * 0.18) * fold * (y > n - 10 ? 0.75 : 1);
+    return [c[0] * k, c[1] * k, c[2] * k, fold * 0.6 + v * 0.2, 0.9, 0];
+  }, { normalStrength: 2 });
+}
+
+// Shop sign panel: glowing face with a dark border; the colour comes from the material's emissive.
+export function signTex() {
+  const n = 128, c = document.createElement('canvas'); c.width = c.height = n;
+  const x = c.getContext('2d');
+  x.fillStyle = '#111'; x.fillRect(0, 0, n, n);
+  x.fillStyle = '#fff'; x.fillRect(0, 18, n, n - 36);
+  x.fillStyle = '#000'; for (let i = 0; i < 6; i++) x.fillRect(10 + i * 20, 46, 12, 36); // letter blocks
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}

@@ -15,7 +15,8 @@ import { Spectre } from './spectre.js';
 import { addOutline } from './outline.js';
 import { DummyBrain } from './brain.js';
 import { Effects } from './effects.js';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT } from './town.js';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS } from './town.js';
+import { CarSystem } from './cars.js';
 import { Sfx } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -203,6 +204,9 @@ debris.onVoxelImpact = (i, speed, it) => {
 };
 
 const dummy = new Dummy(scene, vox, { smash });
+const cars = new CarSystem(scene, CAR_SPOTS, { smash, voxels: vox });
+// shockwaves push rubble and cars alike
+function blastAll(center, radius, strength, dir = null, up) { debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); }
 
 // ---------------------------------------------------------------- the dummy's brain (Claude, when allowed)
 const brain = new DummyBrain(dummy, () => {
@@ -233,6 +237,80 @@ brainBtn.addEventListener('click', (e) => {
   if (!brainWanted && brain.enabled) brain.enable(false);
   renderBrain();
 });
+// ---------------------------------------------------------------- time freeze
+// X stops time for everything except the player. Hits on the frozen world are stored (the dummy keeps the
+// momentum, rubble hangs where it broke off, collapses wait) and all of it lets go the moment time resumes.
+const tf = { on: false, energy: 1, k: 0, ripple: -1, tickT: 0, hits: 0, tickHigh: false };
+function freezeOn() {
+  if (tf.on || tf.energy < 0.25) return;
+  tf.on = true; tf.ripple = 0; tf.hits = 0; tf.tickT = 0; dummy.frozenHits = 0;
+  dummy.frozen = true;
+  sfx.freeze(true);
+  fx.wave(chestPos(new THREE.Vector3()), 40, 0.9, new THREE.Color(0.6, 1.1, 2.4));
+  shake = Math.min(1, shake + 0.25);
+  dummy.say(['Wh—', 'Hey, what are you d—', '...'], true);
+}
+function freezeOff() {
+  if (!tf.on) return;
+  tf.on = false; tf.ripple = 0;
+  dummy.frozen = false; tf.hits = dummy.frozenHits || 0;
+  dummy.clampSpeed(170);
+  sfx.freeze(false);
+  fx.wave(chestPos(new THREE.Vector3()), 40, 0.7, new THREE.Color(2.2, 1.6, 0.8));
+  shake = Math.min(1, shake + 0.35 + Math.min(0.4, tf.hits * 0.05));
+  hitstop = Math.max(hitstop, 0.06);
+  if (tf.hits > 0) {
+    brain.event(`Time froze and the player hit you ${tf.hits} times while you couldn't move. All of it landed at once when time resumed.`);
+    dummy.say(tf.hits > 3 ? ['WHAT JUST HAPPENED?!', 'ALL AT ONCE?!', 'That is CHEATING!'] : ['Did time just... stop?', 'Huh?! OW!'], true);
+  }
+}
+function updateFreeze(dt) {
+  if (tf.on) {
+    tf.energy -= dt / 7;
+    tf.tickT -= dt;
+    if (tf.tickT <= 0) { tf.tickT = 0.5; tf.tickHigh = !tf.tickHigh; sfx.tick(tf.tickHigh); }
+    if (tf.energy <= 0) { tf.energy = 0; freezeOff(); }
+  } else tf.energy = Math.min(1, tf.energy + dt / 10);
+  tf.k += ((tf.on ? 1 : 0) - tf.k) * Math.min(1, dt * 7);
+  if (tf.ripple >= 0) { tf.ripple += dt / 0.7; if (tf.ripple > 1) tf.ripple = -1; }
+  finish.uniforms.uFreeze.value = tf.k;
+  finish.uniforms.uRipple.value = tf.ripple;
+  const bar = $('freezeFill'); bar.style.transform = `scaleX(${tf.energy})`;
+  bar.classList.toggle('low', tf.energy < 0.25);
+  $('freezeBox').classList.toggle('active', tf.on);
+}
+
+// ---------------------------------------------------------------- flying cars
+function updateCarHits() {
+  const pc = chestPos(tmp3), dc = dummy.chest(new THREE.Vector3());
+  for (const c of cars.cars) {
+    if (c.asleep || c.held) continue;
+    const sp = c.v.length();
+    if (sp < 9) continue;
+    if (c.thrownBy === 'dummy' && c.p.distanceTo(pc) < 2.7) {
+      dummy.ctx.hitPlayer(c.v.clone(), 46, 'car'); c.v.multiplyScalar(0.35); c.thrownBy = null;
+      dummy.say(['Parking ticket!', 'Special delivery!', 'Hope you have insurance!'], true);
+    } else if (c.thrownBy !== 'dummy' && dummy.mode !== 'held' && c.p.distanceTo(dc) < 2.5) {
+      dummy.hit(dc, 3, c.v.clone().multiplyScalar(0.9)); c.v.multiplyScalar(0.6); c.thrownBy = null;
+    }
+  }
+  // the player ramming cars at speed
+  const sp = player.vel.length();
+  if (sp > 9) { const c = cars.carAt(pc, 0.6); if (c && c !== player.holdingCar) { cars.hit(c, pc, player.vel.clone().multiplyScalar(0.9)); player.vel.multiplyScalar(0.85); shake = Math.min(1, shake + 0.15); sfx.boom(0.4); } }
+}
+// the dummy can lift a parked car and throw it
+dummy.ctx.nearestCar = (p, r) => cars.nearest(p, r);
+dummy.ctx.holdCar = (c) => cars.hold(c, 'dummy');
+dummy.ctx.carryCar = (c, pos, yaw) => cars.carry(c, pos, yaw);
+dummy.ctx.dropCar = (c) => cars.release(c, new THREE.Vector3(), null);
+dummy.ctx.throwCar = (c) => {
+  const aim = chestPos(new THREE.Vector3());
+  const T = Math.max(0.35, Math.hypot(aim.x - c.p.x, aim.z - c.p.z) / 30);
+  aim.addScaledVector(player.vel, T * 0.7);
+  cars.release(c, new THREE.Vector3((aim.x - c.p.x) / T, (aim.y - c.p.y) / T + 0.5 * 20 * T, (aim.z - c.p.z) / T), 'dummy');
+  sfx.whoosh(); shake = Math.min(1, shake + 0.15);
+};
+
 // ---------------------------------------------------------------- the dummy fights back
 let tagged = 0;
 function setFights(v) {
@@ -279,7 +357,7 @@ dummy.ctx.whoosh = () => sfx.whoosh();
 function rockBurst(p, size) {
   smash(p, 1.1 * size, { outward: 6, up: 3 });
   fx.wave(p, 2.6 * size, 0.25, new THREE.Color(1.6, 1.3, 1.0));
-  debris.blast(p, 4, 10);
+  blastAll(p, 4, 10);
   dustColor.setRGB(0.6, 0.57, 0.53);
   for (let i = 0; i < 8; i++) fx.dust.emit(p, rndVec(tmp3, 6), dustColor, 1.2, 1.4, 2, 0.4);
   const c = chestPos(new THREE.Vector3()), dd = c.distanceTo(p);
@@ -308,7 +386,7 @@ function updateRocks(dt) {
 dummy.ctx.slam = (p) => {
   smash(p.clone().add(new THREE.Vector3(0, 0.2, 0)), 2.6, { outward: 9, up: 6, max: 600 });
   fx.ring(p, 16, 0.6); fx.wave(p.clone().add(new THREE.Vector3(0, 0.6, 0)), 7, 0.35, new THREE.Color(1.8, 1.6, 1.3));
-  debris.blast(p, 12, 24, null, 0.9);
+  blastAll(p, 12, 24, null, 0.9);
   dustColor.set(0xb9ad98);
   for (let i = 0; i < 36; i++) { const a = Math.random() * 6.28; fx.dust.emit(tmp.set(p.x, p.y + 0.4, p.z), tmp2.set(Math.cos(a) * 15, 0.6, Math.sin(a) * 15), dustColor, 1.6, 1.6 + Math.random(), 2.4, 0.45); }
   const dd = Math.hypot(player.pos.x - p.x, player.pos.z - p.z);
@@ -371,6 +449,8 @@ function updateAim() {
   const vh = vox.raycast(o, d, best);
   if (vh) { best = vh.t; kind = 'voxel'; aim.normal.set(vh.nx, vh.ny, vh.nz); }
   if (dummy.mode !== 'held') { const dh = dummy.raycast(o, d, best); if (dh) { best = dh.t; kind = 'dummy'; aim.normal.copy(d).negate(); } }
+  aim.car = null;
+  { const ch = cars.raycast(o, d, best); if (ch && ch.car !== player.holdingCar) { best = ch.t; kind = 'car'; aim.car = ch.car; aim.normal.copy(d).negate(); } }
   if (d.y < 0) { const tg = -o.y / d.y; if (tg < best) { best = tg; kind = 'ground'; aim.normal.set(0, 1, 0); } }
   aim.point.copy(o).addScaledVector(d, best); aim.kind = kind; aim.t = best + skip;
 }
@@ -426,6 +506,7 @@ addEventListener('keydown', (e) => {
     case 'KeyV': setCharacter(charIdx + 1); break;
     case 'KeyO': setOutline(!outlineOn); break;
     case 'KeyG': setFights(!dummy.fights); break;
+    case 'KeyX': if (tf.on) freezeOff(); else freezeOn(); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
     case 'KeyK': mouse.r = true; break;
@@ -445,17 +526,19 @@ function toggleFlight() { if (player.flying) player.flying = false; else startFl
 function respawnDummy() {
   const f = fwdH(tmp);
   const p = player.pos.clone().addScaledVector(f, 5); p.y = 0;
-  player.holding = false; player.throwWind = 0;
+  player.holding = false; player.throwWind = 0; if (player.holdingCar) { cars.release(player.holdingCar, new THREE.Vector3(), null); player.holdingCar = null; }
   dummy.spawn(p, player.camYaw + Math.PI);
 }
 function rebuildTown() {
   debris.clear(); buildVoxelTown(vox); fx.clearScorch();
-  player.holding = false; player.throwWind = 0;
+  player.holding = false; player.throwWind = 0; if (player.holdingCar) { cars.release(player.holdingCar, new THREE.Vector3(), null); player.holdingCar = null; }
 }
 
 function tryGrab() {
   const c = chestPos(tmp); dummy.chest(tmp2);
-  if (tmp2.distanceTo(c) < 3.6) { player.holding = true; dummy.grab(robot.handWorld(-1, tmp3)); }
+  if (tmp2.distanceTo(c) < 3.6) { player.holding = true; dummy.grab(robot.handWorld(-1, tmp3)); return; }
+  const car = cars.nearest(player.pos, 4.8);
+  if (car) { player.holding = true; player.holdingCar = car; cars.hold(car, 'player'); sfx.boom(0.3); }
 }
 // Throwing is a short wind-up (lean and twist back), then the release with a whipping follow-through.
 const THROW_WIND = 0.3;
@@ -466,7 +549,8 @@ function throwDummy() {
 function releaseThrow() {
   player.holding = false; player.throwWind = 0; player.throwT = 1;
   const d = aimDirFrom(robot.handWorld(-1, tmp3), tmp);
-  dummy.release(tmp2.copy(d).multiplyScalar(105).add(player.vel));
+  if (player.holdingCar) { cars.release(player.holdingCar, tmp2.copy(d).multiplyScalar(75).add(player.vel), 'player'); player.holdingCar = null; }
+  else dummy.release(tmp2.copy(d).multiplyScalar(105).add(player.vel));
   shake = Math.min(1, shake + 0.2);
   sfx.whoosh();
 }
@@ -494,7 +578,7 @@ function punchImpact(point, dir, power) {
   const c = point.clone().addScaledVector(dir, R * 0.35);
   smash(c, R, { vel: tmp2.copy(dir).multiplyScalar(18 + 45 * power), inherit: 1, outward: 6 + 10 * power, up: 3, max: 1200 });
   dummy.hit(point, R * 1.5, tmp2.copy(dir).multiplyScalar(40 + 75 * power).addScaledVector(UP, 5 + 6 * power));
-  debris.blast(point, R * 3, 10 + 25 * power, dir);
+  blastAll(point, R * 3, 10 + 25 * power, dir);
   fx.wave(point, R * 2.4, 0.3 + power * 0.15);
   if (point.y < 2.5) fx.ring(point, R * 4);
   fx.punchLight.position.copy(point); fx.punchLight.intensity = 80 * power;
@@ -522,6 +606,7 @@ function updatePunch(dt) {
   dummy.chest(tmp);
   const fist = c.clone().addScaledVector(dir, 1.4);
   if (tmp.distanceTo(fist) < 1.6 && dummy.mode !== 'held') { punchImpact(tmp.clone(), dir, player.punchPow); return; }
+  { const car = cars.carAt(fist, 0.6); if (car && car !== player.holdingCar) { punchImpact(fist.clone(), dir, player.punchPow); cars.hit(car, fist, dir.clone().multiplyScalar(30 + 60 * player.punchPow).add(new THREE.Vector3(0, 6, 0))); return; } }
   if (fist.y < 0.35) { punchImpact(new THREE.Vector3(fist.x, 0.1, fist.z), dir, player.punchPow); return; }
   // also bump any debris in the path
 }
@@ -565,11 +650,13 @@ function updateLaser(dt) {
       smash(tmp.copy(p).addScaledVector(beamDir, 0.25), 0.6, { vel: tmp2.copy(hitN).multiplyScalar(7), inherit: 1, outward: 2.5, up: 2.5, noDust: Math.random() < 0.6 });
     } else if (hitKind === 'ground') {
       fx.addScorch(tmp.copy(p).add(rndVec(tmp2, 0.25)), 0.9 + Math.random() * 0.6);
+    } else if (hitKind === 'car' && aim.car) {
+      cars.hit(aim.car, p, tmp2.copy(beamDir).multiplyScalar(1.2));
     } else if (hitKind === 'dummy') {
       dummy.hit(p, 0.7, tmp2.copy(beamDir).multiplyScalar(2.2).addScaledVector(UP, 0.6), 0.2);
       dummy.burn += 0.03; dummy.anger += 0.04;
     }
-    debris.blast(p, 1.2, 3);
+    blastAll(p, 1.2, 3);
   }
   // concussive pulse: every quarter second the beam detonates where it lands
   player.laserPulse = (player.laserPulse ?? 0) - dt;
@@ -583,7 +670,7 @@ function laserBlast(p, n, dir) {
   const R = 1.5;
   smash(p.clone().addScaledVector(dir, 0.4), R, { vel: n.clone().multiplyScalar(10).addScaledVector(dir, 6), inherit: 1, outward: 9, up: 4, max: 400 });
   dummy.hit(p, 3.2, tmp2.subVectors(dummy.chest(tmp3), p).setY(0).normalize().multiplyScalar(14).addScaledVector(dir, 10).addScaledVector(UP, 7), 0.4);
-  debris.blast(p, 5, 16, dir, 0.5);
+  blastAll(p, 5, 16, dir, 0.5);
   fx.wave(p, 3.4, 0.28, new THREE.Color(2.4, 1.0, 0.4));
   if (p.y < 1) { fx.ring(p, 6, 0.45); fx.addScorch(p, 2.2); }
   fx.punchLight.position.copy(p).addScaledVector(n, 0.5); fx.punchLight.intensity = Math.max(fx.punchLight.intensity, 45);
@@ -694,7 +781,7 @@ function superLanding(vy) {
   fx.ring(p, 10 * power + 4);
   fx.wave(p.clone().add(new THREE.Vector3(0, 0.5, 0)), 4 + 5 * power);
   dummy.hit(p, 6 + 6 * power, new THREE.Vector3(0, 10 + 14 * power, 0));
-  debris.blast(p, 8 + 8 * power, 8 + 14 * power, null, 0.8);
+  blastAll(p, 8 + 8 * power, 8 + 14 * power, null, 0.8);
   dustColor.set(0xb9ad98);
   for (let i = 0; i < 40; i++) { const a = Math.random() * 6.28; fx.dust.emit(tmp.set(p.x, 0.4, p.z), tmp2.set(Math.cos(a) * 14, 0.5, Math.sin(a) * 14), dustColor, 1.6, 1.6 + Math.random(), 2.4, 0.45); }
   shake = Math.min(1, shake + 0.4 * power + 0.2);
@@ -726,20 +813,41 @@ const smaa = new SMAAPass(innerWidth, innerHeight);
 composer.addPass(smaa);
 composer.addPass(new OutputPass());
 const finish = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, uVig: { value: 0.28 }, uTime: { value: 0 }, uAb: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uVig: { value: 0.28 }, uTime: { value: 0 }, uAb: { value: 0 }, uFreeze: { value: 0 }, uRipple: { value: -1 }, uAspect: { value: 1.7 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uVig; uniform float uTime; uniform float uAb; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uVig; uniform float uTime; uniform float uAb; uniform float uFreeze; uniform float uRipple; uniform float uAspect; varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
     void main(){
       vec2 d=vUv-.5; float r=dot(d,d);
+      vec2 uv = vUv;
+      // time-stop ripple: a refracting ring that sweeps outward from the centre of the screen
+      if (uRipple >= 0.0) {
+        float dist = length(d * vec2(uAspect, 1.0));
+        float ring = uRipple * 1.9;
+        float w = exp(-pow((dist - ring) * 9.0, 2.0)) * (1.0 - uRipple);
+        uv += normalize(d + 1e-5) * w * 0.035;
+      }
+      float ab = uAb + uFreeze * 0.006;
       vec3 c;
-      c.r=texture2D(tDiffuse, vUv - d*uAb*r).r; c.g=texture2D(tDiffuse, vUv).g; c.b=texture2D(tDiffuse, vUv + d*uAb*r).b;
-      c *= 1. - uVig*r*1.6;
+      c.r=texture2D(tDiffuse, uv - d*ab*r*4.0).r; c.g=texture2D(tDiffuse, uv).g; c.b=texture2D(tDiffuse, uv + d*ab*r*4.0).b;
+      // frozen time: drain the colour, push it cold, frost the edges, add a faint shimmer
+      if (uFreeze > 0.001) {
+        float lum = dot(c, vec3(0.299, 0.587, 0.114));
+        vec3 cold = mix(vec3(lum), c, 0.22) * vec3(0.82, 0.96, 1.2) + vec3(0.0, 0.01, 0.03);
+        c = mix(c, cold, uFreeze);
+        float edge = smoothstep(0.12, 0.42, r);
+        float frost = h(floor(vUv * vec2(320.0, 180.0))) * 0.5 + 0.5;
+        c = mix(c, vec3(0.78, 0.9, 1.0) * frost, uFreeze * edge * 0.38);
+        c += uFreeze * 0.025 * sin(vUv.y * 900.0 + uTime * 3.0) * vec3(0.3, 0.5, 0.8);
+      }
+      c *= 1. - (uVig + uFreeze * 0.25) * r * 1.6;
       c += (h(vUv*1000.+uTime)-.5)*0.018;
       gl_FragColor=vec4(c,1.);
     }`,
 });
 composer.addPass(finish);
+addEventListener('resize', () => { finish.uniforms.uAspect.value = innerWidth / innerHeight; });
+finish.uniforms.uAspect.value = innerWidth / innerHeight;
 
 let quality = Math.min(3, Math.max(0, parseInt(params.get('q') ?? '2', 10)));
 let autoQuality = !params.has('q');
@@ -857,7 +965,7 @@ function updateHandThrust(dt) {
 }
 
 // ---------------------------------------------------------------- HUD
-const hud = { speed: $('speed'), mode: $('mode'), fps: $('fps'), rubble: $('rubble'), charge: $('chargeRing'), grab: $('grabHint') };
+const hud = { speed: $('speed'), mode: $('mode'), fps: $('fps'), rubble: $('rubble'), charge: $('chargeRing'), grab: $('grabHint'), grabLabel: $('grabLabel') };
 let fpsAcc = 0, fpsN = 0, fpsT = 0, autoT = 0, autoSamples = [];
 function updateHud(rdt) {
   fpsAcc += rdt; fpsN++;
@@ -877,12 +985,15 @@ function updateHud(rdt) {
     hud.rubble.textContent = debris.count;
   }
   hud.speed.textContent = Math.round(player.vel.length() * 3.6);
-  hud.mode.textContent = player.flying ? (player.vel.length() > 45 ? 'SUPERSONIC' : 'FLIGHT') : 'GROUND';
+  hud.mode.textContent = tf.on ? 'TIME STOPPED' : player.flying ? (player.vel.length() > 45 ? 'SUPERSONIC' : 'FLIGHT') : 'GROUND';
   const c = player.charging ? Math.min(1, player.charge / 1.1) : 0;
   hud.charge.style.setProperty('--c', c);
   hud.charge.classList.toggle('on', player.charging);
   dummy.chest(tmp);
-  hud.grab.hidden = !(dummy.mode !== 'held' && tmp.distanceTo(chestPos(tmp2)) < 3.6);
+  const nearDummy = dummy.mode !== 'held' && tmp.distanceTo(chestPos(tmp2)) < 3.6;
+  const nearCar = !player.holding && !nearDummy && (hud.carT = (hud.carT || 0) - rdt) <= 0 ? (hud.carT = 0.2, hud.car = !!cars.nearest(player.pos, 4.8)) : hud.car;
+  hud.grab.hidden = player.holding || !(nearDummy || nearCar);
+  if (!hud.grab.hidden) hud.grabLabel.textContent = nearDummy ? 'GRAB DUMMY' : 'LIFT CAR';
 }
 
 // ---------------------------------------------------------------- main loop
@@ -929,26 +1040,30 @@ function tick(rdt) {
   updateAim();
   updatePunch(dt);
   updateLaser(dt);
-  if (player.holding) dummy.holdTarget.copy(robot.handWorld(-1, tmp)).y -= 0.15;
+  if (player.holdingCar) cars.carry(player.holdingCar, robot.handWorld(-1, tmp).add(tmp2.set(0, 1.0, 0)), player.yaw);
+  else if (player.holding) dummy.holdTarget.copy(robot.handWorld(-1, tmp)).y -= 0.15;
 
   acc += dt;
   let n = 0;
-  while (acc >= H && n < 8) { dummy.step(H); acc -= H; n++; }
+  updateFreeze(rdt);
+  const frozen = tf.on;
+  // the dummy only moves while time runs (or while it's in the player's hand)
+  while (acc >= H && n < 8) { if (!frozen || dummy.mode === 'held') dummy.step(H); acc -= H; n++; }
   if (n === 8) acc = 0;
   cascadeBudget = 25;
-  debris.update(dt, dt > 1 / 70 ? 3 : 2);
-  vox.updateIntegrity(dt, detach);
+  if (!frozen) { debris.update(dt, dt > 1 / 70 ? 3 : 2); cars.update(dt); vox.updateIntegrity(dt, detach); updateCarHits(); }
+  else { debris.flush(); cars.flush(); }
   vox.flush();
-  dummy.think(dt, {
+  if (!frozen) dummy.think(dt, {
     playerPos: player.pos, charging: player.charging, speed: player.vel.length(), playerAir: player.pos.y > 4,
     laserNear: player.laser && aim.point.distanceTo(dummy.chest(tmp)) < 5, laserOnMe: player.laser && aim.kind === 'dummy',
   });
   dummy.update(dt);
-  updateRocks(dt);
+  if (!frozen) updateRocks(dt);
   updateBubble();
   updateHandThrust(dt);
   speedLines(dt);
-  fx.update(dt, camera);
+  fx.update(dt, camera, frozen);
   fx.dust.uniforms.uScale.value = renderer.domElement.height * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
   sfx.set(player.vel.length(), player.laser);
   updateSunShadow();
@@ -962,4 +1077,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, brain, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, brain, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

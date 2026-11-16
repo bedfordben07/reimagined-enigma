@@ -10,7 +10,10 @@ export class Sfx {
     const c = this.ctx;
     this.master = c.createGain(); this.master.gain.value = 0.55;
     const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6;
-    this.master.connect(comp); comp.connect(c.destination);
+    // world sounds pass through a low-pass that closes while time is frozen
+    this.world = c.createBiquadFilter(); this.world.type = 'lowpass'; this.world.frequency.value = 20000; this.world.Q.value = 0.7;
+    this.master.connect(this.world); this.world.connect(comp); comp.connect(c.destination);
+    this.direct = c.createGain(); this.direct.gain.value = 0.6; this.direct.connect(comp);
     const len = c.sampleRate * 2;
     this.noise = c.createBuffer(1, len, c.sampleRate);
     const d = this.noise.getChannelData(0);
@@ -62,6 +65,26 @@ export class Sfx {
     f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(1800, t + 0.18);
     const g = c.createGain(); g.gain.setValueAtTime(0.0, t); g.gain.linearRampToValueAtTime(0.25, t + 0.05); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
     n.connect(f); f.connect(g); g.connect(this.master); n.start(t, Math.random()); n.stop(t + 0.3);
+  }
+  // Time stop: a deep downward sweep, the world goes muffled; release sweeps back up with a crack.
+  freeze(on) {
+    if (!this.ctx) return; const c = this.ctx, t = c.currentTime;
+    this.world.frequency.cancelScheduledValues(t);
+    this.world.frequency.setTargetAtTime(on ? 520 : 20000, t, on ? 0.08 : 0.15);
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(on ? 520 : 55, t); o.frequency.exponentialRampToValueAtTime(on ? 45 : 600, t + 0.6);
+    const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.7, t + 0.05); g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    o.connect(g); g.connect(this.direct); o.start(t); o.stop(t + 0.85);
+    const n = this._noiseSrc(); const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 3;
+    f.frequency.setValueAtTime(on ? 3000 : 300, t); f.frequency.exponentialRampToValueAtTime(on ? 200 : 4000, t + 0.5);
+    const ng = c.createGain(); ng.gain.setValueAtTime(0.25, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    n.connect(f); f.connect(ng); ng.connect(this.direct); n.start(t, Math.random()); n.stop(t + 0.6);
+  }
+  tick(high) {
+    if (!this.ctx) return; const c = this.ctx, t = c.currentTime;
+    const o = c.createOscillator(); o.type = 'square'; o.frequency.value = high ? 1900 : 1450;
+    const g = c.createGain(); g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.04);
+    o.connect(g); g.connect(this.direct); o.start(t); o.stop(t + 0.05);
   }
   set(speed, laser) {
     if (!this.ctx) return; const t = this.ctx.currentTime;

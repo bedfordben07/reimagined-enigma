@@ -4,7 +4,7 @@ import { VS } from './voxels.js';
 import * as T from './textures.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
-export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11, GLASS_LIT: 12 };
+export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11, GLASS_LIT: 12, AWN_RED: 13, AWN_GREEN: 14, AWN_BLUE: 15, SIGN_WARM: 16, SIGN_CYAN: 17, SIGN_PINK: 18 };
 
 export function makeVoxelMaterials() {
   const std = (tex, extra = {}) => T.pbr(tex, { metalness: extra.metalness ?? 0, ...extra });
@@ -23,6 +23,13 @@ export function makeVoxelMaterials() {
   defs[MAT.SLAB] = { material: std(T.concreteTex(19, '#8c8984')), dust: 0x9a9792 };
   defs[MAT.TILE] = { material: std(T.tileTex(20)), dust: 0x9a5a48 };
   defs[MAT.TRIM_DARK] = { material: std(T.concreteTex(21, '#5d5a57')), dust: 0x77736f };
+  defs[MAT.AWN_RED] = { material: std(T.awningTex('#b8302a', '#efe6d6', 31)), dust: 0xb08070, noTint: true };
+  defs[MAT.AWN_GREEN] = { material: std(T.awningTex('#2f6b45', '#efe6d6', 32)), dust: 0x80a088, noTint: true };
+  defs[MAT.AWN_BLUE] = { material: std(T.awningTex('#2b4f86', '#efe6d6', 33)), dust: 0x8090b0, noTint: true };
+  const sign = (hex) => new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, emissive: hex, emissiveIntensity: 1.5, emissiveMap: T.signTex() });
+  defs[MAT.SIGN_WARM] = { material: sign(0xffc46a), dust: 0x999999, noTint: true };
+  defs[MAT.SIGN_CYAN] = { material: sign(0x46e0ff), dust: 0x999999, noTint: true };
+  defs[MAT.SIGN_PINK] = { material: sign(0xff4fa8), dust: 0x999999, noTint: true };
   return defs;
 }
 
@@ -39,7 +46,7 @@ function litHash(b, st, w, side) {
 function block(vox, o) {
   const x0 = vox.cx(o.x), z0 = vox.cz(o.z);
   const W = Math.round(o.w / VS), D = Math.round(o.d / VS);
-  const floors = o.floors;
+  const floors = Math.min(21, o.floors); // the voxel world is 65 m tall
   const b = vox.addBuilding(o.tint || [1, 1, 1]);
   const topY = floors * STOREY;
   const door = o.front; // 'n' (+z), 's' (-z), 'e' (+x), 'w' (-x)
@@ -67,7 +74,7 @@ function block(vox, o) {
             const du = Math.abs(u - doorC);
             if (du <= 1 && ly <= 4) m = 0; // doorway
             else if (du === 2 && ly <= 4) m = o.trim;
-            else if (ly >= 1 && ly <= 4 && u > 2 && u < L - 3) m = litHash(b, 0, Math.floor(u / 6), side) < 0.3 ? MAT.GLASS_LIT : MAT.GLASS;
+            else if (ly >= 1 && ly <= 4 && u > 2 && u < L - 3) m = o.shopfront ? MAT.GLASS_LIT : litHash(b, 0, Math.floor(u / 6), side) < 0.3 ? MAT.GLASS_LIT : MAT.GLASS;
             else if (ly === 5) m = MAT.TRIM_DARK;
           } else {
             const pu = (u - 2) % 5;
@@ -87,6 +94,27 @@ function block(vox, o) {
 function cornice(vox, x0, z0, W, D, y, m, b) {
   for (let z = -1; z <= D; z++) for (let x = -1; x <= W; x++) {
     if (x === -1 || x === W || z === -1 || z === D) vox.set(x0 + x, y, z0 + z, m, b);
+  }
+}
+
+// Shop: one or two storeys with a full-width shopfront, a striped awning over the pavement and a glowing
+// sign band above it.
+function shop(vox, o) {
+  block(vox, { ...o, floors: o.floors, shopfront: true });
+  const x0 = vox.cx(o.x), z0 = vox.cz(o.z), W = Math.round(o.w / VS), D = Math.round(o.d / VS);
+  const b = vox.buildings.length - 1;
+  // front face cells, outward direction
+  const f = o.front;
+  const along = f === 'n' || f === 's' ? W : D;
+  const cell = (u, out, y, m) => {
+    if (f === 's') vox.set(x0 + u, y, z0 - 1 - out, m, b);
+    else if (f === 'n') vox.set(x0 + u, y, z0 + D + out, m, b);
+    else if (f === 'w') vox.set(x0 - 1 - out, y, z0 + u, m, b);
+    else vox.set(x0 + W + out, y, z0 + u, m, b);
+  };
+  for (let u = 1; u < along - 1; u++) {
+    for (let out = 0; out < 3; out++) cell(u, out, 5 - (out === 2 ? 1 : 0), o.awning); // awning slopes down at the lip
+    if (u > 1 && u < along - 2) cell(u, -1, 6, o.sign); // sign band on the facade (replaces the wall cell)
   }
 }
 
@@ -230,11 +258,85 @@ function ringBlocks() {
 }
 const RING = ringBlocks();
 
+// ---- outermost ring (blocks centred at +-154): shopping streets, parking lots, parks and a few skyscrapers
+export const PARKING = []; // [x0, z0, x1, z1] asphalt lots that get parked cars
+function edgeBlocks() {
+  const out = [];
+  let seed = 777;
+  const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const pick = (a) => a[Math.floor(r() * a.length)];
+  const C = [-154, -110, -66, -22, 22, 66, 110, 154];
+  const AWN = [MAT.AWN_RED, MAT.AWN_GREEN, MAT.AWN_BLUE], SIGN = [MAT.SIGN_WARM, MAT.SIGN_CYAN, MAT.SIGN_PINK];
+  let i = 0;
+  for (const cz of C) for (const cx of C) {
+    if (Math.abs(cx) < 140 && Math.abs(cz) < 140) continue;
+    const x0 = cx - 14, z0 = cz - 14;
+    const tint = () => [0.92 + r() * 0.1, 0.92 + r() * 0.1, 0.92 + r() * 0.1];
+    const B = (x, z, w, d, floors, front, t = 'block', extra = {}) => out.push({ t, x: x0 + x, z: z0 + z, w, d, floors, wall: pick(WALLS), trim: pick(TRIMS), front, tint: tint(), fixed: true, ...extra });
+    const S = (x, z, w, front) => B(x, z, w, 9, 1 + (r() < 0.45 ? 1 : 0), front, 'shop', { awning: pick(AWN), sign: pick(SIGN) });
+    // which side faces the town: shops line that street
+    const inward = Math.abs(cx) > 140 ? (cx > 0 ? 'w' : 'e') : (cz > 0 ? 's' : 'n');
+    const corner = Math.abs(cx) > 140 && Math.abs(cz) > 140;
+    const kind = corner ? (i % 2 ? 'park' : 'sky') : ['shops', 'parking', 'shops', 'sky', 'shops', 'parking'][i % 6];
+    i++;
+    if (kind === 'shops') {
+      // a terrace of shops on the inward street and a second row behind
+      if (inward === 's' || inward === 'n') {
+        const z = inward === 's' ? 0 : 19;
+        for (let k = 0; k < 4; k++) S(k * 7, z, 6.5, inward);
+        for (let k = 0; k < 3; k++) S(1 + k * 9, inward === 's' ? 19 : 0, 8, inward === 's' ? 'n' : 's');
+      } else {
+        const x = inward === 'w' ? 0 : 19;
+        for (let k = 0; k < 4; k++) out.push(...[]), B(x, k * 7, 9, 6.5, 1 + (r() < 0.45 ? 1 : 0), inward, 'shop', { awning: pick(AWN), sign: pick(SIGN) });
+        for (let k = 0; k < 3; k++) B(inward === 'w' ? 19 : 0, 1 + k * 9, 9, 8, 1 + (r() < 0.45 ? 1 : 0), inward === 'w' ? 'e' : 'w', 'shop', { awning: pick(AWN), sign: pick(SIGN) });
+      }
+    } else if (kind === 'parking') {
+      // a big lot with a small kiosk
+      PARKING.push([x0 + 1, z0 + 1, x0 + 27, z0 + 27]);
+      B(11, 11, 6, 6, 1, inward, 'shop', { awning: pick(AWN), sign: pick(SIGN) });
+    } else if (kind === 'sky') {
+      B(2, 2, 14, 14, 16 + Math.floor(r() * 6), inward);
+      B(19, 17, 9, 11, 9 + Math.floor(r() * 6), inward);
+      PARKS.push([x0 + 17, x0 + 0 + z0 - x0, x0 + 28, z0 + 14]);
+    } else {
+      PARKS.push([x0, z0, x0 + 28, z0 + 28]);
+    }
+  }
+  return out;
+}
+const EDGE = edgeBlocks();
+
+// Parked cars: along the kerbs (some), and in rows in the parking lots. [x, z, yaw]
+export const CAR_SPOTS = (() => {
+  const spots = [];
+  let seed = 31337;
+  const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const ROADS = [-176, -132, -88, -44, 0, 44, 88, 132, 176];
+  for (const c of ROADS) for (let s = -170; s <= 170; s += 7.5) {
+    if (ROADS.some((q) => Math.abs(s - q) < 9)) continue; // keep junctions clear
+    if (Math.abs(c) < 1 && Math.abs(s) < 24) continue;     // and the start area
+    if (r() < 0.12) spots.push([s, c + 3.4, Math.PI / 2]);
+    if (r() < 0.12) spots.push([s, c - 3.4, -Math.PI / 2]);
+    if (r() < 0.12) spots.push([c + 3.4, s, 0]);
+    if (r() < 0.12) spots.push([c - 3.4, s, Math.PI]);
+  }
+  for (const [ax, az, bx, bz] of PARKING) {
+    for (let row = 0; row < 2; row++) for (let k = 0; k < 9; k++) {
+      if (r() < 0.25) continue;
+      const x = ax + 2 + k * 2.8, z = row ? bz - 3.2 : az + 3.2;
+      if (Math.abs(x - (ax + 14)) < 4 && Math.abs(z - (az + 14)) < 6) continue;
+      spots.push([x, z, row ? 0 : Math.PI]);
+    }
+  }
+  return spots;
+})();
+
 export function buildVoxelTown(vox) {
   vox.reset();
-  for (const o of [...LAYOUT, ...OUTER, ...RING]) {
+  for (const o of [...LAYOUT, ...OUTER, ...RING, ...EDGE]) {
     if (o.t === 'house') house(vox, o);
-    else block(vox, o.floors >= 5 && !o.fixed ? { ...o, floors: Math.min(24, Math.round(o.floors * 1.9)) } : o);
+    else if (o.t === 'shop') shop(vox, o);
+    else block(vox, o.floors >= 5 && !o.fixed ? { ...o, floors: Math.min(21, Math.round(o.floors * 1.9)) } : o);
   }
   return vox.finalize();
 }
@@ -246,7 +348,7 @@ export function buildScenery(scene, renderer) {
 
   // grass
   const grass = T.grassTex(3);
-  const gSize = 900;
+  const gSize = 1200;
   setRep(grass, [gSize / 6, gSize / 6]);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(gSize, gSize), new THREE.MeshStandardMaterial({ map: grass.map, normalMap: grass.normalMap, aoMap: grass.ormMap, roughnessMap: grass.ormMap, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; group.add(ground);
@@ -260,13 +362,25 @@ export function buildScenery(scene, renderer) {
     return m;
   };
   const roads = [ // [cx, cz, along x?, length]
-    ...[-132, -88, -44, 0, 44, 88, 132].flatMap((c) => [[c, 0, false, 300], [0, c, true, 300]]),
+    ...[-176, -132, -88, -44, 0, 44, 88, 132, 176].flatMap((c) => [[c, 0, false, 362], [0, c, true, 362]]),
   ];
   for (const [x, z, alongX, len] of roads) {
     const r = new THREE.Mesh(new THREE.PlaneGeometry(10, len), roadMat(len));
     r.rotation.x = -Math.PI / 2; if (alongX) r.rotation.z = Math.PI / 2;
     r.position.set(x, 0.012 + (alongX ? 0.001 : 0), z); r.receiveShadow = true; group.add(r);
   }
+  // parking lots: asphalt with painted bays
+  for (const [ax, az, bx, bz] of PARKING) {
+    const w = bx - ax, d = bz - az;
+    const lot = new THREE.Mesh(new THREE.PlaneGeometry(w, d), roadMat(d));
+    lot.rotation.x = -Math.PI / 2; lot.position.set((ax + bx) / 2, 0.16, (az + bz) / 2); lot.receiveShadow = true; group.add(lot);
+  }
+  const bayGeo = new THREE.PlaneGeometry(0.12, 5); bayGeo.rotateX(-Math.PI / 2);
+  const bays = new THREE.InstancedMesh(bayGeo, new THREE.MeshStandardMaterial({ color: 0xe8e2c8, roughness: 0.7 }), PARKING.length * 22);
+  let bi = 0; const bm = new THREE.Matrix4();
+  for (const [ax, az, bx, bz] of PARKING) for (let k = 0; k <= 9; k++) for (const z of [az + 3.2, bz - 3.2]) { bm.makeTranslation(ax + 0.6 + k * 2.8, 0.17, z); bays.setMatrixAt(bi++, bm); }
+  bays.count = bi; bays.receiveShadow = true; group.add(bays);
+
   // lane markings
   const dashMat = new THREE.MeshStandardMaterial({ color: 0xe8e2c8, roughness: 0.7, metalness: 0 });
   const dashGeo = new THREE.PlaneGeometry(0.18, 2.4); dashGeo.rotateX(-Math.PI / 2);
@@ -298,7 +412,7 @@ export function buildScenery(scene, renderer) {
   const swMat = new THREE.MeshStandardMaterial({ map: pav.map, normalMap: pav.normalMap, aoMap: pav.ormMap, roughnessMap: pav.ormMap, roughness: 1 });
   for (const t of [swMat.map, swMat.normalMap, swMat.roughnessMap]) { t.repeat.set(1, 1); t.anisotropy = aniso; }
   const curbMat = T.pbr(T.concreteTex(8, '#a29f98', false));
-  for (const bx of [-110, -66, -22, 22, 66, 110]) for (const bz of [-110, -66, -22, 22, 66, 110]) {
+  for (const bx of [-154, -110, -66, -22, 22, 66, 110, 154]) for (const bz of [-154, -110, -66, -22, 22, 66, 110, 154]) {
     // each block spans 5..39 from the road centres; ring of sidewalk 3 m wide
     const cx = bx, cz = bz, size = 34;
     for (const [w, d, ox, oz] of [[size, 3, 0, -size / 2 + 1.5], [size, 3, 0, size / 2 - 1.5], [3, size - 6, -size / 2 + 1.5, 0], [3, size - 6, size / 2 - 1.5, 0]]) {
@@ -320,11 +434,11 @@ export function buildScenery(scene, renderer) {
   const shadeGeo = new THREE.LatheGeometry([[0.02, 0.1], [0.18, 0.08], [0.3, 0.0], [0.31, -0.03], [0.0, -0.03]].map(([x, y]) => new THREE.Vector2(x, y)), 32);
   const lampLights = [];
   const lampPos = [];
-  const R = [-132, -88, -44, 0, 44, 88, 132];
-  for (const c of R) for (let s2 = -126; s2 <= 126; s2 += 22) {
+  const R = [-176, -132, -88, -44, 0, 44, 88, 132, 176];
+  for (const c of R) for (let s2 = -170; s2 <= 170; s2 += 22) {
     if (R.some((q) => Math.abs(s2 - q) < 7)) continue; // keep intersections clear
-    lampPos.push([s2, c + 5.6, -2], [s2 + 11 > 126 ? s2 - 11 : s2 + 11, c - 5.6, 2]); // along east-west roads
-    lampPos.push([c + 5.6, s2, -1], [c - 5.6, s2 + 11 > 126 ? s2 - 11 : s2 + 11, 1]); // along north-south roads
+    lampPos.push([s2, c + 5.6, -2], [s2 + 11 > 170 ? s2 - 11 : s2 + 11, c - 5.6, 2]); // along east-west roads
+    lampPos.push([c + 5.6, s2, -1], [c - 5.6, s2 + 11 > 170 ? s2 - 11 : s2 + 11, 1]); // along north-south roads
   }
   // one instanced mesh per lamp part keeps hundreds of lamps cheap to draw
   const parts = [
@@ -396,7 +510,7 @@ export function buildScenery(scene, renderer) {
   // distant hills to close the horizon
   const hillMat = new THREE.MeshStandardMaterial({ color: 0x55663f, roughness: 1 });
   for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2 + r() * 0.2, d = 390 + r() * 90;
+    const a = (i / 14) * Math.PI * 2 + r() * 0.2, d = 470 + r() * 90;
     const h = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), hillMat);
     h.scale.set(70 + r() * 60, 18 + r() * 25, 50 + r() * 40);
     h.position.set(Math.cos(a) * d, -2, Math.sin(a) * d); h.rotation.y = r() * 3;

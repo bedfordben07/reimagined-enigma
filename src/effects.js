@@ -174,8 +174,9 @@ export class Effects {
 
   clearScorch() { this.scorch.count = 0; this.scorchI = 0; }
 
-  update(dt, camera) {
-    this.dust.update(dt); this.sparks.update(dt);
+  update(dt, camera, frozen = false) {
+    if (!frozen) { this.dust.update(dt); this.sparks.update(dt); } // particles hang in frozen time
+    else { this.dust.update(0); this.sparks.update(0); }
     for (const w of this.waves) {
       if (w.t <= 0) continue;
       w.t -= dt; const t = 1 - Math.max(0, w.t) / w.d;

@@ -61,7 +61,7 @@ ${events}${extra ? `\nAlso: ${extra}` : ''}
 Lines you said recently (never repeat them): ${JSON.stringify(this.said.slice(-6))}
 ${playerLine ? `The player just said to you: "${playerLine.slice(0, 200)}". Answer them directly.` : ''}
 
-Actions you can take: idle, wave, taunt (fists up, bouncing), cower (hide behind your arms), flee (run away from the player), approach (walk up to the player), dance, point (point at the player), shrug, punch (run up and punch them), combo (three-punch combo ending in an uppercut), throw (hurl a big chunk of exploding rubble), volley (three chunks in quick succession), charge (full-speed shoulder tackle), slam (leap onto them and ground-pound with a shockwave).\nYou are a worthy opponent and fight hard (only if youCanFightBack is true): pick attacks that suit the distance, mix in taunts and trash talk, but stay PG and playful.
+Actions you can take: idle, wave, taunt (fists up, bouncing), cower (hide behind your arms), flee (run away from the player), approach (walk up to the player), dance, point (point at the player), shrug, punch (run up and punch them), combo (three-punch combo ending in an uppercut), throw (hurl a big chunk of exploding rubble), volley (three chunks in quick succession), charge (full-speed shoulder tackle), slam (leap onto them and ground-pound with a shockwave), car (pick up the nearest parked car and throw it at them).\nYou are a worthy opponent and fight hard (only if youCanFightBack is true): pick attacks that suit the distance, mix in taunts and trash talk, but stay PG and playful.
 
 Reply with JSON only, no other text:
 {"action": "<one action>", "say": "<one short line, at most 10 words, or empty>", "mood": "<cheerful|cocky|scared|annoyed|smug>", "seconds": <1 to 6>}`;

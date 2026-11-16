@@ -131,6 +131,12 @@ export class DebrisSystem {
     }
   }
 
+  // Upload transforms without simulating (frozen time: new pieces still appear, nothing moves).
+  flush() {
+    for (const m of this.dirtyMat) { const mesh = this.meshes[m]; mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true; }
+    this.dirtyMat.clear();
+  }
+
   update(dt, substeps) {
     const h = dt / substeps;
     const vox = this.voxels;

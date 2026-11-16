@@ -11,10 +11,12 @@ export class VoxelWorld {
   constructor(scene, matDefs) {
     this.scene = scene;
     this.matDefs = matDefs; // index = material id (1..n), {material, dust, glass}
-    this.ox = -138; this.oz = -138;
-    this.nx = 552; this.nz = 552; this.ny = 150; // 276 m square, 75 m tall
+    this.ox = -180; this.oz = -180;
+    this.nx = 720; this.nz = 720; this.ny = 130; // 360 m square, 65 m tall
     this.occ = new Uint8Array(this.nx * this.ny * this.nz);
-    this.bid = new Uint8Array(this.nx * this.ny * this.nz);
+    // buildings never share a column, so the owner is stored per (x, z) column instead of per cell
+    this.nxz = this.nx * this.nz;
+    this.bcol = new Uint16Array(this.nxz);
     this.buildings = [null];
     // instanced meshes are split per material AND per 32 m chunk so off-screen chunks are culled
     this.meshes = new Map(); this.cells = new Map(); this.slot = new Map();
@@ -47,7 +49,7 @@ export class VoxelWorld {
   set(x, y, z, m, b) {
     if (!this.inb(x, y, z)) return;
     const i = this.idx(x, y, z);
-    this.occ[i] = m; this.bid[i] = m ? b : 0;
+    this.occ[i] = m; if (m && b) this.bcol[i % this.nxz] = b;
     if (m && b) {
       const B = this.buildings[b];
       if (x < B.x0) B.x0 = x; if (y < B.y0) B.y0 = y; if (z < B.z0) B.z0 = z;
@@ -58,7 +60,7 @@ export class VoxelWorld {
   reset() {
     for (const m of this.meshes.values()) { this.scene.remove(m); m.dispose(); }
     this.meshes.clear(); this.cells.clear(); this.range.clear(); this.slot.clear();
-    this.occ.fill(0); this.bid.fill(0);
+    this.occ.fill(0); this.bcol.fill(0);
     this.buildings = [null]; this.dirty.clear();
   }
 
@@ -74,7 +76,7 @@ export class VoxelWorld {
       const B = this.buildings[b];
       for (let y = B.y0; y <= B.y1; y++) for (let z = B.z0; z <= B.z1; z++) for (let x = B.x0; x <= B.x1; x++) {
         const i = this.idx(x, y, z);
-        if (this.occ[i] && this.bid[i] === b && !this.slot.has(i)) {
+        if (this.occ[i] && this.bcol[i % this.nxz] === b && !this.slot.has(i)) {
           const k = this._key(this.occ[i], i);
           let l = lists.get(k); if (!l) { l = []; lists.set(k, l); }
           l.push(i); this.slot.set(i, -1);
@@ -104,7 +106,7 @@ export class VoxelWorld {
         } else _m.makeScale(VS, VS, VS);
         _m.setPosition(v);
         mesh.setMatrixAt(s, _m);
-        const B = this.buildings[this.bid[i]];
+        const B = this.buildings[this.bcol[i % this.nxz]];
         const var_ = def.glass ? 0.04 : 0.1;
         const k = 1 - var_ / 2 + rnd() * var_;
         _c.setRGB(B.tint[0] * k, B.tint[1] * k, B.tint[2] * k);
@@ -146,9 +148,8 @@ export class VoxelWorld {
     mesh.count = last;
     this.slot.delete(i);
     this.occ[i] = 0;
-    const b = this.bid[i];
+    const b = this.bcol[i % this.nxz];
     if (b) this.dirty.add(b);
-    this.bid[i] = 0;
     this.total--;
     return m;
   }
@@ -256,7 +257,7 @@ export class VoxelWorld {
       const yb = B.y0;
       for (let z = B.z0; z <= B.z1; z++) for (let x = B.x0; x <= B.x1; x++) {
         const i = this.idx(x, yb, z);
-        if (this.occ[i] && this.bid[i] === b) { const l = lidx(x, yb, z); vis[l] = 1; q[qt++] = l; }
+        if (this.occ[i] && this.bcol[i % this.nxz] === b) { const l = lidx(x, yb, z); vis[l] = 1; q[qt++] = l; }
       }
       while (qh < qt) {
         const l = q[qh++];
@@ -268,13 +269,13 @@ export class VoxelWorld {
           const l2 = lidx(a, bb, c);
           if (vis[l2]) continue;
           const i2 = this.idx(a, bb, c);
-          if (this.occ[i2] && this.bid[i2] === b) { vis[l2] = 1; q[qt++] = l2; }
+          if (this.occ[i2] && this.bcol[i2 % this.nxz] === b) { vis[l2] = 1; q[qt++] = l2; }
         }
       }
       const detached = [];
       for (let y = B.y0; y <= B.y1; y++) for (let z = B.z0; z <= B.z1; z++) for (let x = B.x0; x <= B.x1; x++) {
         const i = this.idx(x, y, z);
-        if (this.occ[i] && this.bid[i] === b && !vis[lidx(x, y, z)]) detached.push(i);
+        if (this.occ[i] && this.bcol[i % this.nxz] === b && !vis[lidx(x, y, z)]) detached.push(i);
       }
       if (detached.length) {
         const out = [];
