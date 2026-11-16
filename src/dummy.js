@@ -5,8 +5,14 @@ import { dummyTex, brushedMetalTex, pbr } from './textures.js';
 import { lathe, extrude, roundRect, smoothSym, smoothShape, toX } from './geom.js';
 
 // Lines it says, by situation.
-export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug'];
+export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug', 'punch', 'throw', 'charge'];
+const ATTACKS = ['punch', 'throw', 'charge'];
 const LINES = {
+  punch: ['My turn!', 'Taste rubber!', 'Haaa-YAH!', 'Fist of fury!', 'Incoming!'],
+  throw: ['Catch!', 'Eat brick!', 'Special delivery!', 'Fore!', 'Think fast!'],
+  charge: ['CHAAARGE!', 'Here I come!', 'Full tackle!', 'Out of my way!'],
+  bounce: ["OW! You're made of METAL!", 'Bad idea. Bad idea.', 'I regret that.', 'Like hitting a wall...'],
+  scored: ['GOT YOU!', 'Ha! Bullseye!', 'How do YOU like it?', 'Point to the dummy!', 'Boom!'],
   greet: ['Hi there!', 'Test subject reporting!', 'Be gentle?', 'Oh good, you again.', 'Ready when you are!'],
   hit: ['OOF!', 'Not the face!', 'Ow ow ow!', 'Was that necessary?!', 'My warranty!', 'AAAAH!', 'Rude!'],
   big: ['WHY?!', 'I saw my whole life!', 'That one hurt!', 'AAAAAAAAH'],
@@ -93,7 +99,8 @@ export class Dummy {
     this.burn = 0;
     this.lastHitTime = 0;
     this.time = 0; this.blinkT = 2; this.lastSay = 0; this.speech = null;
-    this.mood = 'idle'; this.moodT = 0; this.moodW = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0 };
+    this.mood = 'idle'; this.moodT = 0; this.moodW = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0, wind: 0, jab: 0, throwW: 0, throwF: 0, lean: 0 };
+    this.atk = null; this.anger = 0; this.atkCool = 0; this.fights = true; this.runFast = false;
     this.cmd = null; this.walkPh = 0; this.brainOn = false; this.brainMood = 'cheerful'; this.onEvent = null;
     this.greetReady = true; this.wasThreat = false; this.heldSince = 0; this.bigHit = 0;
     this.player = new THREE.Vector3(); this.headQ = new THREE.Quaternion();
@@ -223,6 +230,8 @@ export class Dummy {
     this.lastHitTime = performance.now();
     const sp = vel.length();
     this.slack = Math.min(0.25, 0.05 + sp * 0.003);
+    if (sp > 3) this.anger += sp > 45 ? 2.2 : 1;
+    this.atk = null;
     if (sp > 45) this.bigHit = 1;
     if (sp > 3) this.say(sp > 45 ? LINES.big : LINES.hit, sp > 45);
     if (sp > 3) this.onEvent?.(sp > 45 ? 'You just got hit extremely hard and sent flying.' : 'You just got hit.');
@@ -253,7 +262,7 @@ export class Dummy {
 
   grab(target) { this.restT = 0; this.heldSince = this.time; this.say(LINES.grabbed, true); this.onEvent?.('The player grabbed you and is holding you over their head.'); this.cmd = null; this.mode = 'held'; this.holdTarget.copy(target); }
   release(vel) {
-    this.mode = 'ragdoll'; this.bigHit = 1;
+    this.mode = 'ragdoll'; this.bigHit = 1; this.anger += 1.5; this.atk = null;
     if (vel.length() > 30) { this.say(LINES.thrown, true); this.onEvent?.('The player just threw you as hard as they can.'); }
     for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]).addScaledVector(vel, -this.h);
   }
@@ -408,7 +417,45 @@ export class Dummy {
   // An action chosen by the dummy's brain (Claude, when connected): plays for `secs` seconds.
   command(name, secs = 3) {
     if (!ACTIONS.includes(name)) name = 'idle';
+    if (ATTACKS.includes(name)) { if (this.mode === 'stand' && this.fights) this.startAttack(name, true); return; }
     this.cmd = { name, t: Math.max(1, Math.min(6, secs || 3)) };
+  }
+
+  startAttack(kind, quiet = false) {
+    this.atk = { kind, phase: kind === 'throw' ? 'windup' : 'approach', t: 0 };
+    this.anger = Math.max(0, this.anger - 1.6); this.atkCool = 3.5 + Math.random() * 2;
+    if (!quiet || !this.speech) this.say(LINES[kind], true);
+    this.onEvent?.(`You decided to ${kind === 'punch' ? 'punch' : kind === 'throw' ? 'throw rubble at' : 'tackle'} the player.`);
+  }
+
+  // Runs the current attack. Returns the direction to face.
+  _attack(dt, ctx, d, dx, dz, want) {
+    const A = this.atk, toP = Math.atan2(dx, dz);
+    A.t += dt;
+    const next = (phase) => { A.phase = phase; A.t = 0; };
+    const dirToPlayer = () => new THREE.Vector3(dx, 0, dz).normalize();
+    if (A.kind === 'punch') {
+      if (A.phase === 'approach') {
+        if (d < 1.9) next('windup');
+        else if (A.t > 5 || d > 30 || !this._walk(dt, toP, 4.4)) this.atk = null;
+        else want.walk = 1;
+      } else if (A.phase === 'windup') { want.wind = 1; if (A.t > 0.3) { next('strike'); if (d < 2.6) { this.ctx.hitPlayer?.(dirToPlayer(), 15, 'punch'); this.say(LINES.scored, true); } } }
+      else if (A.phase === 'strike') { want.jab = 1; if (A.t > 0.18) next('recover'); }
+      else { want.jab = 0.4; if (A.t > 0.4) this.atk = null; }
+    } else if (A.kind === 'throw') {
+      if (A.phase === 'windup') { want.throwW = 1; if (A.t > 0.55) { next('follow'); this.ctx.throwRock?.(this.p[ID.rha].clone()); } }
+      else { want.throwF = 1; if (A.t > 0.4) this.atk = null; }
+    } else { // charge
+      want.walk = 1; want.lean = 1; this.runFast = true;
+      if (d < 1.5) {
+        const dir = dirToPlayer();
+        this.ctx.hitPlayer?.(dir, 24, 'tackle');
+        this.atk = null; this.runFast = false;
+        this.push(dir.multiplyScalar(-7).add(new THREE.Vector3(0, 4.5, 0))); // bounces off the robot
+        this.say(LINES.bounce, true);
+      } else if (A.t > 3 || d > 40 || !this._walk(dt, toP, 8.5)) { this.atk = null; this.runFast = false; }
+    }
+    return toP;
   }
 
   // Called every frame with what the player is doing, to pick a mood and react.
@@ -418,14 +465,22 @@ export class Dummy {
     this.player.copy(ctx.playerPos);
     const dx = ctx.playerPos.x - this.root.x, dz = ctx.playerPos.z - this.root.z, d = Math.hypot(dx, dz);
     const W = this.moodW;
-    const want = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0 };
+    const want = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0, wind: 0, jab: 0, throwW: 0, throwF: 0, lean: 0 };
     if (this.cmd) { this.cmd.t -= dt; if (this.cmd.t <= 0) this.cmd = null; }
     let faceTarget = Math.atan2(dx, dz), turnRate = 2.5;
     if (this.mode === 'stand') {
       this.moodT = Math.max(0, this.moodT - dt);
       const threatened = (ctx.charging && d < 14) || (ctx.laserNear && d < 40) || (ctx.speed > 40 && d < 20);
       const c = this.cmd && this.cmd.name;
-      if (c && c !== 'idle') {
+      this.anger = Math.max(0, this.anger - dt * 0.05);
+      this.atkCool = Math.max(0, this.atkCool - dt);
+      // scripted fighting back: once angry enough, pick an attack that suits the distance
+      if (!this.atk && this.fights && !this.brainOn && this.anger >= 1.5 && this.atkCool <= 0 && d < 30) {
+        this.startAttack(d < 7 ? 'punch' : (ctx.playerAir || Math.random() < 0.6) ? 'throw' : 'charge');
+      }
+      if (this.atk && !this.fights) this.atk = null;
+      if (this.atk) { faceTarget = this._attack(dt, ctx, d, dx, dz, want); turnRate = 12; }
+      else if (c && c !== 'idle') {
         // the brain is in charge
         if (c === 'flee' || c === 'approach') {
           const away = c === 'flee';
@@ -465,16 +520,18 @@ export class Dummy {
   _walk(dt, dir, speed) {
     const nx = this.root.x + Math.sin(dir) * speed * dt, nz = this.root.z + Math.cos(dir) * speed * dt;
     const y = this.root.y, v = this.voxels;
-    if (v.solidAt(nx, y + 0.6, nz) || v.solidAt(nx, y + 1.4, nz) || Math.abs(nx) > 135 || Math.abs(nz) > 135) { this.cmd = null; return; }
+    if (v.solidAt(nx, y + 0.6, nz) || v.solidAt(nx, y + 1.4, nz) || Math.abs(nx) > 135 || Math.abs(nz) > 135) { this.cmd = null; return false; }
     this.root.x = nx; this.root.z = nz;
-    this.walkPh += dt * speed * 3.4;
+    this.walkPh += dt * speed * (speed > 6 ? 2.2 : 3.4);
     if (y > 0.01 && !v.solidAt(nx, y - 0.25, nz)) {
       // walked off the edge
       this.mode = 'ragdoll';
       this.push(new THREE.Vector3(Math.sin(dir) * speed, 1, Math.cos(dir) * speed));
       this.say(['Oh no.', 'Whoops!', 'That was not there before!'], true);
-      this.cmd = null;
+      this.cmd = null; this.atk = null;
+      return false;
     }
+    return true;
   }
 
   // Standing pose with mood layers blended in (local space, facing +Z).
@@ -539,6 +596,37 @@ export class Dummy {
       if (name === 'rha' || name === 'rel') z += sL * (name === 'rha' ? 0.2 : 0.08) * k;
       if (name !== 'lft' && name !== 'rft') y += Math.abs(cL) * 0.03 * k;
       if (upper) z += 0.04 * k;
+    }
+    // attacks
+    if (W.wind > 0) {
+      const k = W.wind;
+      if (name === 'rha') blend(k, 0.3, 1.25, -0.25); if (name === 'rel') blend(k, 0.34, 1.3, -0.1);
+      if (name === 'lha') blend(k, -0.12, 1.42, 0.26); if (name === 'lel') blend(k, -0.26, 1.18, 0.16);
+      if (name === 'rsh') z -= 0.07 * k; if (name === 'lsh') z += 0.06 * k;
+      if (name === 'lkn' || name === 'rkn') y -= 0.06 * k;
+    }
+    if (W.jab > 0) {
+      const k = W.jab;
+      if (name === 'rha') blend(k, 0.06, 1.45, 0.64); if (name === 'rel') blend(k, 0.16, 1.44, 0.32);
+      if (name === 'lha') blend(k, -0.14, 1.38, 0.2); if (name === 'lel') blend(k, -0.27, 1.15, 0.1);
+      if (name === 'rsh') z += 0.09 * k; if (name === 'lsh') z -= 0.06 * k;
+      if (upper) z += 0.06 * k;
+    }
+    if (W.throwW > 0) {
+      const k = W.throwW;
+      if (name === 'rha') blend(k, 0.26, 1.95, -0.28); if (name === 'rel') blend(k, 0.3, 1.62, -0.14);
+      if (name === 'lha') blend(k, -0.3, 1.4, 0.38); if (name === 'lel') blend(k, -0.3, 1.32, 0.16);
+      if (upper) z -= 0.06 * k;
+    }
+    if (W.throwF > 0) {
+      const k = W.throwF;
+      if (name === 'rha') blend(k, 0.04, 1.02, 0.5); if (name === 'rel') blend(k, 0.2, 1.3, 0.34);
+      if (upper) z += 0.1 * k;
+    }
+    if (W.lean > 0) {
+      const k = W.lean;
+      if (upper) z += (name === 'head' ? 0.28 : 0.18) * k;
+      if (name === 'lha') blend(k, -0.2, 1.3, 0.34); if (name === 'rha') blend(k, 0.2, 1.3, 0.34);
     }
     return out.set(x, y, z);
   }

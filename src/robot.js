@@ -235,6 +235,16 @@ export class Robot {
   }
 
   // Kick a joint's spring (e.g. absorb a landing): positive dy pushes the body down.
+  // Recoil when the dummy lands a hit: the body snaps back and twists, the springs bring it round.
+  hitReact(power) {
+    if (!this.springs) return;
+    const k = Math.min(1.5, power / 15);
+    const kick = (id, dv) => { const st = this.springs.get(id); if (st) st.v += dv; };
+    kick(this.body.uuid + 'r' + 'x', -6 * k); kick(this.spine.uuid + 'x', -5 * k);
+    kick(this.chest.uuid + 'y', (Math.random() - 0.5) * 10 * k); kick(this.head.uuid + 'x', -9 * k);
+    for (const side of [-1, 1]) kick(this.arms[side].sh.uuid + 'z', side * 8 * k);
+  }
+
   land(speed) {
     if (!this.springs) return;
     const k = Math.min(1, speed / 30);

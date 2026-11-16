@@ -35,6 +35,7 @@ High and steps down automatically if the frame rate drops).
 | `V` | switch character (Sentinel / Spectre V-01) |
 | `O` | ink outlines on/off |
 | `Enter` | talk to the dummy |
+| `G` | dummy fights back on/off |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
 

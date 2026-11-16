@@ -61,7 +61,7 @@ ${events}${extra ? `\nAlso: ${extra}` : ''}
 Lines you said recently (never repeat them): ${JSON.stringify(this.said.slice(-6))}
 ${playerLine ? `The player just said to you: "${playerLine.slice(0, 200)}". Answer them directly.` : ''}
 
-Actions you can take: idle, wave, taunt (fists up, bouncing), cower (hide behind your arms), flee (run away from the player), approach (walk up to the player), dance, point (point at the player), shrug.
+Actions you can take: idle, wave, taunt (fists up, bouncing), cower (hide behind your arms), flee (run away from the player), approach (walk up to the player), dance, point (point at the player), shrug, punch (run up and punch them), throw (hurl a chunk of rubble at them), charge (shoulder-tackle them; you will bounce off their metal body).\nYou may fight back when provoked (only if youCanFightBack is true), but be a good sport: mix attacks with taunts and jokes, and don't attack every time.
 
 Reply with JSON only, no other text:
 {"action": "<one action>", "say": "<one short line, at most 10 words, or empty>", "mood": "<cheerful|cocky|scared|annoyed|smug>", "seconds": <1 to 6>}`;

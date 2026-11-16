@@ -15,7 +15,7 @@ import { Spectre } from './spectre.js';
 import { addOutline } from './outline.js';
 import { DummyBrain } from './brain.js';
 import { Effects } from './effects.js';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery } from './town.js';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT } from './town.js';
 import { Sfx } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -211,6 +211,7 @@ const brain = new DummyBrain(dummy, () => {
     robot: robot.name, distanceToPlayerMetres: Math.round(d), you: dummy.mode === 'stand' ? 'standing' : dummy.mode === 'held' ? 'being held overhead' : dummy.mode === 'getup' ? 'getting up' : 'flying through the air / lying on the ground',
     burnt: dummy.burn > 0.5, playerFlying: player.flying, playerSpeedKmh: Math.round(player.vel.length() * 3.6),
     playerChargingPunch: player.charging, playerFiringLaser: player.laser, rubblePieces: debris.count,
+    yourHitsOnPlayer: typeof tagged === 'number' ? tagged : 0, youCanFightBack: dummy.fights, yourAnger: Math.round(dummy.anger * 10) / 10,
   };
 });
 let brainWanted = true;
@@ -232,6 +233,56 @@ brainBtn.addEventListener('click', (e) => {
   if (!brainWanted && brain.enabled) brain.enable(false);
   renderBrain();
 });
+// ---------------------------------------------------------------- the dummy fights back
+let tagged = 0;
+function setFights(v) {
+  dummy.fights = v; if (!v) dummy.atk = null;
+  try { localStorage.setItem('rubble-fight', v ? '1' : '0'); } catch (e) { /* ignore */ }
+  $('fightHud').textContent = v ? 'Fights back' : 'Peaceful';
+}
+try { dummy.fights = localStorage.getItem('rubble-fight') !== '0'; } catch (e) { /* ignore */ }
+setFights(dummy.fights);
+// knock the player back with a jolt
+dummy.ctx.hitPlayer = (dir, power, kind) => {
+  const d = dir.clone().setY(0).normalize();
+  player.vel.addScaledVector(d, power); player.vel.y += power * (kind === 'tackle' ? 0.45 : 0.3);
+  player.grounded = false; player.charging = false;
+  robot.hitReact(power);
+  const c = chestPos(new THREE.Vector3());
+  for (let i = 0; i < 24; i++) fx.sparks.emit(c, rndVec(new THREE.Vector3(), 14).addScaledVector(d, 6), new THREE.Color(5, 4, 2.5), 0.2 + Math.random() * 0.25, 0.6, 0.02);
+  fx.wave(c, 1.6, 0.22);
+  shake = Math.min(1, shake + 0.25 + power / 80);
+  sfx.boom(0.35 + power / 60);
+  tagged++; $('tagHud').textContent = tagged;
+  brain.event(`You hit the player with a ${kind}! That is ${tagged} hits on them so far.`);
+};
+// hurl a chunk of rubble on a ballistic arc, leading the player
+const rocks = [];
+dummy.ctx.throwRock = (from) => {
+  const aim = chestPos(new THREE.Vector3());
+  const dist = Math.hypot(aim.x - from.x, aim.z - from.z);
+  const T = Math.max(0.3, dist / 24);
+  aim.addScaledVector(player.vel, T * 0.6);
+  const v = new THREE.Vector3((aim.x - from.x) / T, (aim.y - from.y) / T + 0.5 * 20 * T, (aim.z - from.z) / T);
+  const it = debris.spawn(from, v, MAT.CONCRETE, new THREE.Color(0.75, 0.73, 0.7), 0.55);
+  if (it) rocks.push({ it, life: 5 });
+  sfx.whoosh();
+};
+function updateRocks(dt) {
+  const c = chestPos(tmp3);
+  for (let i = rocks.length - 1; i >= 0; i--) {
+    const r = rocks[i];
+    r.life -= dt;
+    if (r.it.dead || r.life <= 0 || r.it.asleep) { rocks.splice(i, 1); continue; }
+    if (r.it.v.lengthSq() > 25 && r.it.p.distanceTo(c) < 1.3) {
+      dummy.ctx.hitPlayer(r.it.v.clone(), 13, 'rock');
+      r.it.v.multiplyScalar(-0.25);
+      dummy.say(['Bullseye!', 'Nothing but brick!', 'Ha! Got you!'], true);
+      rocks.splice(i, 1);
+    }
+  }
+}
+
 // talk to the dummy: Enter opens a box, Enter sends, Esc closes
 const talkBox = $('talk'), talkInput = $('talkInput');
 function openTalk() {
@@ -340,6 +391,7 @@ addEventListener('keydown', (e) => {
     case 'KeyQ': setQuality((quality + 1) % QUALITY.length, true); break;
     case 'KeyV': setCharacter(charIdx + 1); break;
     case 'KeyO': setOutline(!outlineOn); break;
+    case 'KeyG': setFights(!dummy.fights); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
     case 'KeyK': mouse.r = true; break;
@@ -480,7 +532,7 @@ function updateLaser(dt) {
       fx.addScorch(tmp.copy(p).add(rndVec(tmp2, 0.25)), 0.9 + Math.random() * 0.6);
     } else if (hitKind === 'dummy') {
       dummy.hit(p, 0.7, tmp2.copy(beamDir).multiplyScalar(2.2).addScaledVector(UP, 0.6), 0.2);
-      dummy.burn += 0.03;
+      dummy.burn += 0.03; dummy.anger += 0.04;
     }
     debris.blast(p, 1.2, 3);
   }
@@ -851,10 +903,11 @@ function tick(rdt) {
   vox.updateIntegrity(dt, detach);
   vox.flush();
   dummy.think(dt, {
-    playerPos: player.pos, charging: player.charging, speed: player.vel.length(),
+    playerPos: player.pos, charging: player.charging, speed: player.vel.length(), playerAir: player.pos.y > 4,
     laserNear: player.laser && aim.point.distanceTo(dummy.chest(tmp)) < 5, laserOnMe: player.laser && aim.kind === 'dummy',
   });
   dummy.update(dt);
+  updateRocks(dt);
   updateBubble();
   updateHandThrust(dt);
   speedLines(dt);
