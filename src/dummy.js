@@ -14,6 +14,16 @@ const POSE = {
   lkn: [-0.13, 0.52, 0.03, 0.08], rkn: [0.13, 0.52, 0.03, 0.08],
   lft: [-0.13, 0.08, 0.05, 0.07], rft: [0.13, 0.08, 0.05, 0.07],
 };
+// Half-way pose for getting up: one knee down, hands pushing off the ground.
+const KNEEL = {
+  head: [0, 1.0, 0.38], neck: [0, 0.82, 0.27],
+  lsh: [-0.21, 0.79, 0.21], rsh: [0.21, 0.79, 0.21],
+  lel: [-0.27, 0.48, 0.33], rel: [0.27, 0.48, 0.33],
+  lha: [-0.27, 0.1, 0.45], rha: [0.27, 0.1, 0.45],
+  lhp: [-0.12, 0.55, -0.08], rhp: [0.12, 0.55, -0.08],
+  lkn: [-0.13, 0.09, 0.12], rkn: [0.14, 0.52, 0.38],
+  lft: [-0.13, 0.08, -0.42], rft: [0.14, 0.08, 0.3],
+};
 const NAMES = Object.keys(POSE);
 const ID = Object.fromEntries(NAMES.map((n, i) => [n, i]));
 const G = -20;
@@ -39,6 +49,7 @@ export class Dummy {
     this._con('lhp', 'lft', 1, 0.5); this._con('rhp', 'rft', 1, 0.5);
     this._con('lkn', 'rkn', 1, 0.12); this._con('lft', 'rft', 1, 0.1);
     this.mode = 'stand';
+    this.restT = 0; this.getT = 0; this.from = []; this.toRoot = new THREE.Vector3(); this.toYaw = 0;
     this.root = new THREE.Vector3(); this.yaw = 0;
     this.holdTarget = new THREE.Vector3();
     this.burn = 0;
@@ -113,7 +124,8 @@ export class Dummy {
       any = true;
     }
     if (!any) return false;
-    if (this.mode === 'stand') this.mode = 'ragdoll';
+    if (this.mode === 'stand' || this.mode === 'getup') this.mode = 'ragdoll';
+    this.restT = 0;
     for (let i = 0; i < this.n; i++) {
       const d = this.p[i].distanceTo(center);
       const f = Math.max(minFrac, 1 - d / (radius * 1.6));
@@ -124,7 +136,8 @@ export class Dummy {
   }
 
   push(vel) { // uniform velocity change
-    if (this.mode === 'stand') this.mode = 'ragdoll';
+    if (this.mode === 'stand' || this.mode === 'getup') this.mode = 'ragdoll';
+    this.restT = 0;
     for (let i = 0; i < this.n; i++) this.o[i].addScaledVector(vel, -this.h);
   }
 
@@ -143,7 +156,7 @@ export class Dummy {
     return best;
   }
 
-  grab(target) { this.mode = 'held'; this.holdTarget.copy(target); }
+  grab(target) { this.restT = 0; this.mode = 'held'; this.holdTarget.copy(target); }
   release(vel) {
     this.mode = 'ragdoll';
     for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]).addScaledVector(vel, -this.h);
@@ -151,7 +164,51 @@ export class Dummy {
 
   get h() { return 1 / 120; }
 
+  // Lying still for a moment: work out where to stand and which way to face, then animate up.
+  _startGetup() {
+    const P = this.p;
+    const mid = new THREE.Vector3().addVectors(P[ID.lhp], P[ID.rhp]).multiplyScalar(0.5);
+    const dir = new THREE.Vector3().subVectors(P[ID.head], mid); dir.y = 0;
+    this.toYaw = dir.lengthSq() > 0.01 ? Math.atan2(dir.x, dir.z) : this.yaw;
+    // stand on whatever is underneath: the ground, rubble-free floor or a roof
+    let gy = 0;
+    for (let y = mid.y + 0.4; y > 0; y -= 0.25) { if (this.voxels.solidAt(mid.x, y, mid.z)) { gy = (Math.floor(y / 0.5) + 1) * 0.5; break; } }
+    this.toRoot.set(mid.x, gy, mid.z);
+    this.from = P.map((p) => p.clone());
+    this.getT = 0; this.mode = 'getup';
+  }
+
+  _poseAt(pose, root, yaw, k, out) {
+    const [x, y, z] = pose[NAMES[k]];
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    return out.set(root.x + x * c + z * s, root.y + y, root.z - x * s + z * c);
+  }
+
   step(h) {
+    if (this.mode === 'getup') {
+      this.getT += h;
+      const ss = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+      const T1 = 0.6, T2 = 0.75;
+      for (let i = 0; i < this.n; i++) {
+        const kneel = this._poseAt(KNEEL, this.toRoot, this.toYaw, i, _a);
+        if (this.getT < T1) this.p[i].lerpVectors(this.from[i], kneel, ss(this.getT / T1));
+        else {
+          const stand = this._poseAt(POSE, this.toRoot, this.toYaw, i, _b);
+          // a small overshoot as it straightens, so it settles instead of stopping dead
+          const u = (this.getT - T1) / T2, e = ss(u) + Math.sin(Math.min(1, u) * Math.PI) * 0.06;
+          this.p[i].lerpVectors(kneel, stand, e);
+        }
+        this.o[i].copy(this.p[i]);
+      }
+      if (this.getT >= T1 + T2) { this.root.copy(this.toRoot); this.yaw = this.toYaw; this.mode = 'stand'; }
+      return;
+    }
+    if (this.mode === 'ragdoll') {
+      let maxV = 0;
+      for (let i = 0; i < this.n; i++) maxV = Math.max(maxV, this.p[i].distanceToSquared(this.o[i]));
+      if (Math.sqrt(maxV) / h < 0.7) { this.restT += h; if (this.restT > 1.4) { this.restT = 0; this._startGetup(); return; } }
+      else this.restT = 0;
+    }
     if (this.mode === 'stand') { this._setPose(); for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]); return; }
     // Verlet integrate
     for (let i = 0; i < this.n; i++) {

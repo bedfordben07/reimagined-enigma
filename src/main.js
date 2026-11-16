@@ -188,7 +188,7 @@ dummy.spawn(new THREE.Vector3(0, 0, 3), 0);
 // ---------------------------------------------------------------- player
 const player = {
   pos: new THREE.Vector3(0, 0, 13), vel: new THREE.Vector3(), flying: false, grounded: true,
-  yaw: Math.PI, camYaw: Math.PI, camPitch: -0.08, camDist: 5.5, holding: false, throwT: 0, throwWind: 0, lastYaw: Math.PI, turnRate: 0,
+  yaw: Math.PI, camYaw: Math.PI, camPitch: -0.08, camDist: 5.5, holding: false, throwT: 0, throwWind: 0, lastYaw: Math.PI, turnRate: 0, yawVel: 0, prevVel: new THREE.Vector3(), acc: new THREE.Vector3(),
   charge: 0, charging: false, punchT: 0, punchDir: new THREE.Vector3(), punchPow: 0, punchHit: false, laser: false, laserTick: 0,
 };
 const keys = new Set();
@@ -473,6 +473,7 @@ function updatePlayer(dt) {
     }
   }
   if (!player.flying && player.grounded && !wasGrounded && preVy < -24) superLanding(-preVy);
+  if (player.grounded && !wasGrounded && preVy < -4) robot.land(-preVy);
   if (player.flying && player.grounded && iy < 0 && player.pos.y < 0.05) player.flying = false;
   if (player.flying) player.grounded = false;
   // dash through the dummy
@@ -488,7 +489,10 @@ function updatePlayer(dt) {
   else if (player.flying && hv > 3) targetYaw = Math.atan2(v.x, v.z);
   else if (!player.flying && hv > 0.5) targetYaw = Math.atan2(v.x, v.z);
   let dy = targetYaw - player.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-  player.yaw += dy * Math.min(1, dt * (player.punchT > 0 ? 20 : 9));
+  // turn with a damped spring so changes of direction have a little weight and settle smoothly
+  const wy = player.punchT > 0 || player.charging || player.throwWind > 0 ? 26 : 13;
+  player.yawVel += (wy * wy * dy - 2 * 0.85 * wy * player.yawVel) * dt;
+  player.yaw += player.yawVel * dt;
 }
 
 function superLanding(vy) {
@@ -690,11 +694,13 @@ function tick(rdt) {
   if (player.throwWind > 0) { player.throwWind += dt / THROW_WIND; if (player.throwWind >= 1) releaseThrow(); }
   { let d = player.yaw - player.lastYaw; d = Math.atan2(Math.sin(d), Math.cos(d)); player.lastYaw = player.yaw;
     player.turnRate += ((dt > 0 ? d / dt : 0) - player.turnRate) * Math.min(1, dt * 6); }
+  if (dt > 0) { tmp.subVectors(player.vel, player.prevVel).divideScalar(dt); player.acc.lerp(tmp, Math.min(1, dt * 8)); player.prevVel.copy(player.vel); }
   robot.animate({
     dt, flying: player.flying, grounded: player.grounded, hSpeed: Math.hypot(v.x, v.z),
     fwdSpeed: v.x * sy + v.z * cy, sideSpeed: v.x * cy - v.z * sy, vSpeed: v.y,
     boost: keys.has('ShiftLeft') || keys.has('ShiftRight'), aimPitch: player.camPitch, aimYawRel: yawRel,
     charge: player.charging ? player.charge / 1.1 : 0, punchT: Math.max(0, player.punchT / 0.4), holding: player.holding, throwWind: player.throwWind, throwT: player.throwT, turnRate: player.turnRate, laser: player.laser,
+    accFwd: player.acc.x * sy + player.acc.z * cy, accSide: player.acc.x * cy - player.acc.z * sy,
   });
   robot.root.updateMatrixWorld(true);
   updateCamera(rdt);

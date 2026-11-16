@@ -146,6 +146,18 @@ export class Robot {
     this.hover = 0;
   }
 
+  // Kick a joint's spring (e.g. absorb a landing): positive dy pushes the body down.
+  land(speed) {
+    if (!this.springs) return;
+    const k = Math.min(1, speed / 30);
+    const by = this.springs.get(this.body.uuid + 'p' + 'y'); if (by) by.v -= 1.5 + 5 * k;
+    for (const side of [-1, 1]) {
+      const kn = this.springs.get(this.legs[side].kn.uuid + 'x'); if (kn) kn.v += 8 + 22 * k;
+      const hp = this.springs.get(this.legs[side].hip.uuid + 'x'); if (hp) hp.v -= 5 + 12 * k;
+    }
+    const sx = this.springs.get(this.spine.uuid + 'x'); if (sx) sx.v += 3 + 6 * k;
+  }
+
   handWorld(side, out) {
     const h = this.arms[side].hand;
     h.updateWorldMatrix(true, false);
@@ -178,7 +190,7 @@ export class Robot {
       const fast = sstep((f - 0.35) / 0.4);  // horizontal superhero flight
       const bank = clamp(-s.sideSpeed / 35 - s.turnRate * 0.35, -0.85, 0.85);
       // hovering idle: upright and slightly reclined, arms spread with open hands, one knee drawn up
-      const bob = Math.sin(t * 1.7), sway = Math.sin(t * 0.83);
+      const bob = Math.sin(t * 1.7) * 0.75 + Math.sin(t * 2.9 + 1.1) * 0.25, sway = Math.sin(t * 0.83) * 0.7 + Math.sin(t * 1.37 + 2) * 0.3;
       const hover = {
         bodyX: -0.1 + bob * 0.02, bodyZ: sway * 0.05, bodyY: 1.15 + bob * 0.07,
         L: { sx: -0.35 + sway * 0.06, sy: -0.3, sz: -0.75 - bob * 0.05, el: -0.45, curl: 0.05 },
@@ -301,25 +313,57 @@ export class Robot {
       snap = u < 0.25;
     }
 
-    // apply with smoothing (snapping for explosive moments)
-    const ka = snap ? 1 : Math.min(1, dt * armRate), kb = snap ? Math.min(1, dt * 30) : Math.min(1, dt * rate);
-    const L = (o, key, v, k) => { o[key] = lerpA(o[key], v, k); };
-    L(this.body.position, 'y', P.bodyY, kb);
-    L(this.body.rotation, 'x', P.bodyX, kb); L(this.body.rotation, 'z', P.bodyZ, kb); L(this.body.rotation, 'y', P.bodyYaw, kb);
-    L(this.spine.rotation, 'x', P.spineX, kb); L(this.spine.rotation, 'y', P.spineY, kb);
-    L(this.chest.rotation, 'y', P.chestY, kb); L(this.chest.rotation, 'x', P.chestX, kb);
-    L(this.head.rotation, 'x', P.headX, Math.min(1, dt * 10));
-    L(this.neck.rotation, 'y', P.headY - P.chestY - P.bodyYaw, Math.min(1, dt * 10));
+    // Momentum from movement: lean into acceleration, bank into turns.
+    const accF = clamp((s.accFwd || 0) / 50, -1, 1), accS = clamp((s.accSide || 0) / 50, -1, 1);
+    if (s.flying) { P.bodyX += accF * 0.3; P.bodyZ -= accS * 0.35; }
+    else if (s.grounded) { P.bodyX += accF * 0.18; P.bodyZ -= accS * 0.12; P.chestX -= accF * 0.06; }
+
+    // Drive every joint with a damped spring instead of easing straight to the target: limbs carry
+    // momentum, overshoot a touch and settle at different speeds, which reads as weight and follow-through.
+    const sp = this.springs || (this.springs = new Map());
+    const spring = (obj, key, target, w, z = 0.75) => {
+      const id = obj.uuid ? obj.uuid + key : key;
+      let st = sp.get(id);
+      if (!st) { st = { x: obj[key] ?? 0, v: 0 }; sp.set(id, st); }
+      const n = Math.max(1, Math.ceil(dt * w / 0.25)), h = dt / n;
+      for (let i = 0; i < n; i++) {
+        st.v += (w * w * (target - st.x) - 2 * z * w * st.v) * h;
+        st.x += st.v * h;
+      }
+      obj[key] = st.x;
+      return st;
+    };
+    this._spring = spring;
+    const action = snap ? 2.2 : 1;
+    const wBody = (rate > 12 ? 14 : 10) * action, wArm = (armRate > 12 ? 17 : 13) * action, wLeg = rate > 12 ? 24 : 15;
+    const pos = this.body.position, rot = this.body.rotation;
+    pos.uuid = this.body.uuid + 'p'; rot.uuid = this.body.uuid + 'r';
+    spring(pos, 'y', P.bodyY, wBody * 1.1, 0.55);
+    spring(rot, 'x', P.bodyX, wBody, 0.7); spring(rot, 'z', P.bodyZ, wBody * 0.8, 0.6); spring(rot, 'y', P.bodyYaw, wBody, 0.65);
+    const spR = this.spine.rotation, chR = this.chest.rotation;
+    spR.uuid = this.spine.uuid; chR.uuid = this.chest.uuid;
+    spring(spR, 'x', P.spineX, wBody * 1.1, 0.6); spring(spR, 'y', P.spineY, wBody, 0.6);
+    spring(chR, 'y', P.chestY, wBody * 1.15, 0.5); spring(chR, 'x', P.chestX, wBody, 0.6);
+    // the head trails the body slightly and stabilises against the run
+    const hR = this.head.rotation, nR = this.neck.rotation;
+    hR.uuid = this.head.uuid; nR.uuid = this.neck.uuid;
+    spring(hR, 'x', P.headX + (s.grounded && !s.flying ? -this.body.rotation.x * 0.15 : 0), 11, 0.7);
+    spring(nR, 'y', P.headY - this.chest.rotation.y - this.body.rotation.y, 11, 0.7);
     for (const [side, A] of [[-1, P.L], [1, P.R]]) {
       const a = this.arms[side];
-      L(a.sh.rotation, 'x', A.sx, ka); L(a.sh.rotation, 'y', A.sy, ka); L(a.sh.rotation, 'z', A.sz, ka);
-      L(a.el.rotation, 'x', A.el, ka);
-      L(a.fingers.rotation, 'x', -A.curl * 1.7, Math.min(1, dt * 14));
+      const r1 = a.sh.rotation, r2 = a.el.rotation, r3 = a.fingers.rotation;
+      r1.uuid = a.sh.uuid; r2.uuid = a.el.uuid; r3.uuid = a.fingers.uuid;
+      spring(r1, 'x', A.sx, wArm, 0.55); spring(r1, 'y', A.sy, wArm, 0.6); spring(r1, 'z', A.sz, wArm, 0.6);
+      spring(r2, 'x', A.el, wArm * 1.25, 0.5); // forearm lags and whips past the upper arm
+      spring(r3, 'x', -A.curl * 1.7, 20, 0.8);
     }
     const lg = this.legs;
-    L(lg[-1].hip.rotation, 'x', -P.lHip, kb); L(lg[1].hip.rotation, 'x', -P.rHip, kb);
-    L(lg[-1].kn.rotation, 'x', P.lKn, kb); L(lg[1].kn.rotation, 'x', P.rKn, kb);
-    L(lg[-1].an.rotation, 'x', P.lAn, kb); L(lg[1].an.rotation, 'x', P.rAn, kb);
+    for (const [side, hip, kn, an] of [[-1, P.lHip, P.lKn, P.lAn], [1, P.rHip, P.rKn, P.rAn]]) {
+      const l = lg[side];
+      const r1 = l.hip.rotation, r2 = l.kn.rotation, r3 = l.an.rotation;
+      r1.uuid = l.hip.uuid; r2.uuid = l.kn.uuid; r3.uuid = l.an.uuid;
+      spring(r1, 'x', -hip, wLeg, 0.8); spring(r2, 'x', kn, wLeg * 1.1, 0.75); spring(r3, 'x', an, wLeg, 0.8);
+    }
     this.punchFist = P.R.curl;
 
     this.jetMat.opacity = lerpA(this.jetMat.opacity, jet * (0.55 + Math.random() * 0.2), Math.min(1, dt * 12));
