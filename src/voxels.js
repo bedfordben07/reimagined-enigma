@@ -16,10 +16,11 @@ export class VoxelWorld {
     this.occ = new Uint8Array(this.nx * this.ny * this.nz);
     this.bid = new Uint8Array(this.nx * this.ny * this.nz);
     this.buildings = [null];
-    this.meshes = []; this.cells = []; this.slot = new Map();
+    // instanced meshes are split per material AND per 32 m chunk so off-screen chunks are culled
+    this.meshes = new Map(); this.cells = new Map(); this.slot = new Map();
     this.dirty = new Set();
     this.geo = new THREE.BoxGeometry(1, 1, 1);
-    this.range = [];
+    this.range = new Map();
     this.integrityTimer = 0;
     this.total = 0;
   }
@@ -55,20 +56,29 @@ export class VoxelWorld {
   }
 
   reset() {
-    for (const m of this.meshes) if (m) { this.scene.remove(m); m.dispose(); }
-    this.meshes = []; this.cells = []; this.slot.clear();
+    for (const m of this.meshes.values()) { this.scene.remove(m); m.dispose(); }
+    this.meshes.clear(); this.cells.clear(); this.range.clear(); this.slot.clear();
     this.occ.fill(0); this.bid.fill(0);
     this.buildings = [null]; this.dirty.clear();
   }
 
+  _key(m, i) {
+    const x = i % this.nx, z = Math.floor(i / this.nx) % this.nz;
+    return m * 64 + (z >> 6) * 8 + (x >> 6);
+  }
+
   finalize() {
     const counts = new Array(this.matDefs.length).fill(0);
-    const lists = this.matDefs.map(() => []);
+    const lists = new Map();
     for (let b = 1; b < this.buildings.length; b++) {
       const B = this.buildings[b];
       for (let y = B.y0; y <= B.y1; y++) for (let z = B.z0; z <= B.z1; z++) for (let x = B.x0; x <= B.x1; x++) {
         const i = this.idx(x, y, z);
-        if (this.occ[i] && this.bid[i] === b && !this.slot.has(i)) { lists[this.occ[i]].push(i); this.slot.set(i, -1); }
+        if (this.occ[i] && this.bid[i] === b && !this.slot.has(i)) {
+          const k = this._key(this.occ[i], i);
+          let l = lists.get(k); if (!l) { l = []; lists.set(k, l); }
+          l.push(i); this.slot.set(i, -1);
+        }
       }
     }
     this.slot.clear();
@@ -76,9 +86,9 @@ export class VoxelWorld {
     let h = 1234567;
     const rnd = () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return (h >>> 0) / 4294967296; };
     this.total = 0;
-    for (let m = 1; m < this.matDefs.length; m++) {
-      const list = lists[m]; counts[m] = list.length;
-      if (!list.length) { this.meshes[m] = null; this.cells[m] = new Int32Array(0); continue; }
+    for (const [key, list] of lists) {
+      const m = Math.floor(key / 64);
+      counts[m] += list.length;
       const def = this.matDefs[m];
       const mesh = new THREE.InstancedMesh(this.geo, def.material, list.length);
       mesh.castShadow = true; mesh.receiveShadow = true;
@@ -105,15 +115,15 @@ export class VoxelWorld {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.computeBoundingSphere();
       this.scene.add(mesh);
-      this.meshes[m] = mesh; this.cells[m] = cells;
+      this.meshes.set(key, mesh); this.cells.set(key, cells);
       this.total += list.length;
-      this.range[m] = [Infinity, -1];
+      this.range.set(key, [Infinity, -1]);
     }
     return counts;
   }
 
-  _mark(m, s) {
-    const r = this.range[m];
+  _mark(key, s) {
+    const r = this.range.get(key);
     if (s < r[0]) r[0] = s; if (s > r[1]) r[1] = s;
   }
 
@@ -121,7 +131,8 @@ export class VoxelWorld {
   remove(i, outColor) {
     const m = this.occ[i];
     if (!m) return 0;
-    const mesh = this.meshes[m], cells = this.cells[m];
+    const key = this._key(m, i);
+    const mesh = this.meshes.get(key), cells = this.cells.get(key);
     const s = this.slot.get(i);
     const last = mesh.count - 1;
     if (outColor) mesh.getColorAt(s, outColor);
@@ -130,7 +141,7 @@ export class VoxelWorld {
       for (let k = 0; k < 16; k++) a[s * 16 + k] = a[last * 16 + k];
       for (let k = 0; k < 3; k++) c[s * 3 + k] = c[last * 3 + k];
       const mi = cells[last]; cells[s] = mi; this.slot.set(mi, s);
-      this._mark(m, s);
+      this._mark(key, s);
     }
     mesh.count = last;
     this.slot.delete(i);
@@ -280,9 +291,8 @@ export class VoxelWorld {
   }
 
   flush() {
-    for (let m = 1; m < this.meshes.length; m++) {
-      const mesh = this.meshes[m]; if (!mesh) continue;
-      const r = this.range[m];
+    for (const [key, mesh] of this.meshes) {
+      const r = this.range.get(key);
       if (r[1] >= 0) {
         mesh.instanceMatrix.clearUpdateRanges();
         mesh.instanceMatrix.addUpdateRange(r[0] * 16, (r[1] - r[0] + 1) * 16);

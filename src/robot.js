@@ -15,6 +15,7 @@ export class Robot {
     this.laserCore = new THREE.Color(12, 5, 2.2);
     this.laserGlow = new THREE.Color(4, 0.7, 0.1);
     this.build();
+    this._physique();
     this._addHandJets();
     this.phase = 0;
     this.punchFist = 0;
@@ -39,6 +40,24 @@ export class Robot {
     }
     this.handJetMats = [coreMat, outerMat];
     this.thrust = 0;
+  }
+
+  // Heroic proportions applied to whichever model was built: broad V-taper chest and shoulders,
+  // heavy arms and fists, a narrow waist and powerful legs.
+  _physique({ chest = 1.16, shoulders = 1.14, arms = 1.24, hands = 1.12, waist = 0.86, thigh = 1.16, calf = 1.12 } = {}) {
+    const meshes = (g) => g.children.filter((c) => c.isMesh);
+    for (const m of meshes(this.chest)) { m.scale.x *= chest; m.scale.z *= 1.08; m.position.x *= chest; }
+    for (const m of meshes(this.spine)) { m.scale.x *= waist; m.scale.z *= waist; m.position.x *= waist; }
+    for (const side of [-1, 1]) {
+      const a = this.arms[side];
+      a.sh.position.x *= shoulders;
+      for (const m of meshes(a.sh)) { m.scale.x *= arms; m.scale.z *= arms; m.scale.y *= 1.06; }
+      for (const m of meshes(a.el)) { m.scale.x *= arms; m.scale.z *= arms; }
+      a.hand.scale.setScalar(hands);
+      const l = this.legs[side];
+      for (const m of meshes(l.hip)) { m.scale.x *= thigh; m.scale.z *= thigh; }
+      for (const m of meshes(l.kn)) { m.scale.x *= calf; m.scale.z *= calf; }
+    }
   }
 
   handJetWorld(i, out) { const j = this.handJets[i]; j.g.updateWorldMatrix(true, false); return out.setFromMatrixPosition(j.g.matrixWorld); }
@@ -312,7 +331,8 @@ export class Robot {
         P.rAn = a * (-0.25 * rS + 0.35 * Math.max(0, rC));
         P.L.sx = -rS * (0.75 + 0.35 * sprint) * a; P.R.sx = -lS * (0.75 + 0.35 * sprint) * a;
         P.L.el = -0.25 - a * (1.05 + 0.2 * sprint) + rS * 0.25 * a; P.R.el = -0.25 - a * (1.05 + 0.2 * sprint) + lS * 0.25 * a;
-        P.L.sz = -0.12; P.R.sz = 0.12; P.L.curl = P.R.curl = 0.7;
+        P.L.sz = -0.2; P.R.sz = 0.2; P.L.curl = P.R.curl = 1;
+        P.lHipZ = 0.05; P.rHipZ = -0.05;
         P.bodyX = a * (0.1 + 0.25 * sprint);
         P.bodyY = 1.15 - 0.05 * a + Math.abs(lC) * 0.07 * a;
         P.bodyYaw = -lS * 0.12 * a; P.chestY = lS * 0.22 * a;
@@ -320,11 +340,15 @@ export class Robot {
         P.headX = -P.bodyX * 0.6;
         rate = 16; armRate = 16;
       } else {
-        // standing: slow breathing, weight shifting, arms loose
-        const br = Math.sin(t * 1.6);
-        P.chestX = br * 0.025; P.bodyY = 1.15 + br * 0.006; P.bodyZ = Math.sin(t * 0.5) * 0.015;
-        P.L.sz = -0.12 - br * 0.02; P.R.sz = 0.12 + br * 0.02; P.L.el = P.R.el = -0.2;
-        P.lKn = 0.06; P.rKn = 0.1;
+        // standing: a wide, planted power stance. Feet apart, knees soft, chest up, arms held off the
+        // bulk of the body with clenched fists; slow breathing and a little weight shift.
+        const br = Math.sin(t * 1.6), shift = Math.sin(t * 0.45);
+        P.chestX = -0.06 + br * 0.025; P.bodyY = 1.12 + br * 0.006; P.bodyZ = shift * 0.02;
+        P.lHipZ = 0.16 + shift * 0.02; P.rHipZ = -0.16 + shift * 0.02; P.lAn = 0; P.rAn = 0;
+        P.lHip = 0.06; P.rHip = -0.05; P.lKn = 0.14; P.rKn = 0.12;
+        P.L = { sx: -0.12, sy: 0.15, sz: -0.3 - br * 0.02, el: -0.42, curl: 1 };
+        P.R = { sx: -0.08, sy: -0.15, sz: 0.3 + br * 0.02, el: -0.38, curl: 1 };
+        P.headX = 0.08;
       }
     }
 
@@ -427,11 +451,12 @@ export class Robot {
       spring(r3, 'x', -A.curl * 1.7, 20, 0.8);
     }
     const lg = this.legs;
-    for (const [side, hip, kn, an] of [[-1, P.lHip, P.lKn, P.lAn], [1, P.rHip, P.rKn, P.rAn]]) {
+    for (const [side, hip, kn, an, hz] of [[-1, P.lHip, P.lKn, P.lAn, -P.lHipZ], [1, P.rHip, P.rKn, P.rAn, -P.rHipZ]]) {
       const l = lg[side];
       const r1 = l.hip.rotation, r2 = l.kn.rotation, r3 = l.an.rotation;
       r1.uuid = l.hip.uuid; r2.uuid = l.kn.uuid; r3.uuid = l.an.uuid;
       spring(r1, 'x', -hip, wLeg, 0.8); spring(r2, 'x', kn, wLeg * 1.1, 0.75); spring(r3, 'x', an, wLeg, 0.8);
+      spring(r1, 'z', hz, wLeg * 0.7, 0.8); spring(r3, 'z', -hz, wLeg * 0.7, 0.8); // feet stay flat when the legs spread
     }
     this.punchFist = P.R.curl;
 
