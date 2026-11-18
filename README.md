@@ -39,6 +39,8 @@ High and steps down automatically if the frame rate drops).
 | `Z` | singularity: a black hole that tears up buildings and pulls everything in, then detonates |
 | hold `B` | telekinesis: lift nearby rubble, cars and the dummy into orbit; release to fire them at your aim |
 | `N` | thunderclap: a sonic boom that tunnels through whatever is in front of you |
+| hold `L` | chain lightning: arcs from your hands chain between the dummy, cars, props and walls |
+| `M` | meteor strike at your aim point |
 | `G` | dummy fights back on/off |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
@@ -59,6 +61,8 @@ High and steps down automatically if the frame rate drops).
 - `src/brain.js` — when opened inside claude.ai (and the viewer allows it), Claude decides what the dummy does and says.
 - `src/cars.js` — parked cars: oriented-box rigid bodies, instanced; liftable, throwable, wall-smashing.
 - `src/powers.js` — singularity, telekinesis and thunderclap.
+- `src/props.js` — street furniture (hydrants that burst, bins, benches, mailboxes, cones).
+- `src/birds.js` — pigeon flocks that scatter.
 - `src/effects.js` — dust, sparks, shockwaves, laser beams, scorch marks.
 - `src/textures.js` — all textures (brick, plaster, concrete, glass, asphalt…) are generated
   procedurally at start-up, with normal and roughness maps.

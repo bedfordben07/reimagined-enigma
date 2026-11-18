@@ -15,9 +15,11 @@ import { Spectre } from './spectre.js';
 import { addOutline } from './outline.js';
 import { DummyBrain } from './brain.js';
 import { Effects } from './effects.js';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS } from './town.js';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js';
 import { CarSystem } from './cars.js';
 import { Powers } from './powers.js';
+import { PropSystem } from './props.js';
+import { Birds } from './birds.js';
 import { Sfx } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -108,7 +110,7 @@ for (let i = 0; i < 6; i++) {
 const matDefs = makeVoxelMaterials();
 const vox = new VoxelWorld(scene, matDefs);
 buildVoxelTown(vox);
-const { lampLights } = buildScenery(scene, renderer);
+const { lampLights, traffic } = buildScenery(scene, renderer);
 const debris = new DebrisSystem(scene, vox, matDefs, 4500);
 const fx = new Effects(scene);
 const sfx = new Sfx();
@@ -173,6 +175,7 @@ function smash(center, radius, o = {}) {
   }
   sfx.crumble(removed.length);
   if (glass) sfx.glass();
+  birds.scare(center, 18 + radius * 4);
   debris.blast(center, radius * 2, outward * 0.5);
   return removed.length;
 }
@@ -206,8 +209,13 @@ debris.onVoxelImpact = (i, speed, it) => {
 
 const dummy = new Dummy(scene, vox, { smash });
 const cars = new CarSystem(scene, CAR_SPOTS, { smash, voxels: vox });
-// shockwaves push rubble and cars alike
-function blastAll(center, radius, strength, dir = null, up) { debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); }
+const props = new PropSystem(scene, PROP_SPOTS, { voxels: vox, fx, sfx });
+const birds = new Birds(scene, BIRD_HOMES);
+// shockwaves push rubble, cars and street furniture alike, and send the pigeons flying
+function blastAll(center, radius, strength, dir = null, up) {
+  debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);
+  birds.scare(center, radius * 3 + 10);
+}
 
 // ---------------------------------------------------------------- the dummy's brain (Claude, when allowed)
 const brain = new DummyBrain(dummy, () => {
@@ -283,7 +291,9 @@ function updateFreeze(dt) {
 
 // ---------------------------------------------------------------- extra powers
 const powers = new Powers({
-  scene, camera, fx, sfx, debris, cars, dummy, vox, smash, blastAll, brain, get aim() { return aim; },
+  scene, camera, fx, sfx, debris, cars, props, birds, dummy, vox, smash, blastAll, brain, get aim() { return aim; },
+  hand: (side) => robot.handWorld(side, new THREE.Vector3()),
+  knockPlayer: (dir, power) => knockPlayer(dir, power, 'blast'),
   chest: () => chestPos(new THREE.Vector3()),
   forward: () => fwd3(new THREE.Vector3()),
   aimDir: (from) => aimDirFrom(from, new THREE.Vector3()),
@@ -318,6 +328,14 @@ function updateCarHits() {
   const sp = player.vel.length();
   if (sp > 9) { const c = cars.carAt(pc, 0.6); if (c && c !== player.holdingCar) { cars.hit(c, pc, player.vel.clone().multiplyScalar(0.9)); player.vel.multiplyScalar(0.85); shake = Math.min(1, shake + 0.15); sfx.boom(0.4); } }
 }
+// anything fast that brushes street furniture knocks it flying
+function bumpProps() {
+  const sp = player.vel.length();
+  if (sp > 5) props.bump(tmp.copy(player.pos).setY(player.pos.y + 0.6), 0.9, player.vel);
+  if (dummy.runFast && dummy.mode === 'stand') props.bump(tmp.copy(dummy.root).setY(dummy.root.y + 0.6), 0.7, tmp2.set(Math.sin(dummy.yaw) * 9, 0, Math.cos(dummy.yaw) * 9));
+  for (const c of cars.cars) if (!c.asleep && !c.held && c.v.lengthSq() > 16) props.bump(c.p, 2.2, c.v);
+}
+
 // the dummy can lift a parked car and throw it
 dummy.ctx.nearestCar = (p, r) => cars.nearest(p, r);
 dummy.ctx.holdCar = (c) => cars.hold(c, 'dummy');
@@ -341,7 +359,8 @@ function setFights(v) {
 try { dummy.fights = localStorage.getItem('rubble-fight') !== '0'; } catch (e) { /* ignore */ }
 setFights(dummy.fights);
 // knock the player back with a jolt
-dummy.ctx.hitPlayer = (dir, power, kind) => {
+// knock the player around (any source); dummy hits also count on the scoreboard
+function knockPlayer(dir, power, kind = 'blast') {
   const d = dir.clone().setY(0).normalize();
   // real knockback: big launch plus a short loss of control so it carries (hard hits smash you through walls)
   const up = { tackle: 0.35, slam: 0.75, uppercut: 1.0, rock: 0.35, punch: 0.3 }[kind] ?? 0.3;
@@ -356,6 +375,9 @@ dummy.ctx.hitPlayer = (dir, power, kind) => {
   fx.wave(c, 1.6, 0.22);
   shake = Math.min(1, shake + 0.25 + power / 60);
   sfx.boom(0.4 + power / 45);
+}
+dummy.ctx.hitPlayer = (dir, power, kind) => {
+  knockPlayer(dir, power, kind);
   tagged++; $('tagHud').textContent = tagged;
   brain.event(`You hit the player with a ${kind}! That is ${tagged} hits on them so far.`);
 };
@@ -529,6 +551,8 @@ addEventListener('keydown', (e) => {
     case 'KeyX': if (tf.on) freezeOff(); else freezeOn(); break;
     case 'KeyZ': powers.castHole(); break;
     case 'KeyN': powers.clap(); break;
+    case 'KeyM': powers.callMeteor(); break;
+    case 'KeyL': powers.startZap(); break;
     case 'KeyB': if (!player.holding) powers.grab(); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
@@ -541,6 +565,7 @@ addEventListener('keyup', (e) => {
   if (e.code === 'KeyJ') { if (mouse.l) onPrimaryUp(); mouse.l = false; }
   if (e.code === 'KeyK') mouse.r = false;
   if (e.code === 'KeyB') powers.release();
+  if (e.code === 'KeyL') powers.stopZap();
 });
 addEventListener('blur', () => { keys.clear(); mouse.l = mouse.r = false; });
 
@@ -1022,6 +1047,8 @@ function updateHud(rdt) {
     $('powHole').textContent = powers.hole ? 'active' : st('hole');
     $('powClap').textContent = st('clap');
     $('powLift').textContent = powers.tk ? 'holding' : 'hold';
+    $('powMeteor').textContent = powers.meteor ? 'incoming' : st('meteor');
+    $('powZap').textContent = powers.zap ? 'zapping' : 'hold';
   }
   hud.mode.textContent = tf.on ? 'TIME STOPPED' : player.flying ? (player.vel.length() > 45 ? 'SUPERSONIC' : 'FLIGHT') : 'GROUND';
   const c = player.charging ? Math.min(1, player.charge / 1.1) : 0;
@@ -1069,7 +1096,7 @@ function tick(rdt) {
     dt, flying: player.flying, grounded: player.grounded, hSpeed: Math.hypot(v.x, v.z),
     fwdSpeed: v.x * sy + v.z * cy, sideSpeed: v.x * cy - v.z * sy, vSpeed: v.y,
     boost: keys.has('ShiftLeft') || keys.has('ShiftRight'), aimPitch: player.camPitch, aimYawRel: yawRel,
-    charge: player.charging ? player.charge / 1.1 : 0, punchT: Math.max(0, player.punchT / 0.4), holding: player.holding, throwWind: player.throwWind, throwT: player.throwT, turnRate: player.turnRate, laser: player.laser, tk: !!powers.tk, clapT: powers.clapT,
+    charge: player.charging ? player.charge / 1.1 : 0, punchT: Math.max(0, player.punchT / 0.4), holding: player.holding, throwWind: player.throwWind, throwT: player.throwT, turnRate: player.turnRate, laser: player.laser, tk: !!(powers.tk || powers.zap), clapT: powers.clapT,
     accFwd: player.acc.x * sy + player.acc.z * cy, accSide: player.acc.x * cy - player.acc.z * sy,
   });
   robot.root.updateMatrixWorld(true);
@@ -1090,8 +1117,11 @@ function tick(rdt) {
   while (acc >= H && n < 8) { if (!frozen || dummy.mode === 'held') dummy.step(H); acc -= H; n++; }
   if (n === 8) acc = 0;
   cascadeBudget = 25;
-  if (!frozen) { debris.update(dt, dt > 1 / 70 ? 3 : 2); cars.update(dt); vox.updateIntegrity(dt, detach); updateCarHits(); }
-  else { debris.flush(); cars.flush(); }
+  if (!frozen) {
+    debris.update(dt, dt > 1 / 70 ? 3 : 2); cars.update(dt); props.update(dt); birds.update(dt, player.pos, player.vel.length());
+    vox.updateIntegrity(dt, detach); updateCarHits(); bumpProps();
+  } else { debris.flush(); cars.flush(); props.flush(); }
+  traffic.update(time);
   vox.flush();
   if (!frozen) dummy.think(dt, {
     playerPos: player.pos, charging: player.charging, speed: player.vel.length(), playerAir: player.pos.y > 4,
@@ -1116,4 +1146,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, brain, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, brain, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

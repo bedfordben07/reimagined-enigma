@@ -4,7 +4,7 @@ import { VS } from './voxels.js';
 import * as T from './textures.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
-export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11, GLASS_LIT: 12, AWN_RED: 13, AWN_GREEN: 14, AWN_BLUE: 15, SIGN_WARM: 16, SIGN_CYAN: 17, SIGN_PINK: 18 };
+export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11, GLASS_LIT: 12, AWN_RED: 13, AWN_GREEN: 14, AWN_BLUE: 15, SIGN_WARM: 16, SIGN_CYAN: 17, SIGN_PINK: 18, WOOD: 19 };
 
 export function makeVoxelMaterials() {
   const std = (tex, extra = {}) => T.pbr(tex, { metalness: extra.metalness ?? 0, ...extra });
@@ -30,6 +30,7 @@ export function makeVoxelMaterials() {
   defs[MAT.SIGN_WARM] = { material: sign(0xffc46a), dust: 0x999999, noTint: true };
   defs[MAT.SIGN_CYAN] = { material: sign(0x46e0ff), dust: 0x999999, noTint: true };
   defs[MAT.SIGN_PINK] = { material: sign(0xff4fa8), dust: 0x999999, noTint: true };
+  defs[MAT.WOOD] = { material: std(T.woodTex(34)), dust: 0x8a6a4a, noTint: true };
   return defs;
 }
 
@@ -88,6 +89,42 @@ function block(vox, o) {
   }
   cornice(vox, x0, z0, W, D, topY, o.trim, b);
   if (floors > 1) cornice(vox, x0, z0, W, D, STOREY, o.trim, b); // band above the shopfront
+  if (!o.shopfront || floors > 1) roofDetails(vox, x0, z0, W, D, topY, b, o);
+}
+
+// Rooftop clutter: water tower on legs, air-con boxes, a mast on tall towers, billboards on mid-rises.
+// Everything is ordinary blocks, so it all breaks.
+function roofDetails(vox, x0, z0, W, D, topY, b, o) {
+  const h = (k) => litHash(b, k, 7, 'r');
+  const set = (x, y, z, m) => { if (x > 1 && z > 1 && x < W - 2 && z < D - 2 && y < vox.ny - 1) vox.set(x0 + x, y, z0 + z, m, b); };
+  const floors = Math.min(21, o.floors);
+  // air-con units
+  const ac = 1 + Math.floor(h(1) * 3);
+  for (let k = 0; k < ac; k++) {
+    const ax = 3 + Math.floor(h(10 + k) * Math.max(1, W - 8)), az = 3 + Math.floor(h(20 + k) * Math.max(1, D - 8));
+    for (let x = 0; x < 3; x++) for (let z = 0; z < 2; z++) for (let y = 1; y <= 2; y++) set(ax + x, topY + y, az + z, MAT.TRIM);
+  }
+  // water tower (mid-rise roofs)
+  if (floors >= 3 && floors <= 14 && W >= 16 && D >= 16 && h(2) < 0.45) {
+    const cx = Math.floor(W / 2) + (h(3) < 0.5 ? -3 : 3), cz = Math.floor(D / 2) + (h(4) < 0.5 ? -2 : 2);
+    for (const [lx, lz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) for (let y = 1; y <= 4; y++) set(cx + lx, topY + y, cz + lz, MAT.TRIM_DARK);
+    for (let y = 5; y <= 9; y++) for (let x = -3; x <= 3; x++) for (let z = -3; z <= 3; z++) if (x * x + z * z <= 8.5) set(cx + x, topY + y, cz + z, MAT.WOOD);
+    for (let k = 0; k < 3; k++) for (let x = -2 + k; x <= 2 - k; x++) for (let z = -2 + k; z <= 2 - k; z++) if (x * x + z * z <= (2.6 - k) ** 2) set(cx + x, topY + 10 + k, cz + z, MAT.ROOF);
+  }
+  // radio mast on tall towers
+  if (floors >= 10) { const mx = Math.floor(W / 2), mz = Math.floor(D / 2); for (let y = 1; y <= 12; y++) set(mx, topY + y, mz, MAT.TRIM_DARK); set(mx, topY + 13, mz, MAT.SIGN_PINK); }
+  // billboard facing the street
+  if (floors >= 2 && floors <= 7 && h(5) < 0.35) {
+    const sign = [MAT.SIGN_WARM, MAT.SIGN_CYAN, MAT.SIGN_PINK][Math.floor(h(6) * 3)];
+    const front = o.front, along = front === 'n' || front === 's' ? W : D, len = Math.min(along - 6, 16), st = Math.floor((along - len) / 2);
+    const depth = front === 's' || front === 'w' ? 3 : (front === 'n' ? D : W) - 4;
+    for (let u = 0; u < len; u++) for (let y = 1; y <= 7; y++) {
+      const isLeg = (u === 1 || u === len - 2) && y <= 2;
+      if (y <= 2 && !isLeg) continue;
+      const m = isLeg ? MAT.TRIM_DARK : y === 3 || y === 7 ? MAT.TRIM_DARK : sign;
+      if (front === 'n' || front === 's') set(st + u, topY + y, depth, m); else set(depth, topY + y, st + u, m);
+    }
+  }
 }
 
 // (called at the end of block) projecting cornice one block out around the roof line
@@ -306,6 +343,34 @@ function edgeBlocks() {
 }
 const EDGE = edgeBlocks();
 
+// Street furniture along every sidewalk ring: [x, z, type, yaw]
+export const PROP_SPOTS = (() => {
+  const out = [];
+  let seed = 2024;
+  const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const C = [-154, -110, -66, -22, 22, 66, 110, 154];
+  for (const cx of C) for (const cz of C) {
+    // each side of the block: outward normal (nx, nz)
+    for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (let t = -13; t <= 13; t += 4.3) {
+        const x = cx + nx * 15.6 + (nz ? t : 0), z = cz + nz * 15.6 + (nx ? t : 0);
+        if (Math.hypot(x, z - 3) < 10 || Math.hypot(x, z - 13) < 4) continue; // keep the start area clear
+        const k = r(), yaw = Math.atan2(nx, nz);
+        if (k < 0.07) out.push([x, z, 'hydrant', yaw]);
+        else if (k < 0.17) out.push([x, z, 'bin', yaw]);
+        else if (k < 0.23) out.push([x, z, 'bench', yaw]);
+        else if (k < 0.26) out.push([x, z, 'mail', yaw]);
+        else if (k < 0.29) out.push([x + nx * 1, z + nz * 1, 'cone', yaw]);
+      }
+    }
+    // a hydrant on one corner of every block
+    out.push([cx + 13.8, cz + 15.6, 'hydrant', 0]);
+  }
+  return out;
+})();
+// Where pigeon flocks hang out: parks and a few junctions.
+export const BIRD_HOMES = (() => [[6.5, 6.5], [-6.5, -40], [40, 6.5]].concat(PARKS.slice(0, 14).map(([ax, az, bx, bz]) => [(ax + bx) / 2, (az + bz) / 2])))();
+
 // Parked cars: along the kerbs (some), and in rows in the parking lots. [x, z, yaw]
 export const CAR_SPOTS = (() => {
   const spots = [];
@@ -459,6 +524,38 @@ export function buildScenery(scene, renderer) {
     lm.makeTranslation(bp.x, 0.17, bp.z); pools.setMatrixAt(i, lm);
   });
 
+  // traffic lights at every junction: two signal posts per junction, one per direction of travel
+  const tlPole = new THREE.CylinderGeometry(0.08, 0.1, 4.6, 8); tlPole.translate(0, 2.3, 0);
+  const tlHead = new THREE.BoxGeometry(0.34, 1.0, 0.3); tlHead.translate(0, 4.2, 0);
+  const tlLamp = new THREE.SphereGeometry(0.1, 10, 8);
+  const RJ = [-176, -132, -88, -44, 0, 44, 88, 132, 176];
+  const posts = [];
+  for (const jx of RJ) for (const jz of RJ) { posts.push([jx + 5.9, jz + 5.9, 0, 0], [jx - 5.9, jz - 5.9, Math.PI, 0], [jx - 5.9, jz + 5.9, -Math.PI / 2, 1], [jx + 5.9, jz - 5.9, Math.PI / 2, 1]); }
+  const poleI = new THREE.InstancedMesh(tlPole, poleMat, posts.length), headI = new THREE.InstancedMesh(tlHead, poleMat, posts.length);
+  const lampI = new THREE.InstancedMesh(tlLamp, new THREE.MeshBasicMaterial({ color: 0xffffff }), posts.length * 3);
+  poleI.castShadow = headI.castShadow = true;
+  const o3 = new THREE.Object3D(), lmm = new THREE.Matrix4(), off = new THREE.Matrix4();
+  posts.forEach(([x, z, yaw], i) => {
+    o3.position.set(x, 0.15, z); o3.rotation.set(0, yaw, 0); o3.updateMatrix();
+    poleI.setMatrixAt(i, o3.matrix); headI.setMatrixAt(i, o3.matrix);
+    for (let k = 0; k < 3; k++) { off.makeTranslation(0, 4.55 - k * 0.33, 0.16); lmm.multiplyMatrices(o3.matrix, off); lampI.setMatrixAt(i * 3 + k, lmm); }
+  });
+  group.add(poleI, headI, lampI);
+  const RED = new THREE.Color(1, 0.08, 0.05), AMBER = new THREE.Color(1, 0.62, 0.05), GREEN = new THREE.Color(0.1, 1, 0.35), OFF = new THREE.Color(0.08, 0.08, 0.08);
+  const traffic = {
+    phase: -1,
+    // 14 s cycle: one direction green 6 s, amber 1 s, then the other way
+    update(time) {
+      const t = time % 14, ph = t < 6 ? 0 : t < 7 ? 1 : t < 13 ? 2 : 3;
+      if (ph === this.phase) return; this.phase = ph;
+      posts.forEach(([, , , dir], i) => {
+        const go = dir === 0 ? ph : (ph + 2) % 4; // 0 green, 1 amber, else red
+        lampI.setColorAt(i * 3, go >= 2 ? RED : OFF); lampI.setColorAt(i * 3 + 1, go === 1 ? AMBER : OFF); lampI.setColorAt(i * 3 + 2, go === 0 ? GREEN : OFF);
+      });
+      lampI.instanceColor.needsUpdate = true;
+    },
+  };
+
   // trees (park in SE block + street trees)
   const trunkMat = T.pbr(T.concreteTex(9, '#5a4632', false), { roughness: 1 });
   const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, vertexColors: true });
@@ -518,5 +615,5 @@ export function buildScenery(scene, renderer) {
   }
 
   scene.add(group);
-  return { group, lampLights };
+  return { group, lampLights, traffic };
 }

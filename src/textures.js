@@ -425,3 +425,16 @@ export function signTex() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+// Weathered vertical planks (water towers).
+export function woodTex(seed) {
+  const n = 256, base = hexRGB('#7a5636');
+  const nz = noise2D(n, seed, 4, 5), grain = noise2D(n, seed + 4, 8, 4);
+  const r = rng(seed); const tints = []; for (let i = 0; i < 8; i++) tints.push(0.8 + r() * 0.3);
+  return build(n, (x, y) => {
+    const plank = Math.floor(x / 32), lx = x % 32;
+    const v = nz[y * n + x], g = grain[(y * 3 % n) * n + x];
+    const k = tints[plank] * (0.82 + v * 0.2 + Math.sin(y * 0.15 + g * 6) * 0.05) * (lx < 2 ? 0.55 : 1);
+    return [base[0] * k, base[1] * k, base[2] * k, lx < 2 ? 0.1 : 0.7 + g * 0.3, 0.85, 0];
+  }, { normalStrength: 2.5 });
+}
