@@ -25,6 +25,8 @@
   #mode { color: var(--amber); font-size: 13px; letter-spacing: 0.18em; font-weight: 600; }
   #hudR { position: fixed; right: calc(16px + env(safe-area-inset-right, 0px)); top: calc(16px + env(safe-area-inset-top, 0px)); padding: 8px 12px; font-family: var(--mono); font-size: 12px; color: var(--dim); display: grid; grid-template-columns: auto auto; gap: 2px 12px; pointer-events: none; }
   #hudR b { color: var(--ink); font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+  #powers { display: grid; grid-template-columns: auto auto; gap: 2px 12px; margin-top: 4px; max-width: 200px; }
+  #powers b { color: var(--ink); font-weight: 600; }
   #freezeBox { display: grid; gap: 4px; margin-top: 6px; }
   #freezeBox .bar { width: 150px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; }
   #freezeFill { display: block; height: 100%; background: #8fd0ff; transform-origin: left center; }
@@ -91,6 +93,7 @@
   <div id="mode">GROUND</div>
   <div><span id="speed" class="big">0</span> <span class="unit">KM/H</span></div>
   <div id="freezeBox"><span class="unit">TIME STOP · X</span><div class="bar"><i id="freezeFill"></i></div></div>
+  <div id="powers" class="unit"><span>Z HOLE <b id="powHole">ready</b></span><span>N CLAP <b id="powClap">ready</b></span><span>B LIFT <b id="powLift">hold</b></span></div>
 </div>
 
 <div id="hudR" class="panel">
@@ -120,6 +123,9 @@
   <div class="row"><span><kbd>Q</kbd></span><span>render quality</span></div>
   <div class="row"><span><kbd>Enter</kbd></span><span>talk to the dummy</span></div>
   <div class="row"><span><kbd>X</kbd></span><span>stop / resume time</span></div>
+  <div class="row"><span><kbd>Z</kbd></span><span>singularity (black hole)</span></div>
+  <div class="row"><span>hold <kbd>B</kbd></span><span>telekinesis · release to fire</span></div>
+  <div class="row"><span><kbd>N</kbd></span><span>thunderclap</span></div>
   <div class="row"><span><kbd>G</kbd></span><span>dummy fights back on/off</span></div>
   <div class="row"><span><kbd>H</kbd></span><span>hide this</span></div>
 </div>
@@ -138,6 +144,9 @@
       <div>R-click laser eyes</div>
       <div><kbd>E</kbd> grab / throw</div>
       <div><kbd>X</kbd> stop time</div>
+      <div><kbd>Z</kbd> black hole</div>
+      <div><kbd>B</kbd> telekinesis</div>
+      <div><kbd>N</kbd> thunderclap</div>
     </div>
     <div class="pick" role="group" aria-label="Character">
       <button type="button" data-char="0" aria-pressed="true"><b>Sentinel</b><span>silver android, twin-eye lasers</span></button>

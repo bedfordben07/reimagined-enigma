@@ -36,6 +36,9 @@ High and steps down automatically if the frame rate drops).
 | `O` | ink outlines on/off |
 | `Enter` | talk to the dummy |
 | `X` | stop / resume time (meter refills over ~10 s) |
+| `Z` | singularity: a black hole that tears up buildings and pulls everything in, then detonates |
+| hold `B` | telekinesis: lift nearby rubble, cars and the dummy into orbit; release to fire them at your aim |
+| `N` | thunderclap: a sonic boom that tunnels through whatever is in front of you |
 | `G` | dummy fights back on/off |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
@@ -55,6 +58,7 @@ High and steps down automatically if the frame rate drops).
 - `src/outline.js` — optional inverted-hull ink outline for the characters.
 - `src/brain.js` — when opened inside claude.ai (and the viewer allows it), Claude decides what the dummy does and says.
 - `src/cars.js` — parked cars: oriented-box rigid bodies, instanced; liftable, throwable, wall-smashing.
+- `src/powers.js` — singularity, telekinesis and thunderclap.
 - `src/effects.js` — dust, sparks, shockwaves, laser beams, scorch marks.
 - `src/textures.js` — all textures (brick, plaster, concrete, glass, asphalt…) are generated
   procedurally at start-up, with normal and roughness maps.

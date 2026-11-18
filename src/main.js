@@ -17,6 +17,7 @@ import { DummyBrain } from './brain.js';
 import { Effects } from './effects.js';
 import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS } from './town.js';
 import { CarSystem } from './cars.js';
+import { Powers } from './powers.js';
 import { Sfx } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -280,6 +281,25 @@ function updateFreeze(dt) {
   $('freezeBox').classList.toggle('active', tf.on);
 }
 
+// ---------------------------------------------------------------- extra powers
+const powers = new Powers({
+  scene, camera, fx, sfx, debris, cars, dummy, vox, smash, blastAll, brain, get aim() { return aim; },
+  chest: () => chestPos(new THREE.Vector3()),
+  forward: () => fwd3(new THREE.Vector3()),
+  aimDir: (from) => aimDirFrom(from, new THREE.Vector3()),
+  shake: (k) => { shake = Math.min(1, shake + k); },
+  hitstop: (t) => { hitstop = Math.max(hitstop, t); },
+  // gravitational lensing: project the hole onto the screen for the post-process warp
+  lens: (p, size) => {
+    const u = finish.uniforms.uHole.value;
+    if (!p) { u.w = 0; return; }
+    const v = p.clone().project(camera);
+    const dist = p.distanceTo(camera.position);
+    if (v.z > 1 || dist < 0.5) { u.w = 0; return; }
+    u.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, Math.min(0.35, (size * 2.6) / (dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) * 0.5), 1);
+  },
+});
+
 // ---------------------------------------------------------------- flying cars
 function updateCarHits() {
   const pc = chestPos(tmp3), dc = dummy.chest(new THREE.Vector3());
@@ -507,6 +527,9 @@ addEventListener('keydown', (e) => {
     case 'KeyO': setOutline(!outlineOn); break;
     case 'KeyG': setFights(!dummy.fights); break;
     case 'KeyX': if (tf.on) freezeOff(); else freezeOn(); break;
+    case 'KeyZ': powers.castHole(); break;
+    case 'KeyN': powers.clap(); break;
+    case 'KeyB': if (!player.holding) powers.grab(); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
     case 'KeyK': mouse.r = true; break;
@@ -517,6 +540,7 @@ addEventListener('keyup', (e) => {
   keys.delete(e.code);
   if (e.code === 'KeyJ') { if (mouse.l) onPrimaryUp(); mouse.l = false; }
   if (e.code === 'KeyK') mouse.r = false;
+  if (e.code === 'KeyB') powers.release();
 });
 addEventListener('blur', () => { keys.clear(); mouse.l = mouse.r = false; });
 
@@ -813,13 +837,20 @@ const smaa = new SMAAPass(innerWidth, innerHeight);
 composer.addPass(smaa);
 composer.addPass(new OutputPass());
 const finish = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, uVig: { value: 0.28 }, uTime: { value: 0 }, uAb: { value: 0 }, uFreeze: { value: 0 }, uRipple: { value: -1 }, uAspect: { value: 1.7 } },
+  uniforms: { tDiffuse: { value: null }, uVig: { value: 0.28 }, uTime: { value: 0 }, uAb: { value: 0 }, uFreeze: { value: 0 }, uRipple: { value: -1 }, uAspect: { value: 1.7 }, uHole: { value: new THREE.Vector4(0, 0, 0, 0) } },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uVig; uniform float uTime; uniform float uAb; uniform float uFreeze; uniform float uRipple; uniform float uAspect; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uVig; uniform float uTime; uniform float uAb; uniform float uFreeze; uniform float uRipple; uniform float uAspect; uniform vec4 uHole; varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
     void main(){
       vec2 d=vUv-.5; float r=dot(d,d);
       vec2 uv = vUv;
+      // singularity: gravitational lensing around its point on screen (xy = screen pos, z = radius, w = strength)
+      if (uHole.w > 0.0) {
+        vec2 hd = (vUv - uHole.xy) * vec2(uAspect, 1.0);
+        float hr = length(hd);
+        float pull = uHole.w * uHole.z * uHole.z / (hr * hr + uHole.z * uHole.z * 0.35);
+        uv -= normalize(hd + 1e-5) / vec2(uAspect, 1.0) * min(pull * 0.06, hr * 0.9);
+      }
       // time-stop ripple: a refracting ring that sweeps outward from the centre of the screen
       if (uRipple >= 0.0) {
         float dist = length(d * vec2(uAspect, 1.0));
@@ -985,6 +1016,13 @@ function updateHud(rdt) {
     hud.rubble.textContent = debris.count;
   }
   hud.speed.textContent = Math.round(player.vel.length() * 3.6);
+  if ((hud.powT = (hud.powT || 0) - rdt) <= 0) {
+    hud.powT = 0.1;
+    const st = (k) => (powers.cool[k] > 0 ? Math.ceil(powers.cool[k]) + 's' : 'ready');
+    $('powHole').textContent = powers.hole ? 'active' : st('hole');
+    $('powClap').textContent = st('clap');
+    $('powLift').textContent = powers.tk ? 'holding' : 'hold';
+  }
   hud.mode.textContent = tf.on ? 'TIME STOPPED' : player.flying ? (player.vel.length() > 45 ? 'SUPERSONIC' : 'FLIGHT') : 'GROUND';
   const c = player.charging ? Math.min(1, player.charge / 1.1) : 0;
   hud.charge.style.setProperty('--c', c);
@@ -1031,7 +1069,7 @@ function tick(rdt) {
     dt, flying: player.flying, grounded: player.grounded, hSpeed: Math.hypot(v.x, v.z),
     fwdSpeed: v.x * sy + v.z * cy, sideSpeed: v.x * cy - v.z * sy, vSpeed: v.y,
     boost: keys.has('ShiftLeft') || keys.has('ShiftRight'), aimPitch: player.camPitch, aimYawRel: yawRel,
-    charge: player.charging ? player.charge / 1.1 : 0, punchT: Math.max(0, player.punchT / 0.4), holding: player.holding, throwWind: player.throwWind, throwT: player.throwT, turnRate: player.turnRate, laser: player.laser,
+    charge: player.charging ? player.charge / 1.1 : 0, punchT: Math.max(0, player.punchT / 0.4), holding: player.holding, throwWind: player.throwWind, throwT: player.throwT, turnRate: player.turnRate, laser: player.laser, tk: !!powers.tk, clapT: powers.clapT,
     accFwd: player.acc.x * sy + player.acc.z * cy, accSide: player.acc.x * cy - player.acc.z * sy,
   });
   robot.root.updateMatrixWorld(true);
@@ -1047,6 +1085,7 @@ function tick(rdt) {
   let n = 0;
   updateFreeze(rdt);
   const frozen = tf.on;
+  powers.update(dt, frozen);
   // the dummy only moves while time runs (or while it's in the player's hand)
   while (acc >= H && n < 8) { if (!frozen || dummy.mode === 'held') dummy.step(H); acc -= H; n++; }
   if (n === 8) acc = 0;
@@ -1077,4 +1116,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, brain, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, brain, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

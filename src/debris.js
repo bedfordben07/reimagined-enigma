@@ -142,7 +142,7 @@ export class DebrisSystem {
     const vox = this.voxels;
     for (let s = 0; s < substeps; s++) {
       for (const it of this.items) {
-        if (it.asleep) continue;
+        if (it.asleep || it.tk) continue;
         it.v.y += G * h;
         const damp = Math.max(0, 1 - 0.05 * h);
         it.v.multiplyScalar(damp);
@@ -160,6 +160,7 @@ export class DebrisSystem {
     this._pairs();
     // sleeping + render
     for (const it of this.items) {
+      if (it.tk) { this._write(it); continue; }
       if (it.asleep) continue;
       if (it.v.lengthSq() < 0.3 && it.w.lengthSq() < 0.8) {
         it.still += dt;

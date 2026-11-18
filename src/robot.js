@@ -408,6 +408,19 @@ export class Robot {
       if (u >= 0.65) { rate = 8; armRate = 8; }
     }
     // carrying the dummy overhead with the left hand
+    // telekinesis: both arms raised forward, fingers spread, a little tremble of effort
+    if (s.tk) {
+      const tr = Math.sin(t * 23) * 0.015;
+      P.L = { sx: -1.75 + tr, sy: -0.3, sz: -0.45, el: -0.35, curl: 0.05 }; P.R = { sx: -1.75 - tr, sy: 0.3, sz: 0.45, el: -0.35, curl: 0.05 };
+      P.chestX -= 0.08; P.headX -= 0.1;
+    }
+    // thunderclap: arms swing wide, then slam together in front
+    if (s.clapT > 0) {
+      const u = 1 - s.clapT, open = u < 0.35 ? u / 0.35 : 0, shut = u >= 0.35 ? 1 : 0;
+      P.L = { sx: -1.45, sy: -1.2 * open + 0.5 * shut, sz: -0.2, el: -0.1, curl: 0 }; P.R = { sx: -1.45, sy: 1.2 * open - 0.5 * shut, sz: 0.2, el: -0.1, curl: 0 };
+      P.chestX = -0.15 * open + 0.1 * shut; P.spineX = 0.12 * shut;
+      snap = shut && u < 0.5;
+    }
     if (s.holding && !(s.throwWind > 0)) { P.L = { sx: -2.7 + Math.sin(t * 3) * 0.03, sy: 0, sz: -0.15, el: -0.25, curl: 1 }; P.spineX -= 0.05; }
     // throw wind-up: lean and twist back, cock the arm behind the head, counterbalance with the right arm
     if (s.throwWind > 0) {
