@@ -1,0 +1,618 @@
+<title>The Cutting Room</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=Permanent+Marker&display=swap">
+<style>
+/* Layout: a flatbed editing bench. Director's memo on top, rushes bin in the middle, film-strip timeline along the bottom, projector overlay for screenings. */
+:root {
+  --bench: #1c2623;      /* Steenbeck slate-green, dimmed */
+  --panel: #26332f;
+  --panel-2: #2f3e39;
+  --line: #3d4f49;
+  --ink: #d6ddd8;
+  --muted: #8d9e97;
+  --leader: #ece3cb;     /* ivory leader tape */
+  --leader-ink: #2a2620;
+  --grease: #f0c13a;     /* china-marker yellow */
+  --warn: #e0674c;
+  --good: #8fc79a;
+  --screen: #0d0f0e;
+  --f-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --f-body: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-type: "Courier Prime", "Courier New", monospace;
+  --f-marker: "Permanent Marker", "Comic Sans MS", cursive;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bench); color: var(--ink); }
+body {
+  font-family: var(--f-body); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+  background-image: radial-gradient(ellipse 90% 60% at 50% 0%, #2a3a34 0%, transparent 70%);
+  min-height: 100%;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 22px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, .rush:focus-visible, .slot:focus-visible { outline: 2px solid var(--grease); outline-offset: 2px; }
+
+/* Header */
+header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+.brand { display: flex; align-items: center; gap: 14px; }
+.clap { width: 46px; height: 40px; flex: none; }
+h1 { font-family: var(--f-display); font-weight: 900; font-size: clamp(30px, 6vw, 46px); letter-spacing: .02em; line-height: .9; margin: 0; text-transform: uppercase; color: var(--leader); }
+h1 small { display: block; font-family: var(--f-type); font-size: 12px; letter-spacing: .14em; color: var(--muted); font-weight: 400; margin-top: 6px; text-transform: uppercase; }
+.meters { display: flex; gap: 18px; font-family: var(--f-type); font-size: 13px; color: var(--muted); }
+.meters b { display: block; font-family: var(--f-display); font-size: 26px; color: var(--leader); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.reels { display: flex; gap: 6px; margin-top: 4px; }
+.reels i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); display: block; position: relative; }
+.reels i.done { border-color: var(--grease); background: radial-gradient(circle, var(--bench) 25%, var(--grease) 27%); }
+.reels i.now { border-color: var(--leader); }
+
+/* Memo */
+.memo-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 760px) { .memo-row { grid-template-columns: minmax(0, 1fr); } }
+.memo { background: var(--leader); color: var(--leader-ink); font-family: var(--f-type); padding: 18px 20px 16px; position: relative; box-shadow: 0 10px 24px -14px #000; transform: rotate(-.4deg); }
+.memo::before { content: ""; position: absolute; top: -9px; left: 38%; width: 90px; height: 20px; background: rgba(240,193,58,.55); transform: rotate(2deg); }
+.memo .hd { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; border-bottom: 1px dashed #9c9278; padding-bottom: 10px; margin-bottom: 10px; }
+.memo .hd span:nth-child(odd) { font-weight: 700; }
+.memo p { margin: 0; font-size: 15px; line-height: 1.5; }
+.memo .sig { margin-top: 10px; font-style: italic; font-size: 13px; text-align: right; }
+.rules { background: var(--panel); border: 1px solid var(--line); padding: 14px 16px; display: grid; gap: 8px; align-content: start; font-size: 14px; }
+.rules h3 { margin: 0; font-family: var(--f-display); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; font-size: 17px; color: var(--grease); }
+.rules ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; color: var(--ink); }
+.rules li b { color: var(--leader); font-weight: 600; }
+
+/* Section labels */
+.lab { font-family: var(--f-display); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; font-size: 15px; color: var(--muted); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.lab em { font-style: normal; font-family: var(--f-type); font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 13px; }
+
+/* Rushes */
+.bin { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 12px; }
+.rush { background: var(--panel); border: 1px solid var(--line); padding: 10px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 8px; text-align: left; transition: transform .15s, border-color .15s, opacity .2s; min-width: 0; }
+.rush:hover:not(.used) { transform: translateY(-2px); border-color: var(--grease); }
+.rush.used { opacity: .3; cursor: default; }
+.rush svg { width: 100%; height: auto; display: block; background: #121816; }
+.chips { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-family: var(--f-type); font-size: 12px; }
+.size { background: var(--leader); color: var(--leader-ink); font-weight: 700; padding: 0 6px; letter-spacing: .04em; }
+.dir { color: var(--grease); font-weight: 700; }
+.rush .txt { font-size: 14px; line-height: 1.3; color: var(--ink); }
+.rush .meta { display: flex; justify-content: space-between; font-family: var(--f-type); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rush .slate { color: var(--muted); }
+
+/* Timeline */
+.strip-wrap { overflow-x: auto; padding-bottom: 4px; }
+.strip { background: #0f1412; padding: 16px 12px; display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 8px; position: relative; min-width: 790px; }
+.strip::before, .strip::after { content: ""; position: absolute; left: 0; right: 0; height: 8px; background-image: repeating-linear-gradient(90deg, transparent 0 7px, #3a4844 7px 15px); background-size: 15px 6px; background-repeat: repeat-x; background-position: 0 1px; }
+.strip::before { top: 3px; } .strip::after { bottom: 3px; }
+.slot { background: #19211e; border: 1px dashed var(--line); min-height: 168px; padding: 8px; display: grid; grid-template-rows: auto 1fr; gap: 6px; text-align: left; position: relative; }
+.slot.sel { border: 1px solid var(--grease); box-shadow: 0 0 0 1px var(--grease) inset; }
+.slot .beat { font-family: var(--f-marker); color: var(--grease); font-size: 16px; line-height: 1; transform: rotate(-2deg); display: flex; justify-content: space-between; }
+.slot .beat small { font-family: var(--f-type); font-size: 11px; color: var(--muted); transform: none; }
+.slot .empty { align-self: center; justify-self: center; text-align: center; font-family: var(--f-type); font-size: 12px; color: var(--muted); }
+.clip { display: grid; gap: 6px; align-content: start; }
+.clip svg { width: 100%; height: auto; display: block; }
+.clip .txt { font-size: 13px; line-height: 1.25; }
+.clip .tools { display: flex; gap: 4px; }
+.clip .tools button { flex: 1; background: var(--panel-2); border: 1px solid var(--line); padding: 3px 0; font-family: var(--f-type); font-size: 13px; }
+.clip .tools button:hover { border-color: var(--grease); color: var(--grease); }
+.tc { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--f-type); font-size: 14px; font-variant-numeric: tabular-nums; }
+.tc .clock { font-family: var(--f-display); font-weight: 800; font-size: 28px; letter-spacing: .04em; color: var(--leader); }
+.tc .clock.over { color: var(--warn); } .tc .clock.ok { color: var(--good); }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn { background: var(--grease); color: #1d1a10; border: 0; padding: 11px 20px; font-family: var(--f-display); font-weight: 800; font-size: 18px; letter-spacing: .08em; text-transform: uppercase; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.btn.ghost:hover { border-color: var(--ink); }
+
+/* Overlay: projector + review */
+.overlay { position: fixed; inset: 0; background: rgba(5,7,6,.94); z-index: 20; overflow-y: auto; padding: calc(env(safe-area-inset-top, 0px) + 24px) max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 32px) max(16px, env(safe-area-inset-left, 0px)); }
+.ov-inner { max-width: 860px; margin: 0 auto; display: grid; gap: 20px; }
+.screen { position: relative; aspect-ratio: 16 / 9; max-width: 100%; background: var(--screen); overflow: hidden; box-shadow: 0 0 80px -10px rgba(236,227,203,.18); }
+.screen svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.grain { position: absolute; inset: -20%; opacity: .14; pointer-events: none; mix-blend-mode: screen; animation: grain .35s steps(3) infinite; }
+@keyframes grain { 0% { transform: translate(0,0) } 33% { transform: translate(-4%,3%) } 66% { transform: translate(3%,-2%) } }
+.vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.7) 100%); }
+.sub { position: absolute; left: 0; right: 0; bottom: 6%; text-align: center; font-family: var(--f-type); color: #f3ecd8; font-size: clamp(12px, 2.2vw, 17px); padding: 0 8%; text-shadow: 0 1px 3px #000; }
+.burn { position: absolute; top: 4%; right: 3%; font-family: var(--f-type); font-size: clamp(10px, 1.8vw, 13px); color: #f3ecd8; background: rgba(0,0,0,.5); padding: 1px 6px; font-variant-numeric: tabular-nums; }
+.burn.l { right: auto; left: 3%; }
+.countdown { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--f-display); font-size: 22vmin; color: #d9d2bd; font-weight: 900; background: repeating-conic-gradient(from 0deg, #2a2a26 0 15deg, #1b1b18 15deg 30deg); }
+.flash { animation: flash .12s ease-out; }
+@keyframes flash { from { filter: brightness(1.8) } to { filter: none } }
+
+.review { background: var(--leader); color: var(--leader-ink); padding: 22px 24px; display: grid; gap: 12px; font-family: var(--f-type); transform: rotate(.3deg); }
+.mast { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid var(--leader-ink); padding-bottom: 6px; gap: 12px; flex-wrap: wrap; }
+.mast b { font-family: var(--f-display); font-weight: 900; font-size: 22px; letter-spacing: .1em; text-transform: uppercase; }
+.mast span { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+.review h2 { font-family: var(--f-display); font-weight: 800; font-size: clamp(26px, 5vw, 38px); line-height: 1; margin: 0; text-wrap: balance; text-transform: uppercase; }
+.stars { font-size: 24px; letter-spacing: 3px; color: #a3401f; }
+.review p { margin: 0; font-size: 15px; line-height: 1.6; max-width: 65ch; }
+.review .pull { font-style: italic; font-size: 18px; border-left: 3px solid #a3401f; padding-left: 12px; }
+.byline { font-size: 12px; text-align: right; letter-spacing: .06em; text-transform: uppercase; }
+
+.ledger { background: var(--panel); border: 1px solid var(--line); padding: 14px 16px; display: grid; gap: 6px; font-family: var(--f-type); font-size: 14px; }
+.ledger h3 { margin: 0 0 4px; font-family: var(--f-display); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; font-size: 17px; color: var(--grease); }
+.ledger .row { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dotted var(--line); padding-bottom: 4px; }
+.ledger .row span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ledger .pos { color: var(--good); } .ledger .neg { color: var(--warn); } .ledger .zero { color: var(--muted); }
+.ledger .tot { font-weight: 700; border-bottom: 0; color: var(--leader); font-size: 16px; }
+.ledger .lesson { color: var(--muted); font-size: 13px; padding-left: 12px; border-bottom: 0; margin-top: -2px; }
+
+.title-card { text-align: center; display: grid; gap: 16px; justify-items: center; padding-block: 24px; }
+.title-card h2 { font-family: var(--f-display); font-weight: 900; font-size: clamp(40px, 9vw, 80px); line-height: .9; margin: 0; color: var(--leader); text-transform: uppercase; }
+.title-card p { margin: 0; font-family: var(--f-type); max-width: 52ch; color: var(--ink); }
+.rank { font-family: var(--f-marker); color: var(--grease); font-size: 28px; transform: rotate(-2deg); }
+
+@media (prefers-reduced-motion: reduce) { .grain { animation: none; } .rush { transition: none; } .flash { animation: none; } }
+</style>
+
+<div class="wrap" id="app">
+  <header class="top">
+    <div class="brand">
+      <svg class="clap" viewBox="0 0 46 40" aria-hidden="true"><rect x="2" y="14" width="42" height="24" fill="#ece3cb"/><path d="M2 6 L42 1 L43 10 L3 14 Z" fill="#ece3cb"/><path d="M8 5.3 L14 12.6 M18 4 L24 11.4 M28 2.8 L34 10.2" stroke="#1c2623" stroke-width="4"/><rect x="6" y="20" width="34" height="2" fill="#1c2623"/><rect x="6" y="27" width="20" height="2" fill="#1c2623"/></svg>
+      <h1>The Cutting Room<small>Night shift · Five reels due by morning</small></h1>
+    </div>
+    <div class="meters">
+      <div>Reel<b id="m-reel">1/5</b><div class="reels" id="m-dots"></div></div>
+      <div>Total cut score<b id="m-score">0</b></div>
+    </div>
+  </header>
+
+  <div class="memo-row">
+    <div class="memo" id="memo"></div>
+    <aside class="rules">
+      <h3>Editor's rules of thumb</h3>
+      <ul>
+        <li><b>Hit the beats.</b> Each slot on the strip is a beat the director asked for.</li>
+        <li><b>Don't cross the line.</b> Arrows show which way someone moves or looks. Keep the 180° geography consistent.</li>
+        <li><b>No jump cuts.</b> Don't cut between two shots of the same subject at the same size.</li>
+        <li><b>Mind the runtime.</b> Land within two seconds of the director's target.</li>
+        <li><b>Use Kuleshov.</b> Meaning comes from what a face is cut against. Some pairings earn a bonus. Some backfire.</li>
+      </ul>
+    </aside>
+  </div>
+
+  <section style="display:grid;gap:10px">
+    <div class="lab">Rushes bin <em id="bin-hint">Tap a shot to put it in the first empty slot. Tap a slot first to target it.</em></div>
+    <div class="bin" id="bin"></div>
+  </section>
+
+  <section style="display:grid;gap:10px">
+    <div class="lab">Timeline <em>Each slot's grease-pencil note is the beat it needs.</em></div>
+    <div class="strip-wrap"><div class="strip" id="strip"></div></div>
+    <div class="tc">
+      <div><span class="clock" id="clock">00:00</span> <span id="target"></span></div>
+      <div class="actions">
+        <button class="btn ghost" id="clear" type="button">Clear strip</button>
+        <button class="btn" id="screen" type="button" disabled>Screen it ▸</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="overlay" id="ov" hidden><div class="ov-inner" id="ov-inner"></div></div>
+
+<script>
+(function () {
+"use strict";
+
+/* ---------- Data ---------- */
+const SIZES = { EWS: 0, WS: 1, MS: 2, MCU: 3, CU: 4, ECU: 5, INS: 4, POV: 1 };
+
+const REELS = [
+  {
+    title: "Night Rain", genre: "Noir", director: "Margot Vell", target: 18,
+    mood: ["#1a2533", "#3a2f4a"],
+    brief: "Detective comes home to his apartment. Someone was there before him. I want the second he realises, and then I want the room to stop being his.",
+    beats: ["Establish", "Arrival", "Clue", "Realise", "Threat"],
+    tagFor: ["establish", "arrival", "clue", "realise", "threat"],
+    shots: [
+      { id: "n1", size: "MCU", subj: "det", text: "Detective lights his own cigarette, unbothered", tags: ["calm"], dur: 3 },
+      { id: "n2", size: "WS", subj: "det", text: "Detective crosses the street, collar up", tags: ["arrival"], dur: 4, dir: "→", side: "A" },
+      { id: "n3", size: "INS", subj: "obj", text: "A cigarette still burning in his ashtray", tags: ["clue"], dur: 2, obj: "ash" },
+      { id: "n4", size: "EWS", subj: "city", text: "City in rain, a neon sign stutters", tags: ["establish"], dur: 5 },
+      { id: "n5", size: "MS", subj: "det", text: "At his door. It's already ajar", tags: ["arrival", "unease"], dur: 3, dir: "←", side: "B" },
+      { id: "n6", size: "CU", subj: "det", text: "His face. He stops breathing", tags: ["realise", "reaction"], dur: 3 },
+      { id: "n7", size: "WS", subj: "other", text: "The curtain moves. A silhouette behind it", tags: ["threat"], dur: 4 },
+      { id: "n8", size: "EWS", subj: "city", text: "Dawn over the harbour, gulls", tags: ["release"], dur: 6 }
+    ],
+    ideal: ["n4", "n2", "n3", "n6", "n7"],
+    kuleshov: [
+      { a: "n3", b: "n6", pts: 15, note: "Cutting from the burning cigarette straight to his face lets the audience see that someone was in the room, and see him see it." }
+    ]
+  },
+  {
+    title: "The Basement", genre: "Horror", director: "Ines Okafor", target: 16,
+    mood: ["#10150f", "#2b1d1a"],
+    brief: "A babysitter hears something downstairs. Make the audience lean in, then make them jump. The scare should be over before they know it happened. Don't you dare use the cat.",
+    beats: ["Establish", "Unease", "Approach", "Dread", "Scare"],
+    tagFor: ["establish", "unease", "approach", "dread", "scare"],
+    shots: [
+      { id: "b1", size: "CU", subj: "other", text: "A face in the dark, right behind her. Held, and held", tags: ["scare"], dur: 4, penalty: { pts: -10, label: "Scare overstays", note: "Hold a scare that long and it turns into a portrait." } },
+      { id: "b2", size: "MCU", subj: "sit", text: "Babysitter on the sofa. TV glow. She mutes it", tags: ["unease"], dur: 3 },
+      { id: "b3", size: "POV", subj: "stairs", text: "Her POV: basement stairs, door half open", tags: ["approach", "dread"], dur: 5 },
+      { id: "b4", size: "WS", subj: "house", text: "Suburban house at night, one window lit", tags: ["establish"], dur: 4 },
+      { id: "b5", size: "INS", subj: "obj", text: "The cat knocks a paint tin off a shelf", tags: ["scare"], dur: 1, obj: "tin", penalty: { pts: -15, label: "Cat scare", note: "She said don't use the cat. Everyone uses the cat." } },
+      { id: "b6", size: "ECU", subj: "sit", text: "Her eyes in the torchlight", tags: ["dread"], dur: 3 },
+      { id: "b7", size: "CU", subj: "other", text: "A face in the dark, right behind her", tags: ["scare"], dur: 1 },
+      { id: "b8", size: "MCU", subj: "sit", text: "Babysitter checks her phone. No signal", tags: ["unease"], dur: 3 }
+    ],
+    ideal: ["b4", "b2", "b3", "b6", "b7"],
+    kuleshov: [
+      { a: "b3", b: "b6", pts: 15, note: "Her eyes come straight after the stairs, so the audience is looking at the dark and at her fear of it in the same moment." }
+    ]
+  },
+  {
+    title: "Two Coffees", genre: "Romantic comedy", director: "Dev Albright", target: 15,
+    mood: ["#3b2a1e", "#6b4a2c"],
+    brief: "Two strangers, one café, the barista swapped their names. I want the room warm, and I want the look between them to last one heartbeat too long. Watch your eyelines: if they aren't looking at each other, it isn't romance.",
+    beats: ["Establish", "Her", "Him", "The look", "Warmth"],
+    tagFor: ["establish", "her", "him", "look", "joy"],
+    shots: [
+      { id: "c1", size: "MCU", subj: "him", text: "Him, reading his cup: ‘Priya’. Looks right", tags: ["him"], dur: 3, dir: "→", side: "B" },
+      { id: "c2", size: "WS", subj: "cafe", text: "Café interior, morning light, steam", tags: ["establish"], dur: 4 },
+      { id: "c3", size: "CU", subj: "her", text: "Her, glancing up from the cup and holding it", tags: ["look"], dur: 2, dir: "→", side: "A" },
+      { id: "c4", size: "MCU", subj: "her", text: "Her, reading her cup: ‘Dave’. Looks right", tags: ["her"], dur: 3, dir: "→", side: "A" },
+      { id: "c5", size: "INS", subj: "obj", text: "Spilt coffee spreading across the counter", tags: ["mishap"], dur: 2, obj: "cup" },
+      { id: "c6", size: "CU", subj: "him", text: "Him, smiling back. Looks left", tags: ["joy", "look"], dur: 3, dir: "←", side: "A" },
+      { id: "c7", size: "MCU", subj: "him", text: "Him, reading his cup: ‘Priya’. Looks left", tags: ["him"], dur: 3, dir: "←", side: "A" },
+      { id: "c8", size: "WS", subj: "barista", text: "The barista rolls her eyes", tags: ["comic"], dur: 3 }
+    ],
+    ideal: ["c2", "c4", "c7", "c3", "c6"],
+    kuleshov: [
+      { a: "c3", b: "c6", pts: 15, note: "Her held glance and then his smile. Neither actor plays it big, and the cut does the flirting for them." }
+    ]
+  },
+  {
+    title: "Dry Creek", genre: "Western", director: "Walt Haskins", target: 16,
+    mood: ["#5b3b1f", "#a8743c"],
+    brief: "Two gunfighters, one street. Long, long tension, then it's over in a second. Each cut tighter than the last. Squeeze them like a fist.",
+    beats: ["Establish", "The stranger", "The sheriff", "Hands", "The draw"],
+    tagFor: ["establish", "gunA", "gunB", "hands", "draw"],
+    shots: [
+      { id: "w1", size: "WS", subj: "sheriff", text: "The sheriff squares up, facing left", tags: ["gunB"], dur: 4, dir: "←", side: "A" },
+      { id: "w2", size: "ECU", subj: "stranger", text: "The stranger's hand hovering over the holster", tags: ["hands"], dur: 2, obj: "hand" },
+      { id: "w3", size: "EWS", subj: "street", text: "Main street, heat haze, nobody breathing", tags: ["establish"], dur: 6 },
+      { id: "w4", size: "MS", subj: "town", text: "Townsfolk peer from the saloon window", tags: ["crowd"], dur: 3 },
+      { id: "w5", size: "CU", subj: "sheriff", text: "The sheriff's eyes, squinting, facing left", tags: ["gunB", "tension"], dur: 3, dir: "←", side: "A" },
+      { id: "w6", size: "WS", subj: "stranger", text: "The stranger steps out, facing right", tags: ["gunA"], dur: 4, dir: "→", side: "A" },
+      { id: "w7", size: "CU", subj: "sheriff", text: "The sheriff's eyes, squinting, facing right", tags: ["gunB", "tension"], dur: 3, dir: "→", side: "B" },
+      { id: "w8", size: "WS", subj: "draw", text: "The draw. One shot. Smoke", tags: ["draw"], dur: 1 }
+    ],
+    ideal: ["w3", "w6", "w5", "w2", "w8"],
+    accelerate: { pts: 15, note: "Every cut is shorter than the one before it, and the scene tightens like a fist." },
+    kuleshov: []
+  },
+  {
+    title: "The Empty Chair", genre: "Social realism", director: "Agnieszka Brandt", target: 21,
+    mood: ["#2c3236", "#4a5257"],
+    brief: "An old man at his kitchen table. His wife has died. I've given you one take of his face and it does nothing, on purpose. The cut has to tell them. No dialogue, no music, and no tears.",
+    beats: ["Establish", "Routine", "Absence", "His face", "Letting go"],
+    tagFor: ["establish", "routine", "absence", "face", "release"],
+    shots: [
+      { id: "e1", size: "INS", subj: "obj", text: "A bowl of soup, steaming", tags: ["food"], dur: 3, obj: "bowl" },
+      { id: "e2", size: "CU", subj: "man", text: "His face, crying", tags: ["face"], dur: 4, penalty: { pts: -15, label: "Tears", note: "She said no tears. The actor ends up doing the work the cut should have done." } },
+      { id: "e3", size: "WS", subj: "kitchen", text: "Terraced kitchen, grey morning", tags: ["establish"], dur: 5 },
+      { id: "e4", size: "INS", subj: "obj", text: "The empty chair across the table", tags: ["absence"], dur: 3, obj: "chair" },
+      { id: "e5", size: "MS", subj: "man", text: "He sets out two cups, out of habit", tags: ["routine"], dur: 4 },
+      { id: "e6", size: "CU", subj: "man", text: "His face. Unreadable", tags: ["face"], dur: 4 },
+      { id: "e7", size: "INS", subj: "obj", text: "Her reading glasses on the windowsill", tags: ["absence"], dur: 3, obj: "glasses" },
+      { id: "e8", size: "WS", subj: "man", text: "He pours one cup back into the pot", tags: ["release"], dur: 5 }
+    ],
+    ideal: ["e3", "e5", "e4", "e6", "e8"],
+    kuleshov: [
+      { a: "e4", b: "e6", pts: 20, note: "The same blank face, cut after an empty chair, plays as grief. Kuleshov would have wept, even if his actor didn't." },
+      { a: "e7", b: "e6", pts: 12, note: "Her glasses, then his stillness. It's a quieter grief, and it works." },
+      { a: "e1", b: "e6", pts: -15, note: "Cut after the soup, his blank face reads as hunger. The audience thinks he wants lunch." }
+    ]
+  }
+];
+
+/* ---------- State ---------- */
+const S = { reel: 0, seq: [null, null, null, null, null], sel: null, scores: [] };
+try { const s = JSON.parse(localStorage.getItem("cutting-room-v1") || "null"); if (s && Array.isArray(s.scores)) { S.scores = s.scores; S.reel = Math.min(s.reel || 0, REELS.length - 1); } } catch (e) {}
+function save() { try { localStorage.setItem("cutting-room-v1", JSON.stringify({ reel: S.reel, scores: S.scores })); } catch (e) {} }
+
+const $ = (id) => document.getElementById(id);
+const R = () => REELS[S.reel];
+const shot = (id) => R().shots.find((s) => s.id === id);
+const fmt = (sec) => "00:" + String(sec).padStart(2, "0");
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- Frame drawings ---------- */
+function frame(s, mood, big) {
+  const c1 = mood[0], c2 = mood[1];
+  const fg = "#ece3cb", dim = "rgba(236,227,203,.55)";
+  const gid = "g" + Math.random().toString(36).slice(2, 8);
+  let x = 80;
+  if (s.dir === "→") x = 58; else if (s.dir === "←") x = 102;
+  let g = "";
+  const person = (cx, headY, r, shoulderW) =>
+    `<ellipse cx="${cx}" cy="${headY + r * 2.6}" rx="${shoulderW}" ry="${r * 1.7}" fill="${fg}"/><circle cx="${cx}" cy="${headY}" r="${r}" fill="${fg}"/>` +
+    (s.dir ? `<circle cx="${cx + (s.dir === "→" ? r * .55 : -r * .55)}" cy="${headY - r * .1}" r="${Math.max(1, r * .14)}" fill="${c1}"/>` : "");
+  switch (s.size) {
+    case "EWS":
+      g = `<path d="M0 62 L18 62 L18 44 L30 44 L30 54 L44 54 L44 36 L56 36 L56 58 L74 58 L74 48 L92 48 L92 30 L102 30 L102 56 L124 56 L124 42 L138 42 L138 60 L160 60 L160 90 L0 90Z" fill="${dim}"/>` +
+          (s.subj === "street" ? `<rect x="42" y="66" width="3" height="10" fill="${fg}"/><rect x="116" y="66" width="3" height="10" fill="${fg}"/>` : "");
+      break;
+    case "WS":
+      if (["house", "cafe", "kitchen"].includes(s.subj)) {
+        g = `<rect x="45" y="34" width="70" height="46" fill="${dim}"/><path d="M40 36 L80 14 L120 36Z" fill="${dim}"/><rect x="${s.subj === "house" ? 90 : 60}" y="46" width="14" height="12" fill="${s.subj === "house" ? "#f0c13a" : fg}"/>`;
+      } else if (s.subj === "draw") {
+        g = `<rect x="30" y="50" width="6" height="26" fill="${fg}"/><rect x="124" y="50" width="6" height="26" fill="${fg}"/><circle cx="37" cy="58" r="7" fill="#f0c13a"/><path d="M40 58 L120 56" stroke="${fg}" stroke-width="1" stroke-dasharray="3 3"/>`;
+      } else {
+        g = `<rect x="0" y="76" width="160" height="14" fill="rgba(0,0,0,.25)"/>` + person(x, 44, 5, 7) + `<rect x="${x - 5}" y="57" width="10" height="20" fill="${fg}"/>`;
+      }
+      break;
+    case "MS": g = person(x, 38, 11, 22); break;
+    case "MCU": g = person(x, 38, 16, 30); break;
+    case "CU":
+      g = s.subj === "other"
+        ? `<ellipse cx="${x}" cy="45" rx="26" ry="34" fill="rgba(236,227,203,.25)"/><circle cx="${x - 10}" cy="40" r="3" fill="${fg}"/><circle cx="${x + 10}" cy="40" r="3" fill="${fg}"/>`
+        : person(x, 44, 27, 50);
+      break;
+    case "ECU":
+      if (s.obj === "hand") g = `<rect x="98" y="20" width="22" height="70" fill="${dim}"/><path d="M40 30 q10 -6 20 0 l6 30 q-14 8 -30 0Z" fill="${fg}"/>`;
+      else g = `<ellipse cx="50" cy="45" rx="22" ry="10" fill="${fg}"/><ellipse cx="110" cy="45" rx="22" ry="10" fill="${fg}"/><circle cx="${50 + (s.dir === "←" ? -6 : 6)}" cy="45" r="7" fill="${c1}"/><circle cx="${110 + (s.dir === "←" ? -6 : 6)}" cy="45" r="7" fill="${c1}"/>`;
+      break;
+    case "INS": {
+      const o = s.obj;
+      if (o === "ash") g = `<ellipse cx="80" cy="60" rx="34" ry="10" fill="${dim}"/><rect x="72" y="52" width="40" height="5" fill="${fg}"/><circle cx="113" cy="54" r="3" fill="#f0c13a"/><path d="M114 50 q6 -10 0 -18 q-6 -8 2 -16" stroke="${dim}" fill="none"/>`;
+      else if (o === "chair") g = `<rect x="64" y="20" width="6" height="56" fill="${fg}"/><rect x="64" y="48" width="36" height="6" fill="${fg}"/><rect x="94" y="48" width="6" height="28" fill="${fg}"/><rect x="0" y="76" width="160" height="14" fill="rgba(0,0,0,.25)"/>`;
+      else if (o === "bowl") g = `<path d="M50 50 h60 q0 24 -30 24 q-30 0 -30 -24Z" fill="${fg}"/><path d="M70 44 q4 -8 0 -14 M80 44 q4 -8 0 -14 M90 44 q4 -8 0 -14" stroke="${dim}" fill="none"/>`;
+      else if (o === "glasses") g = `<circle cx="64" cy="50" r="13" fill="none" stroke="${fg}" stroke-width="3"/><circle cx="96" cy="50" r="13" fill="none" stroke="${fg}" stroke-width="3"/><path d="M77 48 q3 -4 6 0" stroke="${fg}" stroke-width="3" fill="none"/>`;
+      else if (o === "tin") g = `<rect x="66" y="34" width="28" height="34" fill="${fg}" transform="rotate(24 80 51)"/><path d="M40 76 q30 -8 70 4" stroke="#f0c13a" stroke-width="5" fill="none"/>`;
+      else g = `<path d="M60 40 h40 l-4 34 h-32Z" fill="${fg}"/><path d="M40 78 q40 -10 90 2" stroke="#8b5a2b" stroke-width="6" fill="none"/>`;
+      break;
+    }
+    case "POV":
+      g = `<path d="M0 0 L60 30 L100 30 L160 0 M0 90 L60 60 L100 60 L160 90" stroke="${dim}" fill="none"/><rect x="60" y="30" width="40" height="30" fill="#000"/><rect x="60" y="30" width="18" height="30" fill="${dim}"/>` +
+          [0, 1, 2, 3].map((i) => `<path d="M${20 + i * 11} ${90 - i * 8} L${140 - i * 11} ${90 - i * 8}" stroke="${dim}"/>`).join("");
+      break;
+  }
+  return `<svg viewBox="0 0 160 90" ${big ? 'preserveAspectRatio="xMidYMid slice"' : ""} aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><rect width="160" height="90" fill="url(#${gid})"/>${g}</svg>`;
+}
+
+/* ---------- Scoring ---------- */
+function score(reel, ids) {
+  const shots = ids.map((id) => reel.shots.find((s) => s.id === id));
+  const lines = []; const notes = []; const flags = new Set();
+  let total = 0;
+  const add = (label, pts, lesson) => { lines.push({ label, pts, lesson }); total += pts; };
+
+  shots.forEach((s, i) => {
+    const want = reel.tagFor[i];
+    if (s.tags.includes(want)) add(`Beat ${i + 1} · ${reel.beats[i]}`, 20);
+    else { add(`Beat ${i + 1} · ${reel.beats[i]} missed`, 0, `"${s.text}" doesn't play as ${reel.beats[i].toLowerCase()}.`); flags.add("beat"); }
+  });
+  for (let i = 1; i < shots.length; i++) {
+    const a = shots[i - 1], b = shots[i];
+    if (a.subj === b.subj && SIZES[a.size] === SIZES[b.size] && a.subj !== "obj") {
+      add(`Jump cut, shots ${i}–${i + 1}`, -10, "Same subject at the same size makes the picture lurch. Change the shot size or cut away first."); flags.add("jump");
+    }
+    if (a.side && b.side && a.side !== b.side) {
+      add(`Crossed the line, shots ${i}–${i + 1}`, -15, "The screen direction flips, so the audience loses track of who is where."); flags.add("line");
+    }
+    const k = reel.kuleshov.find((p) => p.a === a.id && p.b === b.id);
+    if (k) { add(k.pts > 0 ? "Kuleshov effect" : "Kuleshov backfire", k.pts, k.note); notes.push(k); flags.add(k.pts > 0 ? "kule" : "kulebad"); }
+  }
+  shots.forEach((s) => { if (s.penalty) { add(s.penalty.label, s.penalty.pts, s.penalty.note); flags.add("pen:" + s.id); } });
+  if (reel.accelerate) {
+    const d = shots.slice(1).map((s) => s.dur);
+    if (d.every((v, i) => i === 0 || v < d[i - 1])) { add("Tightening rhythm", reel.accelerate.pts, reel.accelerate.note); flags.add("accel"); }
+    else add("Rhythm doesn't tighten", 0, "Haskins wanted every cut after the opener to be shorter than the last.");
+  }
+  const run = shots.reduce((t, s) => t + s.dur, 0);
+  const off = Math.abs(run - reel.target);
+  if (off <= 2) add(`Runtime ${run}s, on target`, 15);
+  else { add(`Runtime ${run}s, ${off}s off ${reel.target}s`, -3 * (off - 2), run > reel.target ? "Too long. Trim it." : "Too short. The scene hasn't had time to land."); flags.add(run > reel.target ? "long" : "short"); }
+
+  return { total: Math.max(0, total), lines, flags, run, notes };
+}
+const maxFor = (reel) => score(reel, reel.ideal).total;
+
+/* ---------- Review writer ---------- */
+const OPEN = {
+  5: ["is the kind of scene editing tutors will pause on a projector for the next decade", "arrives fully formed, as though nobody touched it, which is the hardest effect in cinema to fake"],
+  4: ["is assured, economical work that nearly hides its seams", "knows exactly what it wants and mostly gets it"],
+  3: ["has a good scene trapped inside it, banging on the walls", "is competent in the way a well-made sandwich is competent"],
+  2: ["feels assembled more than edited, like flat-pack furniture with a screw left over", "keeps stepping on its own punchlines"],
+  1: ["plays like a dropped box of rushes swept up in the dark", "is less a scene than a set of shots that happen to be next to each other"]
+};
+const FLAGLINE = {
+  line: "The geography collapses halfway through. One is never sure which side of the room we're on, and not in the interesting way.",
+  jump: "There is a jump cut that Godard might have forgiven. The audience will not.",
+  beat: "The director's beats are there on paper, but at least one of them never arrives on screen.",
+  long: "It outstays its welcome by a few long seconds, and in a scene this size seconds are everything.",
+  short: "It's over before it has earned its ending. One more breath would have done it.",
+  accel: "The cuts tighten like a drawn breath, and the release lands exactly where it should.",
+  kulebad: "One unlucky juxtaposition changes the meaning of the whole scene, and the audience laughs in the wrong place."
+};
+const CLOSE = ["Whoever cut this should be trusted with something longer.", "Somewhere in the edit suite there is a better version. This is close to it.", "Worth seeing, if only for the one cut that works.", "Back to the Steenbeck, I'm afraid."];
+const pick = (arr, n) => arr[n % arr.length];
+
+function review(reel, res, max) {
+  const pct = res.total / max;
+  const stars = Math.max(1, Math.min(5, Math.round(pct * 10) / 2));
+  const bucket = Math.max(1, Math.min(5, Math.round(stars)));
+  const seed = res.run + res.total;
+  const parts = [];
+  parts.push(`<i>${esc(reel.title)}</i> ${pick(OPEN[bucket], seed)}.`);
+  const fl = [...res.flags];
+  if (res.flags.has("kule")) parts.push(res.notes.filter((n) => n.pts > 0).map((n) => n.note).join(" "));
+  ["line", "jump", "kulebad", "beat", "long", "short", "accel"].forEach((f) => { if (res.flags.has(f)) parts.push(f === "kulebad" ? res.notes.find((n) => n.pts < 0).note + " " + FLAGLINE[f] : FLAGLINE[f]); });
+  fl.filter((f) => f.startsWith("pen:")).forEach((f) => parts.push(reel.shots.find((s) => s.id === f.slice(4)).penalty.note));
+  if (parts.length === 1) parts.push("Every cut lands on the beat the director asked for, and nothing calls attention to itself.");
+  parts.push(pick(CLOSE, bucket >= 4 ? 0 : bucket === 3 ? seed % 2 + 1 : 3));
+  const pull = res.flags.has("kule") ? "“The cut does the acting.”" : stars >= 4 ? "“Invisible, in the best way.”" : stars >= 3 ? "“Nearly there.”" : "“Somebody call continuity.”";
+  const full = Math.floor(stars), half = stars % 1 ? 1 : 0;
+  return { stars, starStr: "★".repeat(full) + (half ? "½" : "") + "☆".repeat(5 - full - half), body: parts, pull };
+}
+
+/* ---------- Render: bench ---------- */
+function renderHeader() {
+  $("m-reel").textContent = `${S.reel + 1}/${REELS.length}`;
+  $("m-score").textContent = S.scores.reduce((a, b) => a + (b || 0), 0);
+  $("m-dots").innerHTML = REELS.map((_, i) => `<i class="${S.scores[i] != null ? "done" : ""} ${i === S.reel ? "now" : ""}" title="Reel ${i + 1}"></i>`).join("");
+}
+function renderMemo() {
+  const r = R();
+  $("memo").innerHTML = `<div class="hd"><span>REEL</span><span>${S.reel + 1} — “${esc(r.title)}”</span><span>GENRE</span><span>${esc(r.genre)}</span><span>TARGET</span><span>${r.target} seconds, give or take two</span></div><p>${esc(r.brief)}</p><div class="sig">— ${esc(r.director)}, director</div>`;
+  $("target").textContent = `/ target ${fmt(r.target)}`;
+}
+function sizeLabel(s) { return s.size; }
+function renderBin() {
+  const r = R();
+  $("bin").innerHTML = r.shots.map((s, i) => {
+    const used = S.seq.includes(s.id);
+    return `<button class="rush ${used ? "used" : ""}" type="button" data-id="${s.id}" ${used ? 'aria-disabled="true"' : ""} aria-label="${esc(s.size + ": " + s.text + ", " + s.dur + " seconds")}">
+      <div class="chips"><span class="size">${sizeLabel(s)}</span><span class="dir">${s.dir ? (s.dir === "→" ? "→ right" : "← left") : ""}</span></div>
+      ${frame(s, r.mood)}
+      <div class="txt">${esc(s.text)}</div>
+      <div class="meta"><span class="slate">SC${S.reel + 1}/${String.fromCharCode(65 + i)}</span><span>${s.dur}s</span></div>
+    </button>`;
+  }).join("");
+}
+function renderStrip() {
+  const r = R();
+  $("strip").innerHTML = S.seq.map((id, i) => {
+    const s = id && shot(id);
+    return `<div class="slot ${S.sel === i ? "sel" : ""}" data-slot="${i}" tabindex="0" role="button" aria-label="Slot ${i + 1}: ${esc(r.beats[i])}${s ? ", holds " + esc(s.text) : ", empty"}">
+      <div class="beat">${esc(r.beats[i])}<small>${i + 1}</small></div>
+      ${s ? `<div class="clip">${frame(s, r.mood)}<div class="txt"><b>${s.size}</b>${s.dir ? " " + s.dir : ""} · ${s.dur}s<br>${esc(s.text)}</div>
+        <div class="tools"><button type="button" data-act="l" data-i="${i}" aria-label="Move left">◂</button><button type="button" data-act="x" data-i="${i}" aria-label="Remove">✕</button><button type="button" data-act="r" data-i="${i}" aria-label="Move right">▸</button></div></div>`
+        : `<div class="empty">${S.sel === i ? "Now pick a shot" : "empty"}</div>`}
+    </div>`;
+  }).join("");
+  const run = S.seq.reduce((t, id) => t + (id ? shot(id).dur : 0), 0);
+  const c = $("clock"); c.textContent = fmt(run);
+  const full = S.seq.every(Boolean);
+  c.className = "clock " + (full ? (Math.abs(run - r.target) <= 2 ? "ok" : "over") : run > r.target + 2 ? "over" : "");
+  $("screen").disabled = !full;
+}
+function renderAll() { renderHeader(); renderMemo(); renderBin(); renderStrip(); }
+
+/* ---------- Interaction ---------- */
+$("bin").addEventListener("click", (e) => {
+  const b = e.target.closest(".rush"); if (!b || b.classList.contains("used")) return;
+  let i = S.sel != null ? S.sel : S.seq.indexOf(null);
+  if (i < 0) { flashHint("The strip is full. Remove a clip first."); return; }
+  S.seq[i] = b.dataset.id; S.sel = null; renderBin(); renderStrip();
+});
+$("strip").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-act]");
+  if (t) {
+    const i = +t.dataset.i, a = t.dataset.act;
+    if (a === "x") S.seq[i] = null;
+    else { const j = a === "l" ? i - 1 : i + 1; if (j >= 0 && j < 5) [S.seq[i], S.seq[j]] = [S.seq[j], S.seq[i]]; }
+    S.sel = null; renderBin(); renderStrip(); return;
+  }
+  const sl = e.target.closest(".slot"); if (!sl) return;
+  const i = +sl.dataset.slot; S.sel = S.sel === i ? null : i; renderStrip();
+});
+$("strip").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("slot")) { e.preventDefault(); e.target.click(); } });
+$("clear").addEventListener("click", () => { S.seq = [null, null, null, null, null]; S.sel = null; renderBin(); renderStrip(); });
+$("screen").addEventListener("click", screening);
+let hintT;
+function flashHint(msg) { const h = $("bin-hint"); const o = h.dataset.o || h.textContent; h.dataset.o = o; h.textContent = msg; h.style.color = "var(--warn)"; clearTimeout(hintT); hintT = setTimeout(() => { h.textContent = o; h.style.color = ""; }, 2200); }
+
+/* ---------- Screening ---------- */
+let grainURL = "";
+function makeGrain() {
+  try { const c = document.createElement("canvas"); c.width = c.height = 128; const x = c.getContext("2d"); const d = x.createImageData(128, 128);
+    for (let i = 0; i < d.data.length; i += 4) { const v = Math.random() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
+    x.putImageData(d, 0, 0); grainURL = c.toDataURL(); } catch (e) {}
+}
+const reduced = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+let playToken = 0;
+function openOv(html) { $("ov-inner").innerHTML = html; $("ov").hidden = false; $("ov").scrollTop = 0; document.body.style.overflow = "hidden"; }
+function closeOv() { playToken++; $("ov").hidden = true; document.body.style.overflow = ""; }
+
+function screening() {
+  if (!grainURL) makeGrain();
+  const r = R(), ids = S.seq.slice();
+  const token = ++playToken;
+  openOv(`<div class="screen" id="scr"><div class="countdown" id="cd">3</div><div class="grain" style="background-image:url(${grainURL})"></div><div class="vignette"></div></div>
+    <div class="actions" style="justify-content:space-between"><span style="font-family:var(--f-type);color:var(--muted)">Screening reel ${S.reel + 1}: “${esc(r.title)}”</span><button class="btn ghost" id="skip" type="button">Skip to review</button></div>`);
+  $("skip").onclick = () => { playToken++; showReview(); };
+  const scr = $("scr");
+  const wait = (ms) => new Promise((res) => setTimeout(res, reduced ? Math.min(ms, 400) : ms));
+  (async () => {
+    for (const n of ["3", "2", "1"]) { if (token !== playToken) return; $("cd").textContent = n; await wait(420); }
+    $("cd").remove();
+    let elapsed = 0;
+    for (let i = 0; i < ids.length; i++) {
+      if (token !== playToken) return;
+      const s = shot(ids[i]);
+      const layer = document.createElement("div"); layer.style.cssText = "position:absolute;inset:0";
+      layer.innerHTML = frame(s, r.mood, true) + `<div class="burn l">${s.size}${s.dir ? " " + s.dir : ""}</div><div class="burn" data-tc>TC 00:00:${String(elapsed).padStart(2, "0")}:00</div><div class="sub">${esc(s.text)}</div>`;
+      scr.querySelectorAll(".shot").forEach((n) => n.remove());
+      layer.className = "shot flash"; scr.insertBefore(layer, scr.firstChild);
+      const steps = s.dur; for (let k = 0; k < steps; k++) { if (token !== playToken) return; const tc = layer.querySelector("[data-tc]"); tc.textContent = `TC 00:00:${String(elapsed + k).padStart(2, "0")}:00`; await wait(380); }
+      elapsed += s.dur;
+    }
+    if (token !== playToken) return;
+    scr.querySelectorAll(".shot").forEach((n) => n.remove());
+    const end = document.createElement("div"); end.className = "countdown"; end.style.background = "#000"; end.style.fontSize = "8vmin"; end.textContent = "END OF REEL"; scr.insertBefore(end, scr.firstChild);
+    await wait(900);
+    if (token === playToken) showReview();
+  })();
+}
+
+function showReview() {
+  const r = R(), ids = S.seq.slice();
+  const res = score(r, ids), max = maxFor(r), rv = review(r, res, max);
+  const best = S.scores[S.reel];
+  const isBest = best == null || res.total > best;
+  if (isBest) { S.scores[S.reel] = res.total; save(); }
+  const last = S.reel === REELS.length - 1;
+  const cut = r.ideal.map((id) => r.shots.find((s) => s.id === id));
+  openOv(`
+    <article class="review">
+      <div class="mast"><b>The Bedford Works</b><span>Film · Tonight's rushes</span></div>
+      <h2>${esc(r.title)}</h2>
+      <div class="stars" aria-label="${rv.stars} out of 5 stars">${rv.starStr}</div>
+      <p class="pull">${rv.pull}</p>
+      ${rv.body.map((p) => `<p>${p}</p>`).join("")}
+      <div class="byline">Reviewed from the projection booth · dir. ${esc(r.director)}</div>
+    </article>
+    <section class="ledger" aria-label="Cut score breakdown">
+      <h3>Cut sheet</h3>
+      ${res.lines.map((l) => `<div class="row"><span>${esc(l.label)}</span><span class="${l.pts > 0 ? "pos" : l.pts < 0 ? "neg" : "zero"}">${l.pts > 0 ? "+" : ""}${l.pts}</span></div>${l.lesson ? `<div class="row lesson">${esc(l.lesson)}</div>` : ""}`).join("")}
+      <div class="row tot"><span>Cut score${isBest && best != null ? " · new best" : ""}</span><span>${res.total} / ${max}</span></div>
+      ${res.total < max ? `<details><summary style="cursor:pointer;color:var(--grease)">Show the director's cut</summary><div style="margin-top:6px">${cut.map((s, i) => `${i + 1}. ${s.size}${s.dir ? " " + s.dir : ""}, ${esc(s.text)} (${s.dur}s)`).join("<br>")}</div></details>` : ""}
+    </section>
+    <div class="actions">
+      <button class="btn ghost" id="recut" type="button">Recut this reel</button>
+      <button class="btn" id="next" type="button">${last ? "Wrap the night ▸" : "Next reel ▸"}</button>
+    </div>`);
+  $("recut").onclick = () => { closeOv(); renderAll(); };
+  $("next").onclick = () => {
+    if (last) { finale(); return; }
+    S.reel++; S.seq = [null, null, null, null, null]; S.sel = null; save(); closeOv(); renderAll(); window.scrollTo(0, 0);
+  };
+}
+
+function finale() {
+  const total = S.scores.reduce((a, b) => a + (b || 0), 0);
+  const max = REELS.reduce((a, r) => a + maxFor(r), 0);
+  const p = total / max;
+  const rank = p >= .95 ? "Picture editor. Name above the title." : p >= .8 ? "Editor. They'll call you for the sequel." : p >= .6 ? "First assistant editor" : p >= .4 ? "Trainee, logging rushes" : "Tea runner, Steenbeck room";
+  openOv(`<div class="title-card">
+    <svg width="90" height="90" viewBox="0 0 90 90" aria-hidden="true"><circle cx="45" cy="45" r="42" fill="none" stroke="#ece3cb" stroke-width="3"/><circle cx="45" cy="45" r="8" fill="#ece3cb"/>${[0, 60, 120, 180, 240, 300].map((a) => `<circle cx="${45 + 24 * Math.cos(a * Math.PI / 180)}" cy="${45 + 24 * Math.sin(a * Math.PI / 180)}" r="9" fill="#ece3cb"/>`).join("")}</svg>
+    <h2>That's a wrap</h2>
+    <p>Five reels cut before dawn. Total cut score <b>${total} / ${max}</b>.</p>
+    <div class="rank">${rank}</div>
+    <p style="color:var(--muted)">Every reel can be recut for a better score. Your best take is the one that counts.</p>
+    <div class="actions" style="justify-content:center"><button class="btn ghost" id="again" type="button">Start the night again</button><button class="btn" id="back" type="button">Back to the bench</button></div>
+  </div>`);
+  $("back").onclick = () => { closeOv(); renderAll(); };
+  $("again").onclick = () => { S.reel = 0; S.scores = []; S.seq = [null, null, null, null, null]; save(); closeOv(); renderAll(); };
+}
+
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("ov").hidden) { closeOv(); renderAll(); } });
+
+renderAll();
+})();
+</script>
