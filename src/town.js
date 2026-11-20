@@ -415,7 +415,9 @@ export function buildScenery(scene, renderer) {
   const grass = T.grassTex(3);
   const gSize = 1200;
   setRep(grass, [gSize / 6, gSize / 6]);
+  const wetMats = []; // surfaces that turn glossy in the rain
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(gSize, gSize), new THREE.MeshStandardMaterial({ map: grass.map, normalMap: grass.normalMap, aoMap: grass.ormMap, roughnessMap: grass.ormMap, roughness: 1 }));
+  wetMats.push(ground.material);
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; group.add(ground);
 
   // roads
@@ -424,6 +426,7 @@ export function buildScenery(scene, renderer) {
     const m = new THREE.MeshStandardMaterial({ map: asph.map.clone(), normalMap: asph.normalMap.clone(), roughnessMap: asph.ormMap.clone(), roughness: 1 });
     m.aoMap = m.roughnessMap;
     for (const t of [m.map, m.normalMap, m.roughnessMap]) { t.repeat.set(10 / 6, len / 6); t.anisotropy = aniso; t.needsUpdate = true; }
+    wetMats.push(m);
     return m;
   };
   const roads = [ // [cx, cz, along x?, length]
@@ -475,6 +478,7 @@ export function buildScenery(scene, renderer) {
   // sidewalks (thin slabs along the blocks)
   const pav = T.paverTex(6);
   const swMat = new THREE.MeshStandardMaterial({ map: pav.map, normalMap: pav.normalMap, aoMap: pav.ormMap, roughnessMap: pav.ormMap, roughness: 1 });
+  wetMats.push(swMat);
   for (const t of [swMat.map, swMat.normalMap, swMat.roughnessMap]) { t.repeat.set(1, 1); t.anisotropy = aniso; }
   const curbMat = T.pbr(T.concreteTex(8, '#a29f98', false));
   for (const bx of [-154, -110, -66, -22, 22, 66, 110, 154]) for (const bz of [-154, -110, -66, -22, 22, 66, 110, 154]) {
@@ -615,5 +619,5 @@ export function buildScenery(scene, renderer) {
   }
 
   scene.add(group);
-  return { group, lampLights, traffic };
+  return { group, lampLights, traffic, wetMats, lampMats: { bulb: bulbMat, pool: poolMat } };
 }

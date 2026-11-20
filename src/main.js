@@ -52,22 +52,28 @@ function makeSky() {
   return s;
 }
 const sky = makeSky(); sky.scale.setScalar(5000); scene.add(sky);
-{
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const envScene = new THREE.Scene();
-  const s2 = makeSky(); s2.scale.setScalar(100); envScene.add(s2);
-  // a darker ground half so reflections aren't lit from below by the sky
-  const gnd = new THREE.Mesh(new THREE.SphereGeometry(90, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x3d4234, side: THREE.BackSide }));
-  envScene.add(gnd);
-  scene.environment = pmrem.fromScene(envScene, 0.02, 0.1, 1000).texture;
-  scene.environmentIntensity = 0.9;
+// reflections come from a captured copy of the sky, re-captured as the time of day changes
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envScene = new THREE.Scene();
+const envSky = makeSky(); envSky.scale.setScalar(100); envScene.add(envSky);
+// a darker ground half so reflections aren't lit from below by the sky
+const envGround = new THREE.Mesh(new THREE.SphereGeometry(90, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x3d4234, side: THREE.BackSide }));
+envScene.add(envGround);
+let envRT = null;
+function bakeEnv() {
+  envSky.material.uniforms.sunPosition.value.copy(sky.material.uniforms.sunPosition.value);
+  const rt = pmrem.fromScene(envScene, 0.02, 0.1, 1000);
+  if (envRT) envRT.dispose();
+  envRT = rt; scene.environment = rt.texture;
 }
+bakeEnv();
+scene.environmentIntensity = 0.9;
 // Drifting cloud layer: procedural fbm on a dome, lit warm on the sun side, fading at the horizon.
 const clouds = new THREE.Mesh(new THREE.SphereGeometry(2400, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.ShaderMaterial({
-  uniforms: { uTime: { value: 0 }, uSun: { value: sunDir.clone() } },
+  uniforms: { uTime: { value: 0 }, uSun: { value: sunDir.clone() }, uDay: { value: 1 }, uCover: { value: 0 } },
   transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
   vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-  fragmentShader: `uniform float uTime; uniform vec3 uSun; varying vec3 vDir;
+  fragmentShader: `uniform float uTime; uniform vec3 uSun; uniform float uDay; uniform float uCover; varying vec3 vDir;
     float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
       return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
@@ -76,10 +82,11 @@ const clouds = new THREE.Mesh(new THREE.SphereGeometry(2400, 48, 24, 0, Math.PI 
       if (vDir.y < 0.0) discard;
       vec2 p = vDir.xz / (vDir.y + 0.12) * 1.4 + vec2(uTime * 0.012, uTime * 0.004);
       float d = fbm(p), d2 = fbm(p + uSun.xz * 0.08);
-      float cov = smoothstep(0.48, 0.78, d);
+      float cov = smoothstep(0.48 - uCover * 0.4, 0.78 - uCover * 0.35, d);
       float shade = clamp(0.55 + (d - d2) * 3.0, 0.0, 1.0);            // brighter edges facing the sun
       float sunSide = pow(max(dot(normalize(vDir), uSun), 0.0), 3.0);
       vec3 lit = mix(vec3(0.62, 0.64, 0.7), vec3(1.0, 0.86, 0.68), shade) * (0.75 + sunSide * 0.5);
+      lit = mix(lit, vec3(0.42, 0.44, 0.47) * (0.6 + shade * 0.3), uCover) * mix(0.07, 1.0, uDay);
       float fade = smoothstep(0.02, 0.22, vDir.y);
       gl_FragColor = vec4(lit, cov * 0.85 * fade);
     }`,
@@ -110,7 +117,7 @@ for (let i = 0; i < 6; i++) {
 const matDefs = makeVoxelMaterials();
 const vox = new VoxelWorld(scene, matDefs);
 buildVoxelTown(vox);
-const { lampLights, traffic } = buildScenery(scene, renderer);
+const { lampLights, traffic, wetMats, lampMats } = buildScenery(scene, renderer);
 const debris = new DebrisSystem(scene, vox, matDefs, 4500);
 const fx = new Effects(scene);
 const sfx = new Sfx();
@@ -603,6 +610,8 @@ addEventListener('keydown', (e) => {
     case 'Digit1': powers.barrage(); break;
     case 'Digit2': powers.quake(); break;
     case 'Digit3': powers.tornado(); break;
+    case 'Digit9': atmo.hour = (atmo.hour + 6) % 24; break;
+    case 'Digit0': atmo.weather = (atmo.weather + 1) % 3; atmo.stormT = 2; break;
     case 'KeyB': if (!player.holding) powers.grab(); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
@@ -980,6 +989,119 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
 });
 
+// ---------------------------------------------------------------- day, night and weather
+// A full day passes in about six minutes (9 skips ahead six hours). 0 cycles clear / rain / storm.
+const atmo = { hour: 16.9, speed: 24 / 360, weather: 0, rain: 0, bakeHour: -99, stormT: 4, flash: 0, boltT: 0 };
+const WEATHERS = ['Clear', 'Rain', 'Storm'];
+// stars
+const stars = (() => {
+  const n = 2600, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const u = Math.random(), v = Math.random() * 0.95; const th = u * Math.PI * 2, ph = Math.acos(1 - v); pos.set([Math.sin(ph) * Math.cos(th) * 2200, Math.cos(ph) * 2200, Math.sin(ph) * Math.sin(th) * 2200], i * 3); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const m = new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false });
+  const pts = new THREE.Points(g, m); pts.frustumCulled = false; pts.renderOrder = -2; scene.add(pts); return pts;
+})();
+// rain: streaks in a box that follows the camera
+const rain = (() => {
+  const n = 2600, pos = new Float32Array(n * 6);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+  const m = new THREE.LineBasicMaterial({ color: 0xaab8c8, transparent: true, opacity: 0, depthWrite: false });
+  const ls = new THREE.LineSegments(g, m); ls.frustumCulled = false; ls.visible = false; scene.add(ls);
+  const drops = []; for (let i = 0; i < n; i++) drops.push(new THREE.Vector3((Math.random() - 0.5) * 50, Math.random() * 36, (Math.random() - 0.5) * 50));
+  return { ls, pos, drops };
+})();
+// lightning bolt (storms)
+const sky_bolt = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(400 * 3), 3)), new THREE.LineBasicMaterial({ color: new THREE.Color(4, 4.5, 6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+sky_bolt.frustumCulled = false; sky_bolt.visible = false; scene.add(sky_bolt);
+const C = (h) => new THREE.Color(h);
+const FOG = { day: C(0xb3b4b0), dusk: C(0xc9a088), night: C(0x0c1018), rain: C(0x7d858c) };
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const tc = new THREE.Color(), tc2 = new THREE.Color();
+
+function strikeLightning() {
+  const a = Math.random() * Math.PI * 2, r = 15 + Math.random() * 60;
+  const x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r;
+  let y = 0; for (let yy = 64; yy > 0; yy -= 0.5) if (vox.solidAt(x, yy, z)) { y = yy + 0.5; break; }
+  const top = new THREE.Vector3(x, y, z);
+  // jagged bolt with a couple of forks
+  const arr = sky_bolt.geometry.attributes.position.array; let k = 0;
+  const seg = (from, to, n, j) => { let prev = from.clone(); for (let i = 1; i <= n && k < 396; i++) { const p = from.clone().lerp(to, i / n); if (i < n) p.add(new THREE.Vector3((Math.random() - 0.5) * j, 0, (Math.random() - 0.5) * j)); arr.set([prev.x, prev.y, prev.z, p.x, p.y, p.z], k * 3); k += 2; prev = p; } return prev; };
+  const from = new THREE.Vector3(x + (Math.random() - 0.5) * 30, 160, z + (Math.random() - 0.5) * 30);
+  seg(from, top, 40, 7);
+  for (let f = 0; f < 3; f++) { const st = from.clone().lerp(top, 0.2 + Math.random() * 0.5); seg(st, st.clone().add(new THREE.Vector3((Math.random() - 0.5) * 40, -20 - Math.random() * 20, (Math.random() - 0.5) * 40)), 10, 5); }
+  sky_bolt.geometry.setDrawRange(0, k); sky_bolt.geometry.attributes.position.needsUpdate = true;
+  sky_bolt.visible = true; atmo.boltT = 0.22; atmo.flash = 1;
+  // the strike itself
+  smash(top, 1.4, { outward: 6, up: 4 });
+  fx.wave(top, 4, 0.3, new THREE.Color(3, 3.4, 5)); fx.addScorch(top, 2.5);
+  for (let i = 0; i < 30; i++) fx.sparks.emit(top, rndVec(new THREE.Vector3(), 30).setY(Math.random() * 18), new THREE.Color(3, 3.5, 5), 0.4, 0.8, 0.03);
+  birds.scare(top, 50);
+  const dc = dummy.chest(new THREE.Vector3()); if (dc.distanceTo(top) < 5) { dummy.hit(dc, 3, new THREE.Vector3(0, 18, 0), 1); dummy.burn += 0.5; dummy.say(['WHO ORDERED LIGHTNING?!', 'BZZT— rude.'], true); }
+  const pc = chestPos(new THREE.Vector3()); if (pc.distanceTo(top) < 5) { knockPlayer(pc.clone().sub(top), 20); hurtPlayer(20); }
+  if (atmo.rain < 0.85) fire.ignite(top, { life: 5 });
+  sfx.thunder?.(Math.min(2.5, top.distanceTo(camera.position) / 340), 1);
+}
+
+function updateAtmo(dt) {
+  atmo.hour = (atmo.hour + dt * atmo.speed) % 24;
+  const h = atmo.hour;
+  const elev = Math.sin((h - 6) / 12 * Math.PI) * 62;           // degrees above the horizon
+  const az = 32 + (h - 16.9) * 12;
+  const dayK = smooth(-4, 12, elev), golden = smooth(30, 4, elev) * dayK;
+  const wantRain = atmo.weather === 0 ? 0 : atmo.weather === 1 ? 0.8 : 1;
+  atmo.rain += (wantRain - atmo.rain) * Math.min(1, dt * 0.6);
+  rainK = atmo.rain; const R = atmo.rain;
+  // sun (or the moon at night)
+  const sunPos = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - elev), THREE.MathUtils.degToRad(az));
+  sky.material.uniforms.sunPosition.value.copy(sunPos);
+  const lightDir = elev > -3 ? sunPos : new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - Math.max(25, -elev)), THREE.MathUtils.degToRad(az + 180));
+  sunDir.copy(lightDir);
+  sun.intensity = (5 * dayK + 0.45 * (1 - dayK)) * (1 - 0.65 * R);
+  sun.color.copy(tc.set(0xff9a5a).lerp(tc2.set(0xfff0dc), smooth(2, 30, elev))).lerp(tc2.set(0x8ea8d8), 1 - dayK);
+  hemi.intensity = (0.22 + 0.78 * dayK) * (1 - 0.25 * R) + atmo.flash * 3;
+  hemi.color.copy(tc.set(0x7090b5).lerp(tc2.set(0x26385a), 1 - dayK));
+  scene.environmentIntensity = (0.1 + 0.8 * dayK) * (1 - 0.35 * R) + atmo.flash * 0.8;
+  // haze
+  scene.fog.color.copy(FOG.day).lerp(FOG.dusk, golden * 0.7).lerp(FOG.night, 1 - dayK).lerp(tc.copy(FOG.rain).multiplyScalar(0.25 + 0.75 * dayK), R * 0.8);
+  scene.fog.density = 0.0021 + 0.0045 * R + 0.0008 * (1 - dayK);
+  renderer.toneMappingExposure = 1.15 + 0.35 * (1 - dayK) + atmo.flash * 0.7;
+  stars.material.opacity = (1 - dayK) * (1 - R) * 0.9;
+  stars.position.copy(camera.position);
+  clouds.material.uniforms.uDay.value = 0.08 + 0.92 * dayK; clouds.material.uniforms.uCover.value = R; clouds.material.uniforms.uSun.value.copy(sunPos);
+  // the city lights up after dark
+  const nk = 1 - dayK;
+  lampMats.bulb.emissiveIntensity = 2.4 + 3 * nk; lampMats.pool.emissiveIntensity = 0.1 + 0.65 * nk;
+  for (const l of lampSpots) l.intensity = 60 + 260 * nk;
+  matDefs[MAT.GLASS_LIT].material.emissiveIntensity = 0.9 + 2.2 * nk;
+  for (const m of [MAT.SIGN_WARM, MAT.SIGN_CYAN, MAT.SIGN_PINK]) matDefs[m].material.emissiveIntensity = 1.5 + 2.5 * nk;
+  // wet streets turn glossy
+  for (const m of wetMats) { m.roughness = 1 - 0.6 * R; m.envMapIntensity = 1 + 1.2 * R; }
+  // re-capture reflections every so often as the light changes
+  const dh = Math.abs(((h - atmo.bakeHour + 36) % 24) - 12);
+  if (12 - dh > 0.6) { atmo.bakeHour = h; bakeEnv(); }
+  // rain
+  rain.ls.visible = R > 0.02;
+  if (rain.ls.visible) {
+    rain.ls.material.opacity = 0.42 * R;
+    const cp = camera.position, wind = 3 + 6 * (atmo.weather === 2 ? 1 : 0);
+    for (let i = 0; i < rain.drops.length; i++) {
+      const d = rain.drops[i];
+      d.y -= 28 * dt; d.x += wind * dt;
+      if (d.y < -cp.y + 0.05 || d.y < -2 || d.x > 25) { d.set((Math.random() - 0.5) * 50, 20 + Math.random() * 16, (Math.random() - 0.5) * 50); }
+      const x = cp.x + d.x, y = cp.y + d.y - 10, z = cp.z + d.z;
+      rain.pos.set([x, y, z, x - wind * 0.03, y + 0.9, z], i * 6);
+    }
+    rain.ls.geometry.attributes.position.needsUpdate = true;
+  }
+  sfx.rain?.(R);
+  // storms
+  atmo.flash = Math.max(0, atmo.flash - dt * 5);
+  if (atmo.boltT > 0) { atmo.boltT -= dt; if (atmo.boltT <= 0) sky_bolt.visible = false; }
+  if (atmo.weather === 2 && R > 0.7) { atmo.stormT -= dt; if (atmo.stormT <= 0) { atmo.stormT = 3 + Math.random() * 7; strikeLightning(); } }
+  const hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
+  $('clock').textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${WEATHERS[atmo.weather]}`;
+}
+
 // ---------------------------------------------------------------- camera
 const camState = { dist: 5.5, fov: 72, shoulder: 0.85 };
 function updateCamera(dt) {
@@ -1200,6 +1322,7 @@ function tick(rdt) {
   finish.uniforms.uTime.value = time % 100;
   clouds.position.copy(camera.position); clouds.material.uniforms.uTime.value = time;
   updateGame(rdt);
+  updateAtmo(rdt);
   updateHud(rdt);
 }
 // advance the game without rendering (used by automated tests)
@@ -1208,4 +1331,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
