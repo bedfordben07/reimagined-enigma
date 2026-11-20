@@ -524,7 +524,7 @@ export class Dummy {
     this.speech = { text: Array.isArray(lines) ? lines[Math.floor(Math.random() * lines.length)] : lines, t: 2.4 };
   }
 
-  // An action chosen by the dummy's brain (Claude, when connected): plays for `secs` seconds.
+  // A scripted action override: plays for `secs` seconds.
   command(name, secs = 3) {
     if (!ACTIONS.includes(name)) name = 'idle';
     if (ATTACKS.includes(name)) { if (this.mode === 'stand' && this.fights) this.startAttack(name, true); return; }
@@ -719,7 +719,7 @@ export class Dummy {
       if (this.dodge || this.stagger > 0) { /* busy */ }
       else if (this.atk) { faceTarget = this._attack(dt, ctx, d, dx, dz, want); turnRate = 12; }
       else if (c && c !== 'idle') {
-        // the brain is in charge
+        // an action override is playing
         if (c === 'flee' || c === 'approach') {
           const away = c === 'flee';
           if (!away && d < 3.5) this.cmd = null;

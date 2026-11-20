@@ -34,7 +34,6 @@ High and steps down automatically if the frame rate drops).
 | `T` | rebuild the town |
 | `V` | switch character (Sentinel / Spectre V-01) |
 | `O` | ink outlines on/off |
-| `Enter` | talk to the dummy |
 | `X` | stop / resume time (meter refills over ~10 s) |
 | `Z` | singularity: a black hole that tears up buildings and pulls everything in, then detonates |
 | hold `B` | telekinesis: lift nearby rubble, cars and the dummy into orbit; release to fire them at your aim |
@@ -58,7 +57,6 @@ High and steps down automatically if the frame rate drops).
   punch wind-up/strike, laser aim, carrying).
 - `src/spectre.js` — Spectre V-01: caped purple mecha with a red mono-eye laser, built on the same rig.
 - `src/outline.js` — optional inverted-hull ink outline for the characters.
-- `src/brain.js` — when opened inside claude.ai (and the viewer allows it), Claude decides what the dummy does and says.
 - `src/cars.js` — parked cars: oriented-box rigid bodies, instanced; liftable, throwable, wall-smashing.
 - `src/powers.js` — singularity, telekinesis and thunderclap.
 - `src/props.js` — street furniture (hydrants that burst, bins, benches, mailboxes, cones).

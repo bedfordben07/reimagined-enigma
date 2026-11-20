@@ -76,7 +76,6 @@ export class Powers {
     this.cool.hole = 9;
     g.sfx.whoosh();
     g.dummy.say(['Is that... a black hole?!', 'Oh no. Oh no no no.', 'That is NOT safety-rated!'], true);
-    g.brain?.event('The player fired a miniature black hole that is sucking in everything nearby, including you.');
   }
 
   _updateHole(dt, frozen) {
@@ -178,7 +177,6 @@ export class Powers {
     g.fx.punchLight.position.copy(c); g.fx.punchLight.intensity = 160;
     for (let i = 0; i < 80; i++) g.fx.sparks.emit(c, _v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(20 + Math.random() * 30), new THREE.Color(3, 2, 4), 0.5 + Math.random() * 0.5, 0.4, 0.03);
     g.shake(0.7); g.hitstop(0.08); g.sfx.boom(1.5);
-    g.brain?.event('The black hole collapsed and exploded.');
   }
 
   // ---------------------------------------------------------------- telekinesis
@@ -196,7 +194,6 @@ export class Powers {
     if (dummy) { g.dummy.grab(g.dummy.chest(_a)); g.dummy.say(["I'm floating!", 'Put me DOWN!', 'Wheee... wait.'], true); }
     this.tk = { items, cars: carList, dummy, t: 0 };
     g.sfx.freeze(false);
-    g.brain?.event('The player lifted you (and a lot of rubble) with telekinesis.');
   }
 
   _updateTK(dt) {
@@ -324,7 +321,6 @@ export class Powers {
     this.rock.visible = true; this.rock.scale.setScalar(2.2);
     g.sfx.whoosh();
     g.dummy.say(['Is that... a METEOR?!', 'Look up! LOOK UP!', 'Not today, sky!'], true);
-    g.brain?.event('The player called down a meteor.');
   }
 
   _updateMeteor(dt, frozen) {
@@ -361,7 +357,6 @@ export class Powers {
     const dust = new THREE.Color(0.55, 0.5, 0.45);
     for (let i = 0; i < 70; i++) { const a = Math.random() * 6.28; g.fx.dust.emit(_v.set(c.x + Math.cos(a) * 3, c.y + 1, c.z + Math.sin(a) * 3), _a.set(Math.cos(a) * 18, 2 + Math.random() * 8, Math.sin(a) * 18), dust, 3 + Math.random() * 3, 3 + Math.random() * 3, 3, 0.5); }
     g.shake(1); g.hitstop(0.1); g.sfx.boom(2); g.sfx.crumble(400);
-    g.brain?.event('A meteor just crashed down, leaving a huge crater.');
   }
 
   // ---------------------------------------------------------------- thunderclap
@@ -391,7 +386,6 @@ export class Powers {
     g.fx.punchLight.position.copy(c).addScaledVector(dir, 2); g.fx.punchLight.intensity = 120;
     for (let i = 0; i < 60; i++) g.fx.sparks.emit(c.clone().addScaledVector(dir, 1.5), dir.clone().multiplyScalar(30 + Math.random() * 30).add(_v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(30)), new THREE.Color(3, 3, 3.4), 0.25, 0.2, 0.03);
     g.shake(0.6); g.hitstop(0.06); g.sfx.boom(1.3);
-    g.brain?.event('The player clapped and a sonic boom blasted everything in front of them.');
   }
 
   update(dt, frozen) {

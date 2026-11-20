@@ -13,7 +13,6 @@ import { Dummy } from './dummy.js';
 import { Robot } from './robot.js';
 import { Spectre } from './spectre.js';
 import { addOutline } from './outline.js';
-import { DummyBrain } from './brain.js';
 import { Effects } from './effects.js';
 import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js';
 import { CarSystem } from './cars.js';
@@ -217,35 +216,7 @@ function blastAll(center, radius, strength, dir = null, up) {
   birds.scare(center, radius * 3 + 10);
 }
 
-// ---------------------------------------------------------------- the dummy's brain (Claude, when allowed)
-const brain = new DummyBrain(dummy, () => {
-  const d = dummy.chest(new THREE.Vector3()).distanceTo(player.pos);
-  return {
-    robot: robot.name, distanceToPlayerMetres: Math.round(d), you: dummy.mode === 'stand' ? 'standing' : dummy.mode === 'held' ? 'being held overhead' : dummy.mode === 'getup' ? 'getting up' : 'flying through the air / lying on the ground',
-    burnt: dummy.burn > 0.5, playerFlying: player.flying, playerSpeedKmh: Math.round(player.vel.length() * 3.6),
-    playerChargingPunch: player.charging, playerFiringLaser: player.laser, rubblePieces: debris.count,
-    yourHitsOnPlayer: typeof tagged === 'number' ? tagged : 0, youCanFightBack: dummy.fights, yourAnger: Math.round(dummy.anger * 10) / 10,
-  };
-});
-let brainWanted = true;
-try { brainWanted = localStorage.getItem('rubble-brain') !== '0'; } catch (e) { /* ignore */ }
-const brainBtn = $('brainBtn'), brainHud = $('brainHud');
-function renderBrain() {
-  const st = brain.status;
-  brainBtn.setAttribute('aria-pressed', String(brainWanted));
-  brainBtn.querySelector('span').textContent = !brain.sample ? 'Only available inside claude.ai' : brainWanted ? 'On: Claude decides what it does and says' : 'Off: scripted personality';
-  brainBtn.disabled = !brain.sample;
-  brainHud.textContent = st === 'thinking' ? 'Claude…' : st === 'ready' ? 'Claude' : st === 'declined' ? 'Scripted (declined)' : 'Scripted';
-}
-brain.onStatus = renderBrain;
-brain.init().then(renderBrain);
-brainBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  brainWanted = !brainWanted;
-  try { localStorage.setItem('rubble-brain', brainWanted ? '1' : '0'); } catch (err) { /* ignore */ }
-  if (!brainWanted && brain.enabled) brain.enable(false);
-  renderBrain();
-});
+
 // ---------------------------------------------------------------- time freeze
 // X stops time for everything except the player. Hits on the frozen world are stored (the dummy keeps the
 // momentum, rubble hangs where it broke off, collapses wait) and all of it lets go the moment time resumes.
@@ -269,7 +240,6 @@ function freezeOff() {
   shake = Math.min(1, shake + 0.35 + Math.min(0.4, tf.hits * 0.05));
   hitstop = Math.max(hitstop, 0.06);
   if (tf.hits > 0) {
-    brain.event(`Time froze and the player hit you ${tf.hits} times while you couldn't move. All of it landed at once when time resumed.`);
     dummy.say(tf.hits > 3 ? ['WHAT JUST HAPPENED?!', 'ALL AT ONCE?!', 'That is CHEATING!'] : ['Did time just... stop?', 'Huh?! OW!'], true);
   }
 }
@@ -291,7 +261,7 @@ function updateFreeze(dt) {
 
 // ---------------------------------------------------------------- extra powers
 const powers = new Powers({
-  scene, camera, fx, sfx, debris, cars, props, birds, dummy, vox, smash, blastAll, brain, get aim() { return aim; },
+  scene, camera, fx, sfx, debris, cars, props, birds, dummy, vox, smash, blastAll, get aim() { return aim; },
   hand: (side) => robot.handWorld(side, new THREE.Vector3()),
   knockPlayer: (dir, power) => knockPlayer(dir, power, 'blast'),
   chest: () => chestPos(new THREE.Vector3()),
@@ -379,7 +349,6 @@ function knockPlayer(dir, power, kind = 'blast') {
 dummy.ctx.hitPlayer = (dir, power, kind) => {
   knockPlayer(dir, power, kind);
   tagged++; $('tagHud').textContent = tagged;
-  brain.event(`You hit the player with a ${kind}! That is ${tagged} hits on them so far.`);
 };
 // hurl a chunk of rubble on a ballistic arc, leading the player
 const rocks = [];
@@ -437,25 +406,7 @@ dummy.ctx.slam = (p) => {
   sfx.boom(1.1);
 };
 
-// talk to the dummy: Enter opens a box, Enter sends, Esc closes
-const talkBox = $('talk'), talkInput = $('talkInput');
-function openTalk() {
-  if (document.pointerLockElement) document.exitPointerLock();
-  talkBox.hidden = false; talkInput.value = ''; talkInput.focus();
-  keys.clear(); mouse.l = mouse.r = false;
-}
-talkInput.addEventListener('keydown', (e) => {
-  e.stopPropagation();
-  if (e.key === 'Escape') { talkBox.hidden = true; return; }
-  if (e.key !== 'Enter') return;
-  const line = talkInput.value.trim();
-  talkBox.hidden = true;
-  if (line) {
-    if (brain.enabled) brain.talk(line);
-    else dummy.say(['...', 'I only speak crash.', 'Sorry, my brain is switched off.', '*nods politely*'], true);
-  }
-  requestLock();
-});
+
 // optional comic-ink outlines on the characters (toggle with O)
 const outlines = [...chars.map((c) => addOutline(c.root)), addOutline(dummy.group, { thickness: 0.003 })];
 let outlineOn = true;
@@ -510,11 +461,11 @@ function requestLock() {
   setTimeout(() => { if (!locked) enableFallback(); }, 600);
 }
 function enableFallback() { fallbackLook = true; overlay.hidden = true; $('lookhint').hidden = false; }
-overlay.addEventListener('click', (e) => { if (e.target.closest('#brainBtn')) return; if (brainWanted && !brain.enabled && brain.sample) brain.enable(true); requestLock(); });
+overlay.addEventListener('click', requestLock);
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
   if (locked) { overlay.hidden = true; fallbackLook = false; $('lookhint').hidden = true; }
-  else if (started && !fallbackLook && talkBox.hidden) { overlay.hidden = false; $('startBtn').textContent = 'Click to resume'; mouse.l = mouse.r = false; player.laser = false; }
+  else if (started && !fallbackLook) { overlay.hidden = false; $('startBtn').textContent = 'Click to resume'; mouse.l = mouse.r = false; player.laser = false; }
 });
 document.addEventListener('pointerlockerror', enableFallback);
 addEventListener('mousemove', (e) => {
@@ -534,8 +485,6 @@ addEventListener('mouseup', (e) => {
 });
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 addEventListener('keydown', (e) => {
-  if (document.activeElement === talkInput) return;
-  if (e.code === 'Enter' && started) { e.preventDefault(); openTalk(); return; }
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   keys.add(e.code);
@@ -1146,4 +1095,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, brain, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
