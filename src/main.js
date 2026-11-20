@@ -222,7 +222,7 @@ function blastAll(center, radius, strength, dir = null, up) {
 // momentum, rubble hangs where it broke off, collapses wait) and all of it lets go the moment time resumes.
 const tf = { on: false, energy: 1, k: 0, ripple: -1, tickT: 0, hits: 0, tickHigh: false };
 function freezeOn() {
-  if (tf.on || tf.energy < 0.25) return;
+  if (tf.on) return;
   tf.on = true; tf.ripple = 0; tf.hits = 0; tf.tickT = 0; dummy.frozenHits = 0;
   dummy.frozen = true;
   sfx.freeze(true);
@@ -245,17 +245,16 @@ function freezeOff() {
 }
 function updateFreeze(dt) {
   if (tf.on) {
-    tf.energy -= dt / 7;
+    // no time limit: frozen until X is pressed again
     tf.tickT -= dt;
     if (tf.tickT <= 0) { tf.tickT = 0.5; tf.tickHigh = !tf.tickHigh; sfx.tick(tf.tickHigh); }
-    if (tf.energy <= 0) { tf.energy = 0; freezeOff(); }
-  } else tf.energy = Math.min(1, tf.energy + dt / 10);
+  }
+  tf.energy = 1;
   tf.k += ((tf.on ? 1 : 0) - tf.k) * Math.min(1, dt * 7);
   if (tf.ripple >= 0) { tf.ripple += dt / 0.7; if (tf.ripple > 1) tf.ripple = -1; }
   finish.uniforms.uFreeze.value = tf.k;
   finish.uniforms.uRipple.value = tf.ripple;
-  const bar = $('freezeFill'); bar.style.transform = `scaleX(${tf.energy})`;
-  bar.classList.toggle('low', tf.energy < 0.25);
+
   $('freezeBox').classList.toggle('active', tf.on);
 }
 

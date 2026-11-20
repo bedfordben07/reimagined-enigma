@@ -34,7 +34,7 @@ High and steps down automatically if the frame rate drops).
 | `T` | rebuild the town |
 | `V` | switch character (Sentinel / Spectre V-01) |
 | `O` | ink outlines on/off |
-| `X` | stop / resume time (meter refills over ~10 s) |
+| `X` | stop / resume time (no time limit) |
 | `Z` | singularity: a black hole that tears up buildings and pulls everything in, then detonates |
 | hold `B` | telekinesis: lift nearby rubble, cars and the dummy into orbit; release to fire them at your aim |
 | `N` | thunderclap: a sonic boom that tunnels through whatever is in front of you |
