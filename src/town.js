@@ -261,6 +261,75 @@ function outerBlocks() {
 }
 const OUTER = outerBlocks();
 
+// ---- landmarks: a stadium, a clock tower on a plaza, and a petrol station
+export const LANDMARKS = { '110,-154': 'stadium', '-22,-110': 'clock', '154,22': 'petrol' };
+const isLandmark = (cx, cz) => !!LANDMARKS[`${cx},${cz}`];
+
+// Oval stadium: a concrete outer wall, a sloped bowl of seating with coloured rows, four gates and
+// floodlight masts at the corners. The pitch itself is drawn as scenery.
+function stadium(vox, cx, cz) {
+  const b = vox.addBuilding([1, 1, 1]);
+  const x0 = vox.cx(cx - 14), z0 = vox.cz(cz - 14), N = 56, H = 24;
+  const seat = [MAT.AWN_RED, MAT.AWN_BLUE, MAT.TRIM, MAT.AWN_GREEN];
+  for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+    const dx = (x - N / 2 + 0.5) / 27, dz = (z - N / 2 + 0.5) / 24, r = Math.hypot(dx, dz);
+    if (r > 1) continue;
+    const gate = Math.abs(dx) < 0.09 || Math.abs(dz) < 0.1;
+    if (r > 0.93) { for (let y = 0; y < H + 2; y++) { if (gate && y < 6) continue; const m = y >= H ? MAT.TRIM_DARK : (y % 6 === 5 ? MAT.TRIM : MAT.CONCRETE); vox.set(x0 + x, y, z0 + z, m, b); } continue; }
+    if (r > 0.56) {
+      // seating surface rises toward the wall
+      const y = Math.floor((r - 0.56) / 0.37 * (H - 2));
+      if (gate && y < 6) continue;
+      vox.set(x0 + x, y, z0 + z, seat[Math.floor(y / 3) % seat.length], b);
+      if (y > 0) vox.set(x0 + x, y - 1, z0 + z, MAT.SLAB, b);
+    }
+  }
+  for (const [mx, mz] of [[2, 2], [N - 4, 2], [2, N - 4], [N - 4, N - 4]]) {
+    for (let y = 0; y < 52; y++) for (let k = 0; k < 4; k++) vox.set(x0 + mx + (k & 1), y, z0 + mz + (k >> 1), MAT.TRIM_DARK, b);
+    for (let y = 52; y < 56; y++) for (let u = -2; u < 4; u++) vox.set(x0 + mx + u, y, z0 + mz, MAT.SIGN_WARM, b);
+  }
+}
+
+// Clock tower: a tall brick tower with glowing clock faces on all four sides and a stepped spire.
+function clockTower(vox, cx, cz) {
+  const b = vox.addBuilding([1, 0.95, 0.9]);
+  const W = 16, x0 = vox.cx(cx - 4), z0 = vox.cz(cz - 4), H = 92;
+  for (let y = 0; y < H; y++) for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) {
+    const edge = x === 0 || z === 0 || x === W - 1 || z === W - 1;
+    const corner = (x < 2 || x > W - 3) && (z < 2 || z > W - 3);
+    if (!edge && y % 12 !== 0) continue;
+    let m = edge ? (corner || y % 12 === 0 ? MAT.TRIM : MAT.BRICK) : MAT.SLAB;
+    if (edge && !corner && y % 12 >= 4 && y % 12 <= 8 && y < 70 && ((x + z) % 5 === 2)) m = MAT.GLASS;
+    if (y < 6 && edge && (x === 7 || x === 8) && z === 0) continue; // door
+    vox.set(x0 + x, y, z0 + z, m, b);
+  }
+  // clock faces: a glowing disc, a dark rim, hands at ten past ten
+  const face = (u, v) => { const du = u - 7.5, dv = v - 7.5, r = Math.hypot(du, dv); if (r > 6.6) return 0; if (r > 5.6) return MAT.TRIM_DARK;
+    const a1 = Math.atan2(dv, du); const onHand = (ang, len) => r < len && Math.abs(((a1 - ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.22;
+    if (r < 0.9 || onHand(Math.PI / 2 + Math.PI / 3, 4.5) || onHand(Math.PI / 2 - Math.PI / 3 * 2.0, 5.3)) return MAT.TRIM_DARK; return MAT.SIGN_WARM; };
+  for (let v = 0; v < 16; v++) for (let u = 0; u < 16; u++) {
+    const m = face(u, v); if (!m) continue; const y = 72 + v;
+    vox.set(x0 + u, y, z0 - 1, m, b); vox.set(x0 + W - 1 - u, y, z0 + W, m, b); vox.set(x0 - 1, y, z0 + W - 1 - u, m, b); vox.set(x0 + W, y, z0 + u, m, b);
+  }
+  // stepped spire
+  for (let k = 0; k < 9; k++) for (let z = k; z < W - k; z++) for (let x = k; x < W - k; x++) if (x === k || z === k || x === W - 1 - k || z === W - 1 - k) vox.set(x0 + x, H + k, z0 + z, MAT.TILE, b);
+  for (let y = H + 9; y < H + 16; y++) vox.set(x0 + 7, y, z0 + 7, MAT.TRIM_DARK, b);
+}
+
+// Petrol station: a canopy on four columns with a glowing edge, a kiosk at the back. Pumps are props.
+function petrol(vox, cx, cz) {
+  const b = vox.addBuilding([1, 1, 1]);
+  const x0 = vox.cx(cx - 12), z0 = vox.cz(cz - 6), W = 32, D = 20;
+  for (const [x, z] of [[2, 2], [W - 4, 2], [2, D - 4], [W - 4, D - 4]]) for (let y = 0; y < 10; y++) for (let k = 0; k < 4; k++) vox.set(x0 + x + (k & 1), y, z0 + z + (k >> 1), MAT.TRIM, b);
+  for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+    const edge = x === 0 || z === 0 || x === W - 1 || z === D - 1;
+    vox.set(x0 + x, 10, z0 + z, edge ? MAT.SIGN_PINK : MAT.TRIM, b);
+    if (edge) vox.set(x0 + x, 11, z0 + z, MAT.TRIM_DARK, b);
+  }
+  shop(vox, { t: 'shop', x: cx - 6, z: cz + 8, w: 12, d: 6, floors: 1, wall: MAT.PLASTER, trim: MAT.TRIM_DARK, front: 'w', tint: [1, 1, 1], awning: MAT.AWN_RED, sign: MAT.SIGN_CYAN, fixed: true });
+}
+export const PUMP_SPOTS = [[154 - 6, 22 - 2], [154 - 6, 22 + 2], [154 + 2, 22 - 2], [154 + 2, 22 + 2]];
+
 // ---- outer ring (blocks centred at +-110): a skyscraper district, mid-rise streets, suburbs at the corners
 function ringBlocks() {
   const out = [];
@@ -270,6 +339,7 @@ function ringBlocks() {
   const C = [-110, -66, -22, 22, 66, 110];
   for (const cz of C) for (const cx of C) {
     if (Math.abs(cx) < 100 && Math.abs(cz) < 100) continue; // inner 4 x 4 already built
+    if (isLandmark(cx, cz)) { if (LANDMARKS[`${cx},${cz}`] === 'clock') PARKS.push([cx - 14, cz - 14, cx + 14, cz - 6], [cx - 14, cz + 6, cx + 14, cz + 14]); continue; }
     const x0 = cx - 14, z0 = cz - 14;
     const corner = Math.abs(cx) > 100 && Math.abs(cz) > 100;
     const front = Math.abs(cz) > 100 ? (cz > 0 ? 's' : 'n') : (cx > 0 ? 'w' : 'e');
@@ -307,6 +377,7 @@ function edgeBlocks() {
   let i = 0;
   for (const cz of C) for (const cx of C) {
     if (Math.abs(cx) < 140 && Math.abs(cz) < 140) continue;
+    if (isLandmark(cx, cz)) continue;
     const x0 = cx - 14, z0 = cz - 14;
     const tint = () => [0.92 + r() * 0.1, 0.92 + r() * 0.1, 0.92 + r() * 0.1];
     const B = (x, z, w, d, floors, front, t = 'block', extra = {}) => out.push({ t, x: x0 + x, z: z0 + z, w, d, floors, wall: pick(WALLS), trim: pick(TRIMS), front, tint: tint(), fixed: true, ...extra });
@@ -363,9 +434,11 @@ export const PROP_SPOTS = (() => {
         else if (k < 0.29) out.push([x + nx * 1, z + nz * 1, 'cone', yaw]);
       }
     }
+    if (isLandmark(cx, cz)) continue;
     // a hydrant on one corner of every block
     out.push([cx + 13.8, cz + 15.6, 'hydrant', 0]);
   }
+  for (const [x, z] of PUMP_SPOTS) out.push([x, z, 'pump', Math.PI / 2]);
   return out;
 })();
 // Where pigeon flocks hang out: parks and a few junctions.
@@ -398,6 +471,7 @@ export const CAR_SPOTS = (() => {
 
 export function buildVoxelTown(vox) {
   vox.reset();
+  stadium(vox, 110, -154); clockTower(vox, -22, -110); petrol(vox, 154, 22);
   for (const o of [...LAYOUT, ...OUTER, ...RING, ...EDGE]) {
     if (o.t === 'house') house(vox, o);
     else if (o.t === 'shop') shop(vox, o);
@@ -437,6 +511,18 @@ export function buildScenery(scene, renderer) {
     r.rotation.x = -Math.PI / 2; if (alongX) r.rotation.z = Math.PI / 2;
     r.position.set(x, 0.012 + (alongX ? 0.001 : 0), z); r.receiveShadow = true; group.add(r);
   }
+  // stadium pitch: striped grass with white lines
+  {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256; const x = c.getContext('2d');
+    for (let i = 0; i < 12; i++) { x.fillStyle = i % 2 ? '#3f7a32' : '#4a8a3a'; x.fillRect(i * 512 / 12, 0, 512 / 12 + 1, 256); }
+    x.strokeStyle = '#f2f2ea'; x.lineWidth = 3; x.strokeRect(14, 14, 484, 228); x.beginPath(); x.moveTo(256, 14); x.lineTo(256, 242); x.stroke();
+    x.beginPath(); x.arc(256, 128, 36, 0, Math.PI * 2); x.stroke(); x.strokeRect(14, 78, 60, 100); x.strokeRect(438, 78, 60, 100);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso;
+    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(28, 22), new THREE.MeshStandardMaterial({ map: t, roughness: 0.95 }));
+    pitch.rotation.x = -Math.PI / 2; pitch.position.set(110, 0.05, -154); pitch.receiveShadow = true; group.add(pitch);
+  }
+  // petrol station forecourt
+  { const lot = new THREE.Mesh(new THREE.PlaneGeometry(26, 28), roadMat(28)); lot.rotation.x = -Math.PI / 2; lot.position.set(154, 0.16, 22); lot.receiveShadow = true; group.add(lot); }
   // parking lots: asphalt with painted bays
   for (const [ax, az, bx, bz] of PARKING) {
     const w = bx - ax, d = bz - az;

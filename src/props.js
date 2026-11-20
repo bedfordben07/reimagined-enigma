@@ -23,6 +23,7 @@ function types() {
     cone: { geo: cone, mat: paint(0xe8641c, 0.6, 0), r: 0.22, hh: 0.36, mass: 0.4 },
     mail: { geo: mail, mat: paint(0x1f4e8c, 0.4, 0.5), r: 0.3, hh: 0.5, mass: 1.5 },
     bench: { geo: benchGeo, mat: paint(0x6b4a2e, 0.8, 0), r: 0.5, hh: 0.3, mass: 1.5 },
+    pump: { geo: extrude(roundRect(0.7, 1.7, 0.12), 0.45, 0.05, 3), mat: paint(0xd8d4cc, 0.4, 0.3), r: 0.4, hh: 0.85, mass: 2.5 },
   };
 }
 function mergeGeos(list) {
@@ -61,6 +62,7 @@ export class PropSystem {
     p.asleep = false; p.still = 0;
     p.v.addScaledVector(dv, 1 / p.t.mass);
     p.w.add(_a.set(dv.z, (Math.random() - 0.5) * 2, -dv.x).multiplyScalar(0.6 / p.t.mass));
+    if (p.type === 'pump' && !p.exploded && dv.length() > 5) { p.exploded = true; this.onExplode?.(p); }
     if (p.type === 'hydrant' && !p.burst && dv.length() > 4) { p.burst = true; this.geysers.push({ p: p.p.clone().setY(0.2), t: 7 }); this.ctx.sfx?.crumble(60); }
   }
 

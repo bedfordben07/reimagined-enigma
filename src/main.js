@@ -227,6 +227,7 @@ const fire = new FireSystem({
   playerChest: () => chestPos(new THREE.Vector3()), shake: (k) => { shake = Math.min(1, shake + k); },
 });
 cars.onWreck = (c) => fire.igniteCar(c);
+props.onExplode = (pr) => fire.explode(pr.p.clone());
 // shockwaves push rubble, cars and street furniture alike, and send the pigeons flying
 function blastAll(center, radius, strength, dir = null, up) {
   debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);

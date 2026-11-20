@@ -34,10 +34,15 @@ export class FireSystem {
   _explodeCar(c) {
     const g = this.g;
     c.burning = false; c.burnt = true;
-    const p = c.p.clone();
+    this.explode(c.p.clone(), c);
+  }
+
+  // A fuel explosion at p (burning car, petrol pump): blast, fireball, burning wreckage, chain reactions.
+  explode(p, c = null) {
+    const g = this.g;
     g.smash(p, 2.4, { outward: 10, up: 5, max: 500 });
     g.blastAll(p, 14, 36, null, 0.7);
-    g.cars.hit(c, p.clone().add(_v.set((Math.random() - 0.5) * 2, -0.6, (Math.random() - 0.5) * 2)), _a.set((Math.random() - 0.5) * 6, 20, (Math.random() - 0.5) * 6));
+    if (c) g.cars.hit(c, p.clone().add(_v.set((Math.random() - 0.5) * 2, -0.6, (Math.random() - 0.5) * 2)), _a.set((Math.random() - 0.5) * 6, 20, (Math.random() - 0.5) * 6));
     g.fx.wave(p, 9, 0.45, new THREE.Color(3.2, 1.6, 0.5)); g.fx.wave(p, 4, 0.25, new THREE.Color(4, 3, 2));
     g.fx.punchLight.position.copy(p); g.fx.punchLight.intensity = 180;
     for (let i = 0; i < 60; i++) g.fx.sparks.emit(p, _v.set(Math.random() - 0.5, Math.random() * 0.9, Math.random() - 0.5).normalize().multiplyScalar(18 + Math.random() * 24), new THREE.Color(5, 2.2, 0.5), 0.5 + Math.random() * 0.6, 0.9, 0.03);
@@ -50,6 +55,8 @@ export class FireSystem {
     for (let i = 0; i < 3; i++) this.ignite(p.clone().add(_v.set((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6)).setY(0.3), { life: 6 + Math.random() * 4 });
     // chain reaction: nearby cars catch
     for (const o of g.cars.cars) if (o !== c && !o.burnt && o.p.distanceTo(p) < 7) this.heatCar(o, 0.7);
+    // and nearby pumps go up too
+    for (const pr of g.props.props) if (pr.type === 'pump' && !pr.exploded && pr.p.distanceTo(p) < 9) { pr.exploded = true; setTimeout(() => this.explode(pr.p.clone()), 250 + Math.random() * 400); }
   }
 
   update(dt, rain) {
@@ -92,6 +99,7 @@ export class FireSystem {
           if (g.vox.solidAt(_v.x, _v.y, _v.z) === WOOD) this.ignite(_v, { life: 8, wood: true });
         }
         for (const c of g.cars.cars) if (!c.burnt && !c.burning && c.p.distanceToSquared(f.p) < 12) this.heatCar(c, 0.25);
+        for (const pr of g.props.props) if (pr.type === 'pump' && !pr.exploded && pr.p.distanceToSquared(f.p) < 9) { pr.exploded = true; this.explode(pr.p.clone()); }
       }
     }
     // the four fires nearest the camera cast flickering light
