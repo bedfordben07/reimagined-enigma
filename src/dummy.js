@@ -5,6 +5,14 @@ import { dummyTex, brushedMetalTex, pbr, hazardTex } from './textures.js';
 import { lathe, extrude, roundRect, smoothSym, smoothShape, toX } from './geom.js';
 
 // Lines it says, by situation.
+// Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
+export const VARIANTS = [
+  { name: 'Rookie', hp: 260, armor: 0, dmg: 1.0, speed: 1.0, dodge: 0.3, cool: 1.3, poise: 40, tint: [1, 1, 1] },
+  { name: 'Brawler', hp: 380, armor: 0, dmg: 1.4, speed: 1.1, dodge: 0.35, cool: 1.0, poise: 55, tint: [1, 0.6, 0.5] },
+  { name: 'Speedster', hp: 340, armor: 0, dmg: 1.1, speed: 1.7, dodge: 0.75, cool: 0.6, poise: 35, tint: [0.55, 0.9, 1.2] },
+  { name: 'Juggernaut', hp: 650, armor: 24, dmg: 1.6, speed: 0.85, dodge: 0.1, cool: 1.0, poise: 120, tint: [0.45, 0.45, 0.5] },
+  { name: 'Champion', hp: 900, armor: 12, dmg: 1.8, speed: 1.4, dodge: 0.55, cool: 0.55, poise: 80, tint: [1.25, 1.0, 0.35] },
+];
 export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug', 'punch', 'combo', 'throw', 'volley', 'charge', 'slam', 'car', 'leap'];
 const ATTACKS = ['punch', 'combo', 'throw', 'volley', 'charge', 'slam', 'car', 'leap'];
 const LINES = {
@@ -107,6 +115,7 @@ export class Dummy {
     this.mood = 'idle'; this.moodT = 0; this.moodW = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0, wind: 0, jab: 0, throwW: 0, throwF: 0, lean: 0 };
     this.atk = null; this.anger = 0; this.atkCool = 0; this.fights = true; this.runFast = false;
     this.poise = 45; this.stagger = 0; this.dodge = null;
+    this.v = VARIANTS[0]; this.hp = this.v.hp; this.ko = false; this.onDamage = null; this.tintC = new THREE.Color(1, 1, 1);
     this.cmd = null; this.walkPh = 0; this.brainOn = false; this.brainMood = 'cheerful'; this.onEvent = null;
     this.greetReady = true; this.wasThreat = false; this.heldSince = 0; this.bigHit = 0;
     this.player = new THREE.Vector3(); this.headQ = new THREE.Quaternion();
@@ -245,6 +254,7 @@ export class Dummy {
 
   spawn(pos, yaw) {
     this.root.copy(pos); this.yaw = yaw; this.mode = 'stand'; this.burn = 0; this.atk = null; this.atkCool = 1.5;
+    this.ko = false; this.hp = this.v.hp; this.poise = this.v.poise;
     this._setPose();
     for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]);
   }
@@ -270,10 +280,24 @@ export class Dummy {
       any = true;
     }
     if (!any) return false;
+    if (this.ko) { for (let i = 0; i < this.n; i++) this.o[i].addScaledVector(vel, -0.5 * this.h); return true; } // knocked out: just a ragdoll
+    // armour: a Juggernaut ignores anything that isn't a heavy blow
+    const spd0 = vel.length();
+    if (this.v.armor && spd0 < this.v.armor && !this.frozen) {
+      if (spd0 > 6) { this.say(['*CLANG*', 'Armour, baby.', 'Not even a scratch.']); this.ctx.clang?.(center); }
+      return true;
+    }
+    // damage
+    if (spd0 > 2) {
+      const dmg = (spd0 - this.v.armor * 0.5) * 0.55;
+      this.hp -= dmg;
+      this.onDamage?.(dmg);
+      if (this.hp <= 0 && !this.ko) { this.hp = 0; this.ko = true; this.mode = 'ragdoll'; this.atk = null; this.say(['I... need a... nap...', 'Tell my creator... I tried...', 'Ow. Okay. You win.'], true); this.onKO?.(); }
+    }
     // poise: while on its feet it shrugs off lighter hits with a stagger, until the poise breaks
     const spd = vel.length();
     if (this.frozen) this.frozenHits = (this.frozenHits || 0) + 1; // stored: it all lands when time resumes
-    if (this.mode === 'stand' && !this.frozen && this.atk?.phase !== 'air' && spd < 32 && this.poise > spd * 0.6) {
+    if (this.mode === 'stand' && !this.frozen && !this.ko && this.atk?.phase !== 'air' && spd < 32 && this.poise > spd * 0.6) {
       this.poise -= spd * 0.6 + 3;
       this.stagger = Math.max(this.stagger || 0, 0.25 + spd * 0.01);
       this.root.x += vel.x * 0.02; this.root.z += vel.z * 0.02;
@@ -381,7 +405,7 @@ export class Dummy {
     if (this.mode === 'ragdoll') {
       let maxV = 0;
       for (let i = 0; i < this.n; i++) maxV = Math.max(maxV, this.p[i].distanceToSquared(this.o[i]));
-      if (Math.sqrt(maxV) / h < 1.4) { this.restT += h; if (this.restT > 0.4) { this.restT = 0; this._startGetup(); return; } }
+      if (!this.ko && Math.sqrt(maxV) / h < 1.4) { this.restT += h; if (this.restT > 0.4) { this.restT = 0; this._startGetup(); return; } }
       else this.restT = 0;
     }
     if (this.mode === 'stand') { this._setPose(); for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]); return; }
@@ -508,6 +532,8 @@ export class Dummy {
     }
   }
 
+  setVariant(v) { this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; }
+
   // Cap how fast stored-up hits can launch it (frozen time can stack a lot of momentum).
   clampSpeed(max) {
     for (let i = 0; i < this.n; i++) {
@@ -535,7 +561,7 @@ export class Dummy {
     this.atk = { kind, phase: kind === 'throw' || kind === 'volley' ? 'windup' : kind === 'slam' || kind === 'leap' ? 'crouch' : 'approach', t: 0, n: 0 };
     if (kind === 'car') { this.atk.car = this.ctx.nearestCar?.(this.root, 22); if (!this.atk.car) { this.atk = null; return this.startAttack('volley', quiet); } this.atk.phase = 'fetch'; }
     this.anger = Math.max(0, this.anger - 0.6);
-    this.atkCool = Math.max(0.7, 1.9 - this.anger * 0.35) + Math.random() * 0.9; // angrier = relentless
+    this.atkCool = (Math.max(0.7, 1.9 - this.anger * 0.35) + Math.random() * 0.9) * this.v.cool; // angrier = relentless
     if (kind !== 'leap' && (!quiet || !this.speech)) this.say(LINES[kind] || LINES.punch, true);
     const what = { punch: 'punch', combo: 'hit with a three-punch combo', throw: 'throw rubble at', volley: 'hurl a volley of rubble at', charge: 'tackle', slam: 'leap at and ground-slam', car: 'pick up a parked car and throw it at', leap: 'leap after' }[kind];
     if (kind !== 'leap') this.onEvent?.(`You decided to ${what} the player.`);
@@ -559,7 +585,7 @@ export class Dummy {
 
   // Sidestep a punch it sees coming.
   tryDodge(punchDir) {
-    if (this.mode !== 'stand' || this.dodge || this.time - (this.lastDodge || 0) < 2.5 || Math.random() > 0.45) return false;
+    if (this.mode !== 'stand' || this.dodge || this.time - (this.lastDodge || 0) < 2.5 || Math.random() > this.v.dodge) return false;
     const side = Math.random() < 0.5 ? -1 : 1;
     this.dodge = { x: -punchDir.z * side, z: punchDir.x * side, t: 0.24 };
     this.lastDodge = this.time; this.atk = null;
@@ -688,7 +714,7 @@ export class Dummy {
       const threatened = (ctx.charging && d < 14) || (ctx.laserNear && d < 40) || (ctx.speed > 40 && d < 20);
       const c = this.cmd && this.cmd.name;
       this.anger = Math.max(0, this.anger - dt * 0.05);
-      this.poise = Math.min(45, this.poise + dt * 14);
+      this.poise = Math.min(this.v.poise, this.poise + dt * 14);
       if (this.dodge) {
         this.dodge.t -= dt;
         const nx = this.root.x + this.dodge.x * 13 * dt, nz = this.root.z + this.dodge.z * 13 * dt;
@@ -756,6 +782,7 @@ export class Dummy {
 
   // Walk the standing dummy along the ground; walls stop it, stepping off a roof edge drops it.
   _walk(dt, dir, speed, smashWalls = false) {
+    speed *= this.v.speed;
     const nx = this.root.x + Math.sin(dir) * speed * dt, nz = this.root.z + Math.cos(dir) * speed * dt;
     const y = this.root.y, v = this.voxels;
     if (Math.abs(nx) > 185 || Math.abs(nz) > 185) { this.cmd = null; return false; }
@@ -885,6 +912,7 @@ export class Dummy {
       const k = Math.min(1, this.burn / 3);
       this.mats.forEach((m, i) => m.color.copy(this.baseColors[i]).lerp(_char, k * 0.85));
     } else this.mats.forEach((m, i) => m.color.copy(this.baseColors[i]));
+    if (this.tintC) this.mats.forEach((m) => m.color.multiply(this.tintC));
     // frozen in time: a cold blue sheen
     this.frozenK = (this.frozenK || 0) + ((this.frozen ? 1 : 0) - (this.frozenK || 0)) * Math.min(1, dt * 8);
     for (const m of this.mats) if (m.emissive) m.emissive.setRGB(0.05, 0.16, 0.42).multiplyScalar(this.frozenK);

@@ -9,7 +9,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { VoxelWorld, VS } from './voxels.js';
 import { DebrisSystem } from './debris.js';
-import { Dummy } from './dummy.js';
+import { Dummy, VARIANTS } from './dummy.js';
 import { Robot } from './robot.js';
 import { Spectre } from './spectre.js';
 import { addOutline } from './outline.js';
@@ -154,6 +154,7 @@ function smash(center, radius, o = {}) {
   if (o.vel) o = { ...o, vel: o.vel.clone() };
   const removed = vox.breakSphere(center, radius, [], o.max ?? 700);
   if (!removed.length) return 0;
+  if (typeof game !== 'undefined') game.score += removed.length;
   const inherit = o.inherit ?? 0.5, outward = o.outward ?? 5, up = o.up ?? 2;
   let glass = 0;
   const pv = new THREE.Vector3();
@@ -181,6 +182,7 @@ function smash(center, radius, o = {}) {
 
 // Blocks cut off from the ground collapse.
 function detach(list) {
+  game.score += Math.round(list.length * 0.5);
   const pv = new THREE.Vector3();
   let cx = 0, cy = 0, cz = 0;
   for (let k = 0; k < list.length; k++) {
@@ -370,9 +372,71 @@ function knockPlayer(dir, power, kind = 'blast') {
 }
 dummy.ctx.hitPlayer = (dir, power, kind) => {
   if (powers.decoy) { powers.decoyHit(power); return; } // it was fighting the hologram
-  knockPlayer(dir, power, kind);
+  const m = dummy.v.dmg;
+  knockPlayer(dir, power * Math.sqrt(m), kind);
   tagged++; $('tagHud').textContent = tagged;
+  hurtPlayer(power * 0.75 * m);
 };
+dummy.ctx.clang = (p) => { sfx.clang?.(); for (let i = 0; i < 10; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 16), new THREE.Color(5, 4.5, 3), 0.2, 0.8, 0.02); };
+
+// ---------------------------------------------------------------- waves, health, score
+// Knock the dummy out to bring on the next, tougher variant. Your armour regenerates when you
+// avoid hits for a few seconds; get knocked out and you're back up with a score penalty.
+const game = { wave: 0, score: 0, combo: 0, comboT: 0, php: 200, pmax: 200, regenT: 0, invuln: 0, nextWaveT: -1, bannerT: 0, best: 0 };
+try { game.best = parseInt(localStorage.getItem('rubble-best') || '0', 10) || 0; } catch (e) { /* ignore */ }
+function banner(text, sub = '', t = 2.6) { $('banner').hidden = false; $('bannerText').textContent = text; $('bannerSub').textContent = sub; game.bannerT = t; }
+function variantFor(i) {
+  const v = VARIANTS[Math.min(i, VARIANTS.length - 1)];
+  const extra = Math.max(0, i - (VARIANTS.length - 1));
+  return { ...v, hp: Math.round(v.hp * (1 + extra * 0.35)), dmg: v.dmg * (1 + extra * 0.1), name: extra ? `${v.name} ${extra + 1}` : v.name };
+}
+const INTROS = { Rookie: 'Fresh out of the box!', Brawler: "I've been working out.", Speedster: 'Catch me if you can!', Juggernaut: 'Go on. Hit me.', Champion: 'Finally. A worthy opponent.' };
+function startWave(i, near = true) {
+  game.wave = i;
+  const v = variantFor(i);
+  dummy.setVariant(v);
+  // arrive 35 m away and come hunting
+  const a = Math.random() * Math.PI * 2;
+  const x = Math.max(-170, Math.min(170, player.pos.x + Math.cos(a) * 35)), z = Math.max(-170, Math.min(170, player.pos.z + Math.sin(a) * 35));
+  if (near) dummy.spawn(new THREE.Vector3(x, dummy._groundAt(x, z, 70), z), Math.atan2(player.pos.x - x, player.pos.z - z));
+  banner(`WAVE ${i + 1}`, v.name.toUpperCase());
+  dummy.say(INTROS[v.name.split(' ')[0]] || 'Round two!', true);
+}
+dummy.onKO = () => {
+  const bonus = 1000 * (game.wave + 1);
+  game.score += bonus;
+  banner('KNOCKOUT!', `+${bonus.toLocaleString()} · next: ${variantFor(game.wave + 1).name}`);
+  game.nextWaveT = 4.5;
+  sfx.boom(1.2);
+};
+dummy.onDamage = (d) => {
+  game.combo = game.comboT > 0 ? game.combo + 1 : 1; game.comboT = 2.5;
+  game.score += Math.round(d * 3 * (1 + Math.min(40, game.combo) * 0.1));
+};
+function hurtPlayer(d) {
+  if (game.invuln > 0) return;
+  game.php -= d; game.regenT = 3.5;
+  $('hpBox').classList.add('hit'); setTimeout(() => $('hpBox').classList.remove('hit'), 140);
+  if (game.php <= 0) {
+    game.php = game.pmax; game.invuln = 2.5; game.score = Math.max(0, game.score - 500);
+    banner('KNOCKED OUT', 'back on your feet · −500');
+    dummy.say(['Down goes the robot!', 'Stay down!', 'And THAT is how it is done.'], true);
+  }
+}
+function updateGame(dt) {
+  game.comboT = Math.max(0, game.comboT - dt); if (game.comboT === 0) game.combo = 0;
+  game.invuln = Math.max(0, game.invuln - dt);
+  game.regenT -= dt; if (game.regenT <= 0) game.php = Math.min(game.pmax, game.php + 14 * dt);
+  if (game.nextWaveT > 0) { game.nextWaveT -= dt; if (game.nextWaveT <= 0) { game.nextWaveT = -1; startWave(game.wave + 1); } }
+  if (game.bannerT > 0) { game.bannerT -= dt; $('banner').style.opacity = Math.min(1, game.bannerT * 2); if (game.bannerT <= 0) $('banner').hidden = true; }
+  if (game.score > game.best) { game.best = game.score; if (Math.random() < dt) { try { localStorage.setItem('rubble-best', String(Math.round(game.best))); } catch (e) { /* ignore */ } } }
+  $('waveName').textContent = `WAVE ${game.wave + 1} · ${dummy.v.name.toUpperCase()}`;
+  $('dhpFill').style.transform = `scaleX(${Math.max(0, dummy.hp / dummy.v.hp)})`;
+  $('scoreVal').textContent = Math.round(game.score).toLocaleString();
+  $('comboVal').textContent = game.combo > 1 ? `×${(1 + Math.min(40, game.combo) * 0.1).toFixed(1)} · ${game.combo} hit combo` : `best ${Math.round(game.best).toLocaleString()}`;
+  $('hpFill').style.transform = `scaleX(${Math.max(0, game.php / game.pmax)})`;
+}
+
 // hurl a chunk of rubble on a ballistic arc, leading the player
 const rocks = [];
 dummy.ctx.throwRock = (from, spread = 0, size = 1) => {
@@ -555,6 +619,7 @@ function respawnDummy() {
   const p = player.pos.clone().addScaledVector(f, 5); p.y = 0;
   player.holding = false; player.throwWind = 0; if (player.holdingCar) { cars.release(player.holdingCar, new THREE.Vector3(), null); player.holdingCar = null; }
   dummy.spawn(p, player.camYaw + Math.PI);
+  game.nextWaveT = -1;
 }
 function rebuildTown() {
   debris.clear(); buildVoxelTown(vox); fx.clearScorch();
@@ -1122,6 +1187,7 @@ function tick(rdt) {
   updateSunShadow();
   finish.uniforms.uTime.value = time % 100;
   clouds.position.copy(camera.position); clouds.material.uniforms.uTime.value = time;
+  updateGame(rdt);
   updateHud(rdt);
 }
 // advance the game without rendering (used by automated tests)
@@ -1130,4 +1196,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

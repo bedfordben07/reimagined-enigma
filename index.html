@@ -33,6 +33,21 @@
   #freezeFill { display: block; height: 100%; background: #8fd0ff; transform-origin: left center; }
   #freezeFill.low { background: #ff7a5a; }
   #freezeBox.active .unit { color: #8fd0ff; }
+  #topHud { position: fixed; left: 50%; top: calc(14px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); display: grid; justify-items: center; gap: 4px; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+  #waveName { font-size: 13px; letter-spacing: 0.2em; color: var(--amber); font-weight: 600; }
+  #topHud .bar { width: min(340px, 60vw); height: 7px; border-radius: 4px; background: rgba(0,0,0,0.45); overflow: hidden; border: 1px solid rgba(255,255,255,0.15); }
+  #dhpFill, #hpFill { display: block; height: 100%; transform-origin: left center; transition: transform 0.12s; }
+  #dhpFill { background: linear-gradient(90deg, #e8a21c, #ffd25a); }
+  #score { display: grid; justify-items: center; font-family: var(--mono); }
+  #scoreVal { font-size: 22px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  #comboVal { font-size: 11px; color: var(--dim); }
+  #banner { position: fixed; left: 50%; top: 28%; transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; pointer-events: none; text-shadow: 0 3px 14px rgba(0,0,0,0.75); }
+  #banner b { font-size: clamp(34px, 7vw, 64px); letter-spacing: 0.08em; color: var(--ink); }
+  #banner span { font-size: 15px; letter-spacing: 0.3em; color: var(--amber); }
+  #hpBox { display: grid; gap: 4px; margin-bottom: 4px; }
+  #hpBox .bar { width: 150px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; }
+  #hpFill { background: linear-gradient(90deg, #4fd38a, #a8f0c4); }
+  #hpBox.hit .bar { outline: 2px solid #ff6a50; }
   #help { position: fixed; left: calc(16px + env(safe-area-inset-left, 0px)); top: calc(16px + env(safe-area-inset-top, 0px)); padding: 12px 14px; font-size: 13px; line-height: 1.55; pointer-events: none; max-width: min(320px, calc(100vw - 32px)); }
   #help h2 { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.2em; color: var(--amber); font-weight: 600; }
   #help kbd, .ov kbd { font-family: var(--mono); font-size: 11px; color: var(--ink); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 3px; padding: 0 5px; }
@@ -80,7 +95,15 @@
 <div id="bubble" hidden></div>
 <div id="grabHint" class="panel" hidden><kbd>E</kbd>&nbsp; <span id="grabLabel">GRAB DUMMY</span></div>
 
+<div id="topHud">
+  <div id="waveName">WAVE 1 · ROOKIE</div>
+  <div class="bar dummy"><i id="dhpFill"></i></div>
+  <div id="score"><span id="scoreVal">0</span><small id="comboVal">best 0</small></div>
+</div>
+<div id="banner" hidden><b id="bannerText">WAVE 1</b><span id="bannerSub">ROOKIE</span></div>
+
 <div id="hudL" class="panel">
+  <div id="hpBox"><span class="unit">ARMOUR</span><div class="bar hp"><i id="hpFill"></i></div></div>
   <div id="mode">GROUND</div>
   <div><span id="speed" class="big">0</span> <span class="unit">KM/H</span></div>
   <div id="freezeBox"><span class="unit">TIME STOP · X</span></div>
