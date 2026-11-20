@@ -43,7 +43,12 @@ High and steps down automatically if the frame rate drops).
 | `Y` | blink strike: teleport to your aim point and detonate on arrival |
 | `P` | gravity flip: everything near your aim point floats up, then slams down |
 | `U` | hologram decoy: the dummy fights it instead of you, and it explodes when destroyed |
+| `1` | missile barrage: a dozen homing micro-missiles |
+| `2` | earthquake: shock rings roll out from you and bring buildings down |
+| `3` | tornado: a wandering funnel that swallows everything loose |
 | `G` | dummy fights back on/off |
+
+All powers can be used as often as you like (no cooldowns).
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |
 

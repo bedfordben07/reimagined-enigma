@@ -528,6 +528,9 @@ addEventListener('keydown', (e) => {
     case 'KeyY': powers.blink(); break;
     case 'KeyP': powers.gravityFlip(); break;
     case 'KeyU': powers.spawnDecoy(); break;
+    case 'Digit1': powers.barrage(); break;
+    case 'Digit2': powers.quake(); break;
+    case 'Digit3': powers.tornado(); break;
     case 'KeyB': if (!player.holding) powers.grab(); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
@@ -1027,6 +1030,9 @@ function updateHud(rdt) {
     $('powBlink').textContent = st('blink');
     $('powGrav').textContent = powers.grav ? 'active' : st('grav');
     $('powDecoy').textContent = powers.decoy ? 'up' : st('decoy');
+    $('powMiss').textContent = powers.missiles.length ? powers.missiles.length + ' in air' : 'ready';
+    $('powQuake').textContent = powers.quakes.length ? 'shaking' : 'ready';
+    $('powTwist').textContent = powers.twisters.length ? powers.twisters.length + ' active' : 'ready';
   }
   hud.mode.textContent = tf.on ? 'TIME STOPPED' : player.flying ? (player.vel.length() > 45 ? 'SUPERSONIC' : 'FLIGHT') : 'GROUND';
   const c = player.charging ? Math.min(1, player.charge / 1.1) : 0;

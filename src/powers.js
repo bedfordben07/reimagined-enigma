@@ -9,11 +9,10 @@ export class Powers {
   constructor(g) {
     this.g = g;
     this.cool = { hole: 0, clap: 0, meteor: 0, blink: 0, grav: 0, decoy: 0 };
-    this.grav = null; this.decoy = null;
+    this.decoy = null;
     this.gravCol = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 48, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 0.9, 1.6), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     this.gravCol.visible = false; g.scene.add(this.gravCol);
     this.zap = null;      // chain lightning while L is held
-    this.meteor = null;   // incoming meteor
     // lightning arcs: one line-segment buffer, redrawn with fresh jagged paths every flicker
     const lg = new THREE.BufferGeometry();
     this.arcPos = new Float32Array(2000 * 3); this.arcCol = new Float32Array(2000 * 3);
@@ -29,17 +28,22 @@ export class Powers {
     this.rockGlow = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.1, 0.3), transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.rock.add(this.rockGlow); this.rockGlow.scale.setScalar(1.5);
     this.rockLight = new THREE.PointLight(0xff7a30, 0, 80, 1.4); g.scene.add(this.rockLight);
-    this.hole = null;     // active singularity
+    this.holes = []; this.holePool = [];     // active singularities
     this.tk = null;       // active telekinesis grip
     this.clapT = 0;       // clap animation timer (1 -> 0)
     this.clapFired = false;
     this._buildHoleFx();
+    this.meteors = []; this.rockPool = []; this.gravs = []; this.missiles = []; this.quakes = []; this.twisters = [];
+    this._buildMissileFx(); this._buildTwisterFx();
   }
+  get hole() { return this.holes[0] || null; }
+  get meteor() { return this.meteors[0] || null; }
+  get grav() { return this.gravs[0] || null; }
 
   // ---------------------------------------------------------------- singularity
   _buildHoleFx() {
     const g = this.g;
-    this.holeGroup = new THREE.Group(); this.holeGroup.visible = false; g.scene.add(this.holeGroup);
+    this.holeGroup = new THREE.Group(); this.holeGroup.visible = false;
     // event horizon: unlit black core (light can't leave it)
     this.core = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), new THREE.MeshBasicMaterial({ color: 0x000000 }));
     this.holeGroup.add(this.core);
@@ -65,24 +69,30 @@ export class Powers {
     // photon ring: thin bright halo that always faces the camera
     this.halo = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.12, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.8, 3.2), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     this.holeGroup.add(this.halo);
-    this.holeLight = new THREE.PointLight(0xb070ff, 0, 30, 1.6); g.scene.add(this.holeLight);
+    this.holeLight = new THREE.PointLight(0xb070ff, 0, 30, 1.6); g.scene.add(this.holeLight); // shared: follows the newest hole
+  }
+  _holeFx() {
+    if (this.holePool.length) { const f = this.holePool.pop(); f.group.visible = true; return f; }
+    const group = this.holeGroup.clone(true);
+    const discMat = this.discMat.clone(); group.children[1].material = discMat;
+    this.g.scene.add(group);
+    return { group, core: group.children[0], disc: group.children[1], halo: group.children[2], discMat };
   }
 
   castHole() {
     const g = this.g;
-    if (this.hole || this.cool.hole > 0) return;
+    if (this.holes.length >= 6) return;
     const target = g.aim.point.clone();
     const from = g.chest();
     if (target.distanceTo(from) > 90) target.copy(from).addScaledVector(_v.subVectors(target, from).normalize(), 90);
     target.addScaledVector(_v.subVectors(from, target).normalize(), 1.5); // sit just in front of the surface
-    this.hole = { p: from.clone(), to: target, t: 0, travel: Math.min(0.5, from.distanceTo(target) / 80), life: 4.2, rip: 0, phase: 'fly', size: 0.2 };
-    this.cool.hole = 9;
+    this.holes.push({ p: from.clone(), to: target, t: 0, travel: Math.min(0.5, from.distanceTo(target) / 80), life: 4.2, rip: 0, phase: 'fly', size: 0.2, fx: this._holeFx() });
     g.sfx.whoosh();
     g.dummy.say(['Is that... a black hole?!', 'Oh no. Oh no no no.', 'That is NOT safety-rated!'], true);
   }
 
-  _updateHole(dt, frozen) {
-    const g = this.g, H = this.hole;
+  _updateHole(H, dt, frozen) {
+    const g = this.g;
     const p = H.p;
     if (H.phase === 'fly') {
       H.t += dt;
@@ -94,28 +104,27 @@ export class Powers {
       if (!frozen) H.t += dt;
       const grow = Math.min(1, H.t / 0.5);
       H.size = 0.25 + 0.85 * grow + Math.sin(H.t * 30) * 0.02;
-      if (!frozen) this._pull(dt, p, grow);
+      if (!frozen) this._pull(dt, p, grow, H);
       if (H.t >= H.life) { H.phase = 'collapse'; H.t = 0; }
     } else if (H.phase === 'collapse') {
       if (!frozen) H.t += dt;
       H.size = Math.max(0.05, 1.1 * (1 - H.t / 0.25));
-      if (H.t >= 0.25) { this._detonate(p); this.hole = null; this.holeGroup.visible = false; this.holeLight.intensity = 0; g.lens(null); return; }
+      if (H.t >= 0.25) { this._detonate(p); H.dead = true; H.fx.group.visible = false; this.holePool.push(H.fx); return; }
     }
     // visuals
-    this.holeGroup.visible = true;
-    this.holeGroup.position.copy(p);
-    this.core.scale.setScalar(H.size);
-    this.disc.scale.setScalar(H.size * 6.5);
-    this.discMat.uniforms.uTime.value += frozen ? 0 : dt;
-    this.discMat.uniforms.uK.value = Math.min(1, H.size);
-    this.halo.scale.setScalar(H.size * 1.05);
-    this.halo.quaternion.copy(g.camera.quaternion);
-    this.holeLight.position.copy(p); this.holeLight.intensity = 25 * H.size;
-    g.lens(p, H.size);
+    const F = H.fx;
+    F.group.visible = true;
+    F.group.position.copy(p);
+    F.core.scale.setScalar(H.size);
+    F.disc.scale.setScalar(H.size * 6.5);
+    F.discMat.uniforms.uTime.value += frozen ? 0 : dt;
+    F.discMat.uniforms.uK.value = Math.min(1, H.size);
+    F.halo.scale.setScalar(H.size * 1.05);
+    F.halo.quaternion.copy(g.camera.quaternion);
   }
 
   // Gravity: rubble, cars and the dummy fall in and spiral; buildings get torn apart around it.
-  _pull(dt, c, k) {
+  _pull(dt, c, k, H) {
     const g = this.g;
     const swirlAxis = _b.set(0, 1, 0);
     for (const it of g.debris.items) {
@@ -150,9 +159,9 @@ export class Powers {
       if (Math.random() < dt * 0.6) g.dummy.say(['NOT THE VOID!', 'I can see forever!', 'AAAAAAAAAH', 'Spaghettiiii!']);
     }
     // tear blocks out of nearby walls and feed them in
-    this.hole.rip -= dt;
-    if (this.hole.rip <= 0) {
-      this.hole.rip = 0.07;
+    H.rip -= dt;
+    if (H.rip <= 0) {
+      H.rip = 0.07;
       for (let i = 0; i < 3; i++) {
         _v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(1.5 + Math.random() * 6 * k);
         _v.add(c);
@@ -315,31 +324,30 @@ export class Powers {
   // ---------------------------------------------------------------- meteor
   callMeteor() {
     const g = this.g;
-    if (this.meteor || this.cool.meteor > 0) return;
-    const target = g.aim.point.clone();
+    if (this.meteors.length >= 12) return;
+    const target = g.aim.point.clone().add(_v.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2));
     const back = g.forward().setY(0).normalize();
     const from = target.clone().addScaledVector(back, -60).add(_v.set(15, 130, 0));
-    this.meteor = { from, to: target, p: from.clone(), t: 0, dur: 1.5 };
-    this.cool.meteor = 12;
-    this.rock.visible = true; this.rock.scale.setScalar(2.2);
+    const rock = this.rockPool.pop() || (() => { const r = this.rock.clone(true); g.scene.add(r); return r; })();
+    rock.visible = true; rock.scale.setScalar(2.2);
+    this.meteors.push({ from, to: target, p: from.clone(), t: 0, dur: 1.5, rock });
     g.sfx.whoosh();
     g.dummy.say(['Is that... a METEOR?!', 'Look up! LOOK UP!', 'Not today, sky!'], true);
   }
 
-  _updateMeteor(dt, frozen) {
-    const g = this.g, M = this.meteor;
+  _updateMeteor(M, dt, frozen) {
+    const g = this.g;
     if (!frozen) M.t += dt;
     const u = Math.min(1, M.t / M.dur);
     M.p.lerpVectors(M.from, M.to, u * u);
-    this.rock.position.copy(M.p); this.rock.rotation.x += dt * 4; this.rock.rotation.z += dt * 3;
-    this.rockLight.position.copy(M.p); this.rockLight.intensity = 120;
+    M.rock.position.copy(M.p); M.rock.rotation.x += dt * 4; M.rock.rotation.z += dt * 3;
     // fiery trail
     if (!frozen) {
       _v.subVectors(M.from, M.to).normalize();
       for (let i = 0; i < 6; i++) g.fx.dust.emit(_a.copy(M.p).addScaledVector(_v, 1 + Math.random() * 3).add(_b.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(2)), _b.set(0, 1, 0), i < 3 ? new THREE.Color(1.6, 0.6, 0.15) : new THREE.Color(0.25, 0.22, 0.2), 2.5 + Math.random() * 2, 1.5 + Math.random(), 2.5, 0.6);
       for (let i = 0; i < 4; i++) g.fx.sparks.emit(M.p, _b.copy(_v).multiplyScalar(30).add(_a.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(20)), new THREE.Color(5, 2, 0.5), 0.6, 0.5, 0.04);
     }
-    if (u >= 1) { this._impact(M.to); this.meteor = null; this.rock.visible = false; this.rockLight.intensity = 0; }
+    if (u >= 1) { this._impact(M.to); M.dead = true; M.rock.visible = false; this.rockPool.push(M.rock); }
   }
 
   _impact(c) {
@@ -398,17 +406,17 @@ export class Powers {
   // Everything in a 25 m zone at the aim point floats up and tumbles, then slams back down.
   gravityFlip() {
     const g = this.g;
-    if (this.grav || this.cool.grav > 0) return;
+    if (this.gravs.length >= 4) return;
     const c = g.aim.point.clone(); c.y = Math.max(0, Math.min(c.y, 30));
-    this.grav = { c, t: 0, dur: 3.5, r: 25 };
-    this.cool.grav = 9;
+    const col = this.gravCol.clone(); col.material = this.gravCol.material.clone(); g.scene.add(col);
+    this.gravs.push({ c, t: 0, dur: 3.5, r: 25, col });
     g.sfx.freeze(true); setTimeout(() => g.sfx.freeze(false), 80);
     g.birds.scare(c, 60);
     if (g.dummy.chest(_a).distanceTo(c) < 28) g.dummy.say(['Why am I floating?!', 'Gravity, come back!', 'Up up and AWAY—'], true);
   }
 
-  _updateGrav(dt, frozen) {
-    const g = this.g, Z = this.grav;
+  _updateGrav(Z, dt, frozen) {
+    const g = this.g;
     if (!frozen) Z.t += dt;
     const { c, r } = Z;
     const lift = 30 * dt; // beats gravity (20) with a gentle upward push
@@ -423,9 +431,9 @@ export class Powers {
       if (Math.random() < dt * 4) g.fx.ring(c, r * 2, 0.8);
     }
     // a faint column marks the zone
-    this.gravCol.visible = true;
-    this.gravCol.position.set(c.x, c.y + 12, c.z); this.gravCol.scale.set(r, 24, r);
-    this.gravCol.material.opacity = Z.t < Z.dur ? 0.06 + Math.sin(Z.t * 6) * 0.02 : 0;
+    Z.col.visible = true;
+    Z.col.position.set(c.x, c.y + 12, c.z); Z.col.scale.set(r, 24, r);
+    Z.col.material.opacity = Z.t < Z.dur ? 0.06 + Math.sin(Z.t * 6) * 0.02 : 0;
     if (Z.t >= Z.dur) {
       // gravity comes back with interest
       for (const it of g.debris.items) if (!it.tk && inZone(it.p)) it.v.y = Math.min(it.v.y, -28);
@@ -434,14 +442,14 @@ export class Powers {
       const dc = g.dummy.chest(_a);
       if (inZone(dc) && g.dummy.mode !== 'held') g.dummy.hit(dc, 4, _v.set(0, -40, 0), 1);
       g.sfx.boom(0.8); g.shake(0.25);
-      this.grav = null; this.gravCol.visible = false;
+      Z.dead = true; g.scene.remove(Z.col);
     }
   }
 
   // ---------------------------------------------------------------- hologram decoy
   spawnDecoy() {
     const g = this.g;
-    if (this.decoy || this.cool.decoy > 0) return;
+    if (this.decoy) { this.holo.root.visible = false; this.decoy = null; }
     const p = g.aim.point.clone();
     if (p.distanceTo(g.chest()) > 60) p.copy(g.chest()).addScaledVector(g.aimDir(g.chest()), 60);
     p.y = 0;
@@ -491,10 +499,192 @@ export class Powers {
     if (D.t <= 0) this._popDecoy(false);
   }
 
+  // ---------------------------------------------------------------- missile barrage
+  _buildMissileFx() {
+    const body = new THREE.CylinderGeometry(0.07, 0.09, 0.7, 10); body.rotateX(Math.PI / 2);
+    const nose = new THREE.ConeGeometry(0.07, 0.2, 10); nose.rotateX(Math.PI / 2); nose.translate(0, 0, 0.45);
+    const flame = new THREE.ConeGeometry(0.09, 0.6, 10, 1, true); flame.rotateX(-Math.PI / 2); flame.translate(0, 0, -0.65);
+    this.missileTpl = new THREE.Group();
+    const metal = new THREE.MeshStandardMaterial({ color: 0xcfd3d6, metalness: 0.7, roughness: 0.35 });
+    this.missileTpl.add(new THREE.Mesh(body, metal), new THREE.Mesh(nose, new THREE.MeshStandardMaterial({ color: 0xc8231c, roughness: 0.5 })),
+      new THREE.Mesh(flame, new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 2.6, 0.8), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending })));
+    this.missilePool = [];
+  }
+
+  // A dozen homing micro-missiles burst from the shoulders and rain down on the aim point.
+  barrage() {
+    const g = this.g;
+    if (this.missiles.length > 60) return;
+    const aim = g.aim.point.clone();
+    const dc = g.dummy.chest(new THREE.Vector3());
+    const onDummy = dc.distanceTo(aim) < 12;
+    for (let i = 0; i < 12; i++) {
+      const side = i % 2 ? 1 : -1;
+      const from = g.hand(side).add(_v.set(0, 1.0, 0));
+      const mesh = this.missilePool.pop() || (() => { const m = this.missileTpl.clone(true); g.scene.add(m); return m; })();
+      mesh.visible = true;
+      const f = g.forward();
+      const v = new THREE.Vector3(-f.z * side * (6 + Math.random() * 6), 14 + Math.random() * 8, f.x * side * (6 + Math.random() * 6)).addScaledVector(f, 4);
+      const target = onDummy && i % 3 === 0 ? null : aim.clone().add(_v.set((Math.random() - 0.5) * 10, 0, (Math.random() - 0.5) * 10));
+      this.missiles.push({ p: from, v, target, t: -i * 0.04, life: 5, mesh });
+    }
+    g.sfx.whoosh();
+    if (onDummy) g.dummy.say(['INCOMING!', 'That is a LOT of missiles!', 'Mum?!'], true);
+  }
+
+  _updateMissiles(dt, frozen) {
+    const g = this.g;
+    for (const M of this.missiles) {
+      if (!frozen) {
+        M.t += dt; M.life -= dt;
+        if (M.t < 0) { M.mesh.visible = false; continue; }
+        M.mesh.visible = true;
+        const tgt = M.target || g.dummy.chest(_a);
+        if (M.t > 0.3) {
+          const want = _v.subVectors(tgt, M.p).normalize().multiplyScalar(60);
+          M.v.lerp(want, Math.min(1, dt * 3.5));
+        } else M.v.y -= 6 * dt;
+        M.p.addScaledVector(M.v, dt);
+        if (Math.random() < 0.7) g.fx.dust.emit(M.p, _a.set(0, 0.4, 0), new THREE.Color(0.55, 0.53, 0.5), 0.35, 1.0, 1.2, 0.35);
+        const hit = M.p.y < 0.3 || g.vox.solidAt(M.p.x, M.p.y, M.p.z) || M.p.distanceTo(tgt) < 1.3 || g.dummy.chest(_b).distanceTo(M.p) < 1.2 || M.life <= 0;
+        if (hit) { this._missileBoom(M.p.clone()); M.dead = true; M.mesh.visible = false; this.missilePool.push(M.mesh); continue; }
+      }
+      M.mesh.position.copy(M.p);
+      M.mesh.lookAt(_a.copy(M.p).add(M.v));
+    }
+    this.missiles = this.missiles.filter((M) => !M.dead);
+  }
+
+  _missileBoom(c) {
+    const g = this.g;
+    g.smash(c, 1.7, { outward: 9, up: 3, max: 300 });
+    g.blastAll(c, 7, 22, null, 0.6);
+    const dc = g.dummy.chest(_a); const dd = dc.distanceTo(c);
+    if (dd < 4.5) g.dummy.hit(dc, 3, _b.subVectors(dc, c).normalize().multiplyScalar(30 * (1 - dd / 5)).add(_v.set(0, 7, 0)), 0.7);
+    g.fx.wave(c, 4, 0.25, new THREE.Color(3, 1.8, 0.7));
+    for (let i = 0; i < 14; i++) g.fx.sparks.emit(c, _v.set(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(26), new THREE.Color(5, 2.4, 0.6), 0.3 + Math.random() * 0.3, 0.8, 0.02);
+    g.fx.dust.emit(c, _v.set(0, 2, 0), new THREE.Color(0.35, 0.32, 0.3), 2.5, 2, 2.5, 0.5);
+    g.shake(0.08); g.sfx.boom(0.35);
+  }
+
+  // ---------------------------------------------------------------- earthquake
+  // Shock rings roll outward from the player: everything near the ground is thrown up, and the ground
+  // floors of buildings in the rings' path shatter, so whole buildings come down.
+  quake() {
+    const g = this.g;
+    if (this.quakes.length >= 3) return;
+    const c = g.player.pos.clone();
+    this.quakes.push({ c, t: 0, r: 2, hitSet: new Set(), budget: 900, ring: 0 });
+    g.shake(0.6); g.sfx.boom(1.6); g.sfx.crumble(300);
+    g.birds.scare(c, 90);
+  }
+
+  _updateQuake(Q, dt, frozen) {
+    const g = this.g;
+    if (frozen) return;
+    Q.t += dt; const prev = Q.r; Q.r = Math.min(75, 2 + Q.t * 30);
+    const inBand = (p) => { const d = Math.hypot(p.x - Q.c.x, p.z - Q.c.z); return d >= prev - 1 && d < Q.r && p.y < Q.c.y + 6 ? d : -1; };
+    const kick = (key, apply) => { if (Q.hitSet.has(key)) return; Q.hitSet.add(key); apply(); };
+    for (const it of g.debris.items) { const d = inBand(it.p); if (d >= 0) kick(it, () => { g.debris.wake(it); it.v.y += 9 + Math.random() * 6; }); }
+    for (const car of g.cars.cars) { if (car.held) continue; const d = inBand(car.p); if (d >= 0) kick(car, () => { g.cars.hit(car, car.p.clone().add(_v.set((Math.random() - 0.5) * 2, -0.5, (Math.random() - 0.5) * 2)), _a.set(car.p.x - Q.c.x, 0, car.p.z - Q.c.z).normalize().multiplyScalar(4).add(_b.set(0, 10 + Math.random() * 6, 0))); }); }
+    for (const pr of g.props.props) { const d = inBand(pr.p); if (d >= 0) kick(pr, () => g.props._kick(pr, _v.set((Math.random() - 0.5) * 3, 9 + Math.random() * 5, (Math.random() - 0.5) * 3))); }
+    const dc = g.dummy.chest(new THREE.Vector3());
+    if (inBand(dc) >= 0) kick('dummy', () => { g.dummy.hit(dc, 3, _v.set(dc.x - Q.c.x, 0, dc.z - Q.c.z).normalize().multiplyScalar(10).add(_a.set(0, 16, 0)), 1); g.dummy.say(['EARTHQUAKE!', 'The ground is ANGRY!', 'Whoa whoa WHOA'], true); });
+    // shatter ground floors along the ring
+    for (let i = 0; i < 26 && Q.budget > 0; i++) {
+      const a = Math.random() * Math.PI * 2, rr = prev + Math.random() * (Q.r - prev + 0.5);
+      const p = _v.set(Q.c.x + Math.cos(a) * rr, Q.c.y + 0.25 + Math.random() * 1.6, Q.c.z + Math.sin(a) * rr);
+      if (g.vox.solidAt(p.x, p.y, p.z)) Q.budget -= g.smash(p.clone(), 0.9, { up: 3, outward: 3, noDust: Math.random() < 0.6 });
+    }
+    if ((Q.ring -= dt) <= 0) {
+      Q.ring = 0.18; g.fx.ring(Q.c, Q.r * 2, 0.4);
+      for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28; g.fx.dust.emit(_v.set(Q.c.x + Math.cos(a) * Q.r, Q.c.y + 0.3, Q.c.z + Math.sin(a) * Q.r), _a.set(0, 3, 0), new THREE.Color(0.55, 0.5, 0.42), 1.5, 1.5, 2, 0.45); }
+    }
+    g.shake(dt * 2.2);
+    if (Q.r >= 75) Q.dead = true;
+  }
+
+  // ---------------------------------------------------------------- tornado
+  _buildTwisterFx() {
+    const prof = []; for (let i = 0; i <= 12; i++) { const y = i / 12; prof.push([1.2 + Math.pow(y, 1.6) * 10, y * 45]); }
+    this.twGeo = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 48, 0, Math.PI * 2);
+    this.twMat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uK: { value: 1 } }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform float uTime; uniform float uK; varying vec2 vUv;
+        float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
+        void main(){
+          float a = vUv.x * 12.0 + uTime * 3.0 + vUv.y * 9.0;
+          float w = n(vec2(a, vUv.y * 10.0 - uTime * 2.0)) * 0.6 + n(vec2(a * 2.3, vUv.y * 22.0 - uTime * 4.0)) * 0.4;
+          float edge = smoothstep(0.0, 0.12, vUv.y) * smoothstep(1.0, 0.75, vUv.y);
+          vec3 col = mix(vec3(0.32, 0.3, 0.28), vec3(0.62, 0.6, 0.56), w);
+          gl_FragColor = vec4(col, (0.25 + w * 0.45) * edge * uK);
+        }`,
+    });
+  }
+
+  // A roaring funnel at the aim point that hunts the dummy, swallowing everything loose and
+  // tearing blocks off whatever it passes, then flinging it all out of the top.
+  tornado() {
+    const g = this.g;
+    if (this.twisters.length >= 3) return;
+    const p = g.aim.point.clone(); p.y = 0;
+    const mesh = new THREE.Mesh(this.twGeo, this.twMat.clone()); mesh.renderOrder = 2; g.scene.add(mesh);
+    this.twisters.push({ p, t: 0, dur: 9, mesh, rip: 0, wander: Math.random() * 6.28 });
+    g.sfx.whoosh(); g.birds.scare(p, 80);
+    g.dummy.say(['TORNADO!', 'Is that... a tornado?!', 'There\'s no place like home!'], true);
+  }
+
+  _updateTwister(T, dt, frozen) {
+    const g = this.g;
+    T.mesh.material.uniforms.uTime.value += frozen ? 0 : dt;
+    T.mesh.position.copy(T.p); T.mesh.rotation.y -= frozen ? 0 : dt * 2.5;
+    T.mesh.material.uniforms.uK.value = Math.min(1, T.t / 0.6, (T.dur - T.t) / 0.8);
+    if (frozen) return;
+    T.t += dt;
+    // drift toward the dummy (or wander)
+    const dr = g.dummy.root;
+    const to = Math.hypot(dr.x - T.p.x, dr.z - T.p.z) < 90 ? Math.atan2(dr.x - T.p.x, dr.z - T.p.z) : (T.wander += (Math.random() - 0.5) * dt);
+    T.p.x += Math.sin(to) * 4.5 * dt; T.p.z += Math.cos(to) * 4.5 * dt;
+    const R = 9, H = 45;
+    const suck = (p, v, scale) => {
+      const dx = p.x - T.p.x, dz = p.z - T.p.z, d = Math.hypot(dx, dz);
+      if (d > R * 1.7 || p.y > H) return false;
+      const k = scale * (1 - d / (R * 1.7));
+      v.x += (-dx / (d + 0.1) * 22 + -dz / (d + 0.1) * 30) * k * dt;
+      v.z += (-dz / (d + 0.1) * 22 + dx / (d + 0.1) * 30) * k * dt;
+      v.y += (p.y < 32 ? 34 : -4) * k * dt;
+      if (p.y > 30) { v.x += dx / (d + 0.1) * 60 * dt; v.z += dz / (d + 0.1) * 60 * dt; } // flung out of the top
+      return true;
+    };
+    for (const it of g.debris.items) if (!it.tk && suck(it.p, it.v, 1)) { g.debris.wake(it); it.w.y += dt * 4; }
+    for (const car of g.cars.cars) if (!car.held && suck(car.p, car.v, 0.8)) { g.cars.wake(car); car.w.y += dt * 2; car.w.x += (Math.random() - 0.5) * dt * 2; }
+    for (const pr of g.props.props) if (suck(pr.p, pr.v, 1)) { pr.asleep = false; pr.w.y += dt * 6; }
+    const dc = g.dummy.chest(new THREE.Vector3());
+    if (g.dummy.mode !== 'held') { const dv = new THREE.Vector3(); if (suck(dc, dv, 1)) { g.dummy.hit(dc, 3, dv, 1); if (Math.random() < dt * 0.5) g.dummy.say(['WHEEEEEEE—', 'I\'m in the SKYYY', 'Put me DOWWWN']); } }
+    // tear blocks off whatever it passes
+    if ((T.rip -= dt) <= 0) {
+      T.rip = 0.06;
+      for (let i = 0; i < 3; i++) {
+        const a = Math.random() * 6.28, rr = Math.random() * 5;
+        const p = _v.set(T.p.x + Math.cos(a) * rr, Math.random() * 22, T.p.z + Math.sin(a) * rr);
+        if (g.vox.solidAt(p.x, p.y, p.z)) g.smash(p.clone(), 0.8, { vel: _a.set(-Math.sin(a) * 20, 14, Math.cos(a) * 20), inherit: 1, outward: 2, noDust: true });
+      }
+    }
+    // dust spiralling up the funnel
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * 6.28, y = Math.random() * 30, rr = 1.5 + Math.pow(y / 45, 1.6) * 10;
+      g.fx.dust.emit(_v.set(T.p.x + Math.cos(a) * rr, y, T.p.z + Math.sin(a) * rr), _a.set(-Math.sin(a) * 14, 6, Math.cos(a) * 14), new THREE.Color(0.5, 0.47, 0.42), 2 + Math.random() * 2, 1.2, 2, 0.4);
+    }
+    g.shake(dt * 0.6 * Math.max(0, 1 - Math.hypot(g.player.pos.x - T.p.x, g.player.pos.z - T.p.z) / 60));
+    if (T.t >= T.dur) { T.dead = true; g.scene.remove(T.mesh); }
+  }
+
   // ---------------------------------------------------------------- thunderclap
   clap() {
-    if (this.clapT > 0 || this.cool.clap > 0) return;
-    this.clapT = 1; this.clapFired = false; this.cool.clap = 3.5;
+    if (this.clapT > 0 && !this.clapFired) return; // mid-swing: the blast is about to go off
+    this.clapT = 1; this.clapFired = false;
   }
 
   _fireClap() {
@@ -521,11 +711,24 @@ export class Powers {
   }
 
   update(dt, frozen) {
-    for (const k in this.cool) this.cool[k] = Math.max(0, this.cool[k] - dt);
-    if (this.hole) this._updateHole(dt, frozen);
+    for (const k in this.cool) this.cool[k] = 0; // no cooldowns
+    for (const H of this.holes) this._updateHole(H, dt, frozen);
+    this.holes = this.holes.filter((H) => !H.dead);
+    // lensing and the purple glow follow the newest hole
+    const top = this.holes[this.holes.length - 1];
+    if (top) { this.g.lens(top.p, top.size); this.holeLight.position.copy(top.p); this.holeLight.intensity = 25 * top.size; } else { this.g.lens(null); this.holeLight.intensity = 0; }
     if (this.zap) this._updateZap(dt, frozen);
-    if (this.meteor) this._updateMeteor(dt, frozen);
-    if (this.grav) this._updateGrav(dt, frozen);
+    for (const M of this.meteors) this._updateMeteor(M, dt, frozen);
+    this.meteors = this.meteors.filter((M) => !M.dead);
+    const lead = this.meteors[0];
+    if (lead) { this.rockLight.position.copy(lead.p); this.rockLight.intensity = 120; } else this.rockLight.intensity = 0;
+    for (const Z of this.gravs) this._updateGrav(Z, dt, frozen);
+    this.gravs = this.gravs.filter((Z) => !Z.dead);
+    this._updateMissiles(dt, frozen);
+    for (const Q of this.quakes) this._updateQuake(Q, dt, frozen);
+    this.quakes = this.quakes.filter((Q) => !Q.dead);
+    for (const T of this.twisters) this._updateTwister(T, dt, frozen);
+    this.twisters = this.twisters.filter((T) => !T.dead);
     if (this.decoy) this._updateDecoy(dt, frozen);
     if (this.tk) this._updateTK(dt);
     if (this.clapT > 0) {
