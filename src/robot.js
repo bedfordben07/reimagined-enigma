@@ -69,6 +69,7 @@ export class Robot {
     const graphite = pbr(brushedMetalTex(53, '#33383e', 0.4), { metalness: 0.85 });
     const core = new THREE.MeshStandardMaterial({ color: 0x111316, roughness: 0.5, metalness: 0.5 });
     const rubber = new THREE.MeshStandardMaterial({ color: 0x0c0d0f, roughness: 0.7, metalness: 0.1 });
+    this.mats = { silver, steel, graphite, core, rubber };
     this.eyeMat = new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xff4a14, emissiveIntensity: 5, roughness: 0.2 });
     this.glowMat = new THREE.MeshStandardMaterial({ color: 0x200500, emissive: 0xff3a10, emissiveIntensity: 2.6, roughness: 0.3 });
     this.jetMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 1.4, 0.4), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });

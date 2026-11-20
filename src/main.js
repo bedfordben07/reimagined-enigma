@@ -12,6 +12,7 @@ import { DebrisSystem } from './debris.js';
 import { Dummy, VARIANTS } from './dummy.js';
 import { Robot } from './robot.js';
 import { Spectre } from './spectre.js';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js';
 import { addOutline } from './outline.js';
 import { Effects } from './effects.js';
 import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js';
@@ -121,20 +122,30 @@ const { lampLights, traffic, wetMats, lampMats } = buildScenery(scene, renderer)
 const debris = new DebrisSystem(scene, vox, matDefs, 4500);
 const fx = new Effects(scene);
 const sfx = new Sfx();
-const chars = [new Robot(), new Spectre()];
+// heroes are built the first time they're picked (each carries its own set of armour textures)
+const CHAR_TYPES = [Robot, Spectre, Volt, Titan];
+const chars = [];
+let onNewChar = null;
+function getChar(i) {
+  if (!chars[i]) { const c = new CHAR_TYPES[i](); c.kit = c.kit || SENTINEL_KIT; chars[i] = c; onNewChar?.(c); }
+  return chars[i];
+}
+const kit = () => robot.kit;
+let heroP = null;
 let charIdx = 0;
-try { charIdx = Math.min(chars.length - 1, Math.max(0, parseInt(localStorage.getItem('rubble-char') || '0', 10) || 0)); } catch (e) { /* storage unavailable */ }
-if (params.has('char')) charIdx = Math.min(chars.length - 1, parseInt(params.get('char'), 10) || 0);
-let robot = chars[charIdx];
+try { charIdx = Math.min(CHAR_TYPES.length - 1, Math.max(0, parseInt(localStorage.getItem('rubble-char') || '0', 10) || 0)); } catch (e) { /* storage unavailable */ }
+if (params.has('char')) charIdx = Math.min(CHAR_TYPES.length - 1, parseInt(params.get('char'), 10) || 0);
+let robot = getChar(charIdx);
 scene.add(robot.root);
 function setCharacter(i) {
   scene.remove(robot.root);
-  charIdx = (i + chars.length) % chars.length;
-  robot = chars[charIdx];
+  charIdx = (i + CHAR_TYPES.length) % CHAR_TYPES.length;
+  robot = getChar(charIdx);
   scene.add(robot.root);
   fx.setLaserColors(robot.laserCore, robot.laserGlow);
   try { localStorage.setItem('rubble-char', String(charIdx)); } catch (e) { /* ignore */ }
   const el = document.getElementById('charName'); if (el) el.textContent = robot.name;
+  if (heroP) { heroP.clear(); if (!robot.kit.canFly) player.flying = false; buildPowerHud(); }
   document.querySelectorAll('[data-char]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.char === charIdx)));
 }
 setCharacter(charIdx);
@@ -227,6 +238,7 @@ const fire = new FireSystem({
   playerChest: () => chestPos(new THREE.Vector3()), shake: (k) => { shake = Math.min(1, shake + k); },
 });
 cars.onWreck = (c) => fire.igniteCar(c);
+{ const hit0 = cars.hit.bind(cars); cars.hit = (c, p, v) => { if (v.lengthSq() > 64) sfx.crunch(); return hit0(c, p, v); }; }
 props.onExplode = (pr) => fire.explode(pr.p.clone());
 // shockwaves push rubble, cars and street furniture alike, and send the pigeons flying
 function blastAll(center, radius, strength, dir = null, up) {
@@ -313,6 +325,34 @@ const powers = new Powers({
     u.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, Math.min(0.35, (size * 2.6) / (dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) * 0.5), 1);
   },
 });
+heroP = new HeroPowers({
+  scene, fx, sfx, vox, dummy, cars, props, birds, smash, blastAll, get fire() { return fire; }, get player() { return player; },
+  strike: (p) => strikeLightning(p), quake: () => powers.quake(),
+  chest: () => chestPos(new THREE.Vector3()), aim: () => aim.point, aimDir: (from) => aimDirFrom(from, new THREE.Vector3()),
+  hand: (side) => robot.handWorld(side, new THREE.Vector3()),
+  teleport: (p) => { player.pos.copy(p); player.stun = 0; },
+  shake: (k) => { shake = Math.min(1, shake + k); }, hitstop: (t) => { hitstop = Math.max(hitstop, t); },
+});
+// the powers panel lists the current hero's kit
+const POW_STATE = {
+  HOLE: () => (powers.hole ? 'active' : 'ready'), LIFT: () => (powers.tk ? 'holding' : 'hold'), ZAP: () => (powers.zap ? 'zapping' : 'hold'),
+  METEOR: () => (powers.meteor ? 'incoming' : 'ready'), GRAVITY: () => (powers.grav ? 'active' : 'ready'), DECOY: () => (powers.decoy ? 'up' : 'ready'),
+  MISSILES: () => (powers.missiles.length ? powers.missiles.length + ' in air' : 'ready'), QUAKE: () => (powers.quakes.length ? 'shaking' : 'ready'),
+  TORNADO: () => (powers.twisters.length ? powers.twisters.length + ' active' : 'ready'),
+  OVERDRIVE: () => (heroP.overdrive > 0 ? 'ON' : 'off'), STORM: () => (heroP.storms.length ? 'striking' : 'ready'),
+  BOULDER: () => (heroP.boulders.length ? 'thrown' : 'ready'), 'GROUND POUND': () => (heroP.pound ? heroP.pound.phase : 'ready'),
+  RAGE: () => (heroP.rage > 0 ? 'RAGING' : 'off'), 'STOP TIME': () => (tf.on ? 'stopped' : 'ready'),
+};
+let powCells = [];
+function buildPowerHud() {
+  const el = $('powers'); el.textContent = '';
+  powCells = robot.kit.hud.map(([k, name]) => {
+    const s = document.createElement('span'); s.textContent = `${k} ${name} `;
+    const b = document.createElement('b'); b.textContent = 'ready'; s.appendChild(b); el.appendChild(s);
+    return [b, POW_STATE[name] || (() => 'ready')];
+  });
+}
+buildPowerHud();
 
 // what the dummy is fighting: the player, or the hologram decoy while one is up
 function targetPos() { return powers.decoy ? powers.decoy.pos : player.pos; }
@@ -384,7 +424,7 @@ function knockPlayer(dir, power, kind = 'blast') {
   for (let i = 0; i < 24; i++) fx.sparks.emit(c, rndVec(new THREE.Vector3(), 14).addScaledVector(d, 6), new THREE.Color(5, 4, 2.5), 0.2 + Math.random() * 0.25, 0.6, 0.02);
   fx.wave(c, 1.6, 0.22);
   shake = Math.min(1, shake + 0.25 + power / 60);
-  sfx.boom(0.4 + power / 45);
+  sfx.boom(0.4 + power / 45); sfx.punch(1);
 }
 dummy.ctx.hitPlayer = (dir, power, kind) => {
   if (powers.decoy) { powers.decoyHit(power); return; } // it was fighting the hologram
@@ -431,6 +471,7 @@ dummy.onDamage = (d) => {
 };
 function hurtPlayer(d) {
   if (game.invuln > 0) return;
+  d *= kit().armor * heroP.armorMul;
   game.php -= d; game.regenT = 3.5;
   $('hpBox').classList.add('hit'); setTimeout(() => $('hpBox').classList.remove('hit'), 140);
   if (game.php <= 0) {
@@ -511,8 +552,9 @@ dummy.ctx.slam = (p) => {
 
 
 // optional comic-ink outlines on the characters (toggle with O)
-const outlines = [...chars.map((c) => addOutline(c.root)), addOutline(dummy.group, { thickness: 0.003 })];
+const outlines = [...chars.filter(Boolean).map((c) => addOutline(c.root)), addOutline(dummy.group, { thickness: 0.003 })];
 let outlineOn = true;
+onNewChar = (c) => { const o = addOutline(c.root); o.setVisible(outlineOn); outlines.push(o); };
 try { outlineOn = localStorage.getItem('rubble-ink') !== '0'; } catch (e) { /* ignore */ }
 function setOutline(v) { outlineOn = v; outlines.forEach((o) => o.setVisible(v)); try { localStorage.setItem('rubble-ink', v ? '1' : '0'); } catch (e) { /* ignore */ } }
 setOutline(outlineOn);
@@ -591,6 +633,10 @@ addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   keys.add(e.code);
+  const gated = ['KeyZ', 'KeyN', 'KeyM', 'KeyL', 'KeyY', 'KeyP', 'KeyU', 'KeyB', 'KeyX'];
+  if (kit().allowed && gated.includes(e.code) && !kit().allowed.has(e.code)) { banner(robot.name.toUpperCase(), 'that power is not in this hero\'s kit · V to switch', 1.2); return; }
+  if (kit().id === 'volt' && /^Digit[123]$/.test(e.code)) { ({ Digit1: () => heroP.toggleOverdrive(), Digit2: () => heroP.storm(), Digit3: () => heroP.boltDash() })[e.code](); return; }
+  if (kit().id === 'titan' && /^Digit[123]$/.test(e.code)) { ({ Digit1: () => heroP.boulder(), Digit2: () => heroP.groundPound(), Digit3: () => heroP.toggleRage() })[e.code](); return; }
   switch (e.code) {
     case 'KeyF': toggleFlight(); break;
     case 'KeyE': if (player.holding) throwDummy(); else tryGrab(); break;
@@ -611,13 +657,14 @@ addEventListener('keydown', (e) => {
     case 'Digit1': powers.barrage(); break;
     case 'Digit2': powers.quake(); break;
     case 'Digit3': powers.tornado(); break;
+    case 'Digit8': sfx.musicOn = !sfx.musicOn; break;
     case 'Digit9': atmo.hour = (atmo.hour + 6) % 24; break;
     case 'Digit0': atmo.weather = (atmo.weather + 1) % 3; atmo.stormT = 2; break;
     case 'KeyB': if (!player.holding) powers.grab(); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
     case 'KeyK': mouse.r = true; break;
-    case 'Space': if (!player.flying && !player.grounded) startFlight(); else if (!player.flying && player.grounded) { player.vel.y = 13; player.grounded = false; } break;
+    case 'Space': if (!player.flying && !player.grounded) startFlight(); else if (!player.flying && player.grounded) { player.vel.y = kit().jump; player.grounded = false; } break;
   }
 });
 addEventListener('keyup', (e) => {
@@ -629,7 +676,7 @@ addEventListener('keyup', (e) => {
 });
 addEventListener('blur', () => { keys.clear(); mouse.l = mouse.r = false; });
 
-function startFlight() { player.flying = true; player.grounded = false; sfx.whoosh(); }
+function startFlight() { if (!kit().canFly) return; player.flying = true; player.grounded = false; sfx.whoosh(); }
 function toggleFlight() { if (player.flying) player.flying = false; else startFlight(); }
 
 function respawnDummy() {
@@ -673,7 +720,7 @@ function onPrimaryDown() {
 function onPrimaryUp() {
   if (!player.charging) return;
   player.charging = false;
-  const power = 0.3 + Math.min(1, player.charge / 1.1) * 1.0;
+  const power = (0.3 + Math.min(1, player.charge / 1.1) * 1.0) * kit().punch * heroP.punchMul;
   player.punchPow = power; player.punchT = 0.4; player.punchHit = false;
   aimDirFrom(chestPos(tmp), player.punchDir);
   if (dummy.chest(tmp2).distanceTo(player.pos) < 9) dummy.tryDodge(player.punchDir);
@@ -697,13 +744,13 @@ function punchImpact(point, dir, power) {
   for (let i = 0; i < 12 + power * 20; i++) fx.dust.emit(point, rndVec(tmp3, 14), dustColor, 1.5 + Math.random() * 2, 1.5 + Math.random() * 2, 2, 0.4);
   shake = Math.min(1, shake + 0.3 + 0.45 * power);
   hitstop = 0.04 + 0.07 * power;
-  sfx.boom(power);
+  sfx.boom(power); sfx.punch(power);
   player.vel.multiplyScalar(0.12);
   player.punchHit = true;
 }
 
 function updatePunch(dt) {
-  if (player.charging) player.charge += dt;
+  if (player.charging) player.charge += dt * kit().charge;
   if (player.punchT <= 0) return;
   player.punchT -= dt;
   if (player.punchHit || player.punchT < 0.04) return;
@@ -811,14 +858,14 @@ function updatePlayer(dt) {
   const charging = player.charging ? 0.5 : 1;
   if (player.flying) {
     const wish = new THREE.Vector3().addScaledVector(f3, iz).addScaledVector(rt, ix).addScaledVector(UP, iy);
-    const speed = (boost ? 125 : 26) * charging;
+    const speed = (boost ? kit().boost : kit().fly) * charging * (heroP.overdrive > 0 ? 1.4 : 1);
     if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed);
     const rate = boost ? 1.8 : 4;
     if (player.stun > 0) v.multiplyScalar(Math.exp(-0.7 * dt)); // knocked back: no control until it wears off
     else v.lerp(wish, 1 - Math.exp(-rate * dt));
   } else {
     const wish = new THREE.Vector3().addScaledVector(fh, iz).addScaledVector(rt, ix);
-    if (wish.lengthSq() > 0) wish.normalize().multiplyScalar((boost ? 17 : 8) * charging);
+    if (wish.lengthSq() > 0) wish.normalize().multiplyScalar((boost ? kit().sprint : kit().walk) * charging * (heroP.overdrive > 0 ? 1.5 : 1));
     const k = player.stun > 0 ? (player.grounded ? 1 - Math.exp(-2 * dt) : 0) : 1 - Math.exp(-(player.grounded && player.punchT <= 0 ? 12 : 2.5) * dt);
     v.x += (wish.x - v.x) * k; v.z += (wish.z - v.z) * k;
     v.y -= 32 * dt;
@@ -1019,9 +1066,9 @@ const FOG = { day: C(0xb3b4b0), dusk: C(0xc9a088), night: C(0x0c1018), rain: C(0
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const tc = new THREE.Color(), tc2 = new THREE.Color();
 
-function strikeLightning() {
+function strikeLightning(at = null) {
   const a = Math.random() * Math.PI * 2, r = 15 + Math.random() * 60;
-  const x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r;
+  const x = at ? at.x : player.pos.x + Math.cos(a) * r, z = at ? at.z : player.pos.z + Math.sin(a) * r;
   let y = 0; for (let yy = 64; yy > 0; yy -= 0.5) if (vox.solidAt(x, yy, z)) { y = yy + 0.5; break; }
   const top = new THREE.Vector3(x, y, z);
   // jagged bolt with a couple of forks
@@ -1033,12 +1080,13 @@ function strikeLightning() {
   sky_bolt.geometry.setDrawRange(0, k); sky_bolt.geometry.attributes.position.needsUpdate = true;
   sky_bolt.visible = true; atmo.boltT = 0.22; atmo.flash = 1;
   // the strike itself
-  smash(top, 1.4, { outward: 6, up: 4 });
+  smash(top, at ? 2.4 : 1.4, { outward: 6, up: 4 });
+  if (at) { blastAll(top, 8, 22, null, 0.8); for (const c of cars.cars) if (!c.burnt && c.p.distanceTo(top) < 5) fire.heatCar(c, 0.6); }
   fx.wave(top, 4, 0.3, new THREE.Color(3, 3.4, 5)); fx.addScorch(top, 2.5);
   for (let i = 0; i < 30; i++) fx.sparks.emit(top, rndVec(new THREE.Vector3(), 30).setY(Math.random() * 18), new THREE.Color(3, 3.5, 5), 0.4, 0.8, 0.03);
   birds.scare(top, 50);
-  const dc = dummy.chest(new THREE.Vector3()); if (dc.distanceTo(top) < 5) { dummy.hit(dc, 3, new THREE.Vector3(0, 18, 0), 1); dummy.burn += 0.5; dummy.say(['WHO ORDERED LIGHTNING?!', 'BZZT— rude.'], true); }
-  const pc = chestPos(new THREE.Vector3()); if (pc.distanceTo(top) < 5) { knockPlayer(pc.clone().sub(top), 20); hurtPlayer(20); }
+  const dc = dummy.chest(new THREE.Vector3()); if (dc.distanceTo(top) < (at ? 8 : 5)) { dummy.hit(dc, 3, new THREE.Vector3(0, 18, 0), 1); dummy.burn += 0.5; dummy.say(['WHO ORDERED LIGHTNING?!', 'BZZT— rude.'], true); }
+  const pc = chestPos(new THREE.Vector3()); if (!at && pc.distanceTo(top) < 5) { knockPlayer(pc.clone().sub(top), 20); hurtPlayer(20); }
   if (atmo.rain < 0.85) fire.ignite(top, { life: 5 });
   sfx.thunder?.(Math.min(2.5, top.distanceTo(camera.position) / 340), 1);
 }
@@ -1049,6 +1097,7 @@ function updateAtmo(dt) {
   const elev = Math.sin((h - 6) / 12 * Math.PI) * 62;           // degrees above the horizon
   const az = 32 + (h - 16.9) * 12;
   const dayK = smooth(-4, 12, elev), golden = smooth(30, 4, elev) * dayK;
+  atmo.dayK = dayK;
   const wantRain = atmo.weather === 0 ? 0 : atmo.weather === 1 ? 0.8 : 1;
   atmo.rain += (wantRain - atmo.rain) * Math.min(1, dt * 0.6);
   rainK = atmo.rain; const R = atmo.rain;
@@ -1109,9 +1158,10 @@ function updateCamera(dt) {
   const f3 = fwd3(new THREE.Vector3()), rt = rightH(new THREE.Vector3());
   const sp = player.vel.length();
   const boosting = player.flying && sp > 45;
-  const wantDist = boosting ? 8 : player.flying ? 6.5 : 5.2;
+  const hs = robot.root.scale.x;
+  const wantDist = (boosting ? 8 : player.flying ? 6.5 : 5.2) * hs * hs;
   camState.dist += (wantDist - camState.dist) * Math.min(1, dt * 3);
-  const target = new THREE.Vector3(player.pos.x, player.pos.y + 1.9, player.pos.z);
+  const target = new THREE.Vector3(player.pos.x, player.pos.y + 1.9 * hs, player.pos.z);
   const back = f3.clone().negate();
   const start = target.clone().addScaledVector(rt, camState.shoulder);
   let dist = camState.dist;
@@ -1220,18 +1270,7 @@ function updateHud(rdt) {
   hud.speed.textContent = Math.round(player.vel.length() * 3.6);
   if ((hud.powT = (hud.powT || 0) - rdt) <= 0) {
     hud.powT = 0.1;
-    const st = (k) => (powers.cool[k] > 0 ? Math.ceil(powers.cool[k]) + 's' : 'ready');
-    $('powHole').textContent = powers.hole ? 'active' : st('hole');
-    $('powClap').textContent = st('clap');
-    $('powLift').textContent = powers.tk ? 'holding' : 'hold';
-    $('powMeteor').textContent = powers.meteor ? 'incoming' : st('meteor');
-    $('powZap').textContent = powers.zap ? 'zapping' : 'hold';
-    $('powBlink').textContent = st('blink');
-    $('powGrav').textContent = powers.grav ? 'active' : st('grav');
-    $('powDecoy').textContent = powers.decoy ? 'up' : st('decoy');
-    $('powMiss').textContent = powers.missiles.length ? powers.missiles.length + ' in air' : 'ready';
-    $('powQuake').textContent = powers.quakes.length ? 'shaking' : 'ready';
-    $('powTwist').textContent = powers.twisters.length ? powers.twisters.length + ' active' : 'ready';
+    for (const [b, f] of powCells) { const t = f(); if (b.textContent !== t) b.textContent = t; }
   }
   hud.mode.textContent = tf.on ? 'TIME STOPPED' : player.flying ? (player.vel.length() > 45 ? 'SUPERSONIC' : 'FLIGHT') : 'GROUND';
   const c = player.charging ? Math.min(1, player.charge / 1.1) : 0;
@@ -1291,34 +1330,42 @@ function tick(rdt) {
   if (player.holdingCar) cars.carry(player.holdingCar, robot.handWorld(-1, tmp).add(tmp2.set(0, 1.0, 0)), player.yaw);
   else if (player.holding) dummy.holdTarget.copy(robot.handWorld(-1, tmp)).y -= 0.15;
 
-  acc += dt;
+  const wdt = dt * heroP.worldScale;
+  heroP.update(dt, wdt, tf.on, robot);
+  acc += wdt;
   let n = 0;
   updateFreeze(rdt);
   const frozen = tf.on;
-  powers.update(dt, frozen);
+  powers.update(wdt, frozen);
   // the dummy only moves while time runs (or while it's in the player's hand)
   while (acc >= H && n < 8) { if (!frozen || dummy.mode === 'held') dummy.step(H); acc -= H; n++; }
   if (n === 8) acc = 0;
   cascadeBudget = 25;
   if (!frozen) {
-    debris.update(dt, dt > 1 / 70 ? 3 : 2); cars.update(dt); props.update(dt); birds.update(dt, player.pos, player.vel.length());
-    fire.update(dt, rainK > 0.3);
+    debris.update(wdt, wdt > 1 / 70 ? 3 : 2); cars.update(wdt); props.update(wdt); birds.update(wdt, player.pos, player.vel.length());
+    fire.update(wdt, rainK > 0.3);
     vox.updateIntegrity(dt, detach); updateCarHits(); bumpProps();
   } else { debris.flush(); cars.flush(); props.flush(); }
   traffic.update(time);
   vox.flush();
-  if (!frozen) dummy.think(dt, {
+  if (!frozen) dummy.think(wdt, {
     playerPos: targetPos(), charging: !powers.decoy && player.charging, speed: powers.decoy ? 0 : player.vel.length(), playerAir: targetPos().y > 4,
     laserNear: player.laser && aim.point.distanceTo(dummy.chest(tmp)) < 5, laserOnMe: player.laser && aim.kind === 'dummy',
   });
-  dummy.update(dt);
+  dummy.update(wdt);
   if (!frozen) updateRocks(dt);
   updateBubble();
   updateHandThrust(dt);
   speedLines(dt);
   fx.update(dt, camera, frozen);
   fx.dust.uniforms.uScale.value = renderer.domElement.height * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-  sfx.set(player.vel.length(), player.laser);
+  {
+    const cp = camera.position; let fk = 0;
+    for (const f of fire.fires) { const d = f.p.distanceTo(cp); if (d < 40) fk += f.size * Math.min(1, f.life) * (1 - d / 40) * 0.5; }
+    const dd = dummy.chest(new THREE.Vector3()).distanceTo(player.pos);
+    const ck = dummy.fights && !dummy.ko ? (dd < 25 ? 0.65 : dd < 70 ? 0.3 : 0.12) : 0;
+    sfx.set(player.vel.length(), player.laser, { day: atmo.dayK ?? 1, fire: Math.min(1, fk), combat: ck });
+  }
   updateSunShadow();
   finish.uniforms.uTime.value = time % 100;
   clouds.position.copy(camera.position); clouds.material.uniforms.uTime.value = time;
@@ -1332,4 +1379,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

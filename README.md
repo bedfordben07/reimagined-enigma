@@ -32,7 +32,8 @@ High and steps down automatically if the frame rate drops).
 | `E` | grab the dummy or lift a parked car; press again (or click) to throw it |
 | `R` | new dummy in front of you |
 | `T` | rebuild the town |
-| `V` | switch character (Sentinel / Spectre V-01) |
+| `V` | switch hero (Sentinel / Spectre V-01 / Volt / Titan) |
+| `8` | music on / off |
 | `O` | ink outlines on/off |
 | `X` | stop / resume time (no time limit) |
 | `Z` | singularity: a black hole that tears up buildings and pulls everything in, then detonates |
@@ -63,7 +64,10 @@ All powers can be used as often as you like (no cooldowns).
 - `src/geom.js` — shared lathe / bevel-extrude / cable builders for the characters.
 - `src/robot.js` — the Sentinel avatar model, palm thrusters and its poses (walk, hover, superhero flight,
   punch wind-up/strike, laser aim, carrying).
-- `src/spectre.js` — Spectre V-01: caped purple mecha with a red mono-eye laser, built on the same rig.
+- `src/spectre.js` — Spectre V-01: purple mecha with a red mono-eye laser, built on the same rig.
+- `src/heroes.js` — Volt (speedster: overdrive slows the world, lightning storm, bolt dash) and Titan (no flight, huge jumps and punches, boulder throw, ground pound, rage), each with their own kit. Sentinel and Spectre keep every power.
+- `src/fire.js` — fire spread, burning/exploding cars and petrol pumps, hydrants and rain douse.
+- `src/audio.js` — synthesized sound: reverb bus, layered impacts, rain, thunder, fire, day/night ambience, a procedural combat score.
 - `src/outline.js` — optional inverted-hull ink outline for the characters.
 - `src/cars.js` — parked cars: oriented-box rigid bodies, instanced; liftable, throwable, wall-smashing.
 - `src/powers.js` — singularity, telekinesis and thunderclap.
