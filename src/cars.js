@@ -121,6 +121,7 @@ export class CarSystem {
 
   _damage(c, f) {
     c.wreck = Math.min(1, c.wreck + f / 80);
+    if (c.wreck >= 1 && !c.wrecked) { c.wrecked = true; this.onWreck?.(c); } // a wrecked car catches fire
     const k = 1 - c.wreck * 0.7;
     this.body.setColorAt(c.i, _a.set(c.color.r * k, c.color.g * k, c.color.b * k));
     this.body.instanceColor.needsUpdate = true;

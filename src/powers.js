@@ -316,7 +316,7 @@ export class Powers {
       g.dummy.hit(c.p, 3, _v.set((Math.random() - 0.5) * 6, 3 + Math.random() * 3, (Math.random() - 0.5) * 6), 0.6);
       g.dummy.burn += 0.02;
       if (Math.random() < 0.08) g.dummy.say(['BZZZZT!', 'I can taste colours!', 'My bolts are tingling!', 'ZAP ZAP OW']);
-    } else if (c.kind === 'car') g.cars.hit(c.ref, c.p, _v.set((Math.random() - 0.5) * 3, 4, (Math.random() - 0.5) * 3));
+    } else if (c.kind === 'car') { g.cars.hit(c.ref, c.p, _v.set((Math.random() - 0.5) * 3, 4, (Math.random() - 0.5) * 3)); g.fire?.heatCar(c.ref, 0.06); }
     else if (c.kind === 'prop') g.props._kick(c.ref, _v.set((Math.random() - 0.5) * 6, 6, (Math.random() - 0.5) * 6));
     else { g.smash(c.p, 0.75, { outward: 4, up: 2, noDust: true }); g.fx.addScorch(c.p, 0.8); }
   }
@@ -368,6 +368,7 @@ export class Powers {
     const dust = new THREE.Color(0.55, 0.5, 0.45);
     for (let i = 0; i < 70; i++) { const a = Math.random() * 6.28; g.fx.dust.emit(_v.set(c.x + Math.cos(a) * 3, c.y + 1, c.z + Math.sin(a) * 3), _a.set(Math.cos(a) * 18, 2 + Math.random() * 8, Math.sin(a) * 18), dust, 3 + Math.random() * 3, 3 + Math.random() * 3, 3, 0.5); }
     g.shake(1); g.hitstop(0.1); g.sfx.boom(2); g.sfx.crumble(400);
+    for (let i = 0; i < 7; i++) { const a = Math.random() * 6.28, r = 3 + Math.random() * 7; g.fire?.ignite(new THREE.Vector3(c.x + Math.cos(a) * r, 0.3, c.z + Math.sin(a) * r), { life: 8 + Math.random() * 6, size: 1.2 }); }
   }
 
   // ---------------------------------------------------------------- blink strike
@@ -565,6 +566,7 @@ export class Powers {
     for (let i = 0; i < 14; i++) g.fx.sparks.emit(c, _v.set(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(26), new THREE.Color(5, 2.4, 0.6), 0.3 + Math.random() * 0.3, 0.8, 0.02);
     g.fx.dust.emit(c, _v.set(0, 2, 0), new THREE.Color(0.35, 0.32, 0.3), 2.5, 2, 2.5, 0.5);
     g.shake(0.08); g.sfx.boom(0.35);
+    if (Math.random() < 0.3) g.fire?.ignite(c, { life: 4 + Math.random() * 3, size: 0.9 });
   }
 
   // ---------------------------------------------------------------- earthquake

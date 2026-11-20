@@ -19,6 +19,7 @@ import { CarSystem } from './cars.js';
 import { Powers } from './powers.js';
 import { PropSystem } from './props.js';
 import { Birds } from './birds.js';
+import { FireSystem } from './fire.js';
 import { Sfx } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -212,6 +213,13 @@ const dummy = new Dummy(scene, vox, { smash });
 const cars = new CarSystem(scene, CAR_SPOTS, { smash, voxels: vox });
 const props = new PropSystem(scene, PROP_SPOTS, { voxels: vox, fx, sfx });
 const birds = new Birds(scene, BIRD_HOMES);
+let rainK = 0; // 0 dry .. 1 downpour (set by the weather)
+const fire = new FireSystem({
+  scene, camera, fx, vox, smash, blastAll, cars, dummy, props, sfx,
+  hurtPlayer: (d) => hurtPlayer(d), knockPlayer: (d, p) => knockPlayer(d, p, 'blast'),
+  playerChest: () => chestPos(new THREE.Vector3()), shake: (k) => { shake = Math.min(1, shake + k); },
+});
+cars.onWreck = (c) => fire.igniteCar(c);
 // shockwaves push rubble, cars and street furniture alike, and send the pigeons flying
 function blastAll(center, radius, strength, dir = null, up) {
   debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);
@@ -262,7 +270,7 @@ function updateFreeze(dt) {
 
 // ---------------------------------------------------------------- extra powers
 const powers = new Powers({
-  scene, camera, fx, sfx, debris, cars, props, birds, dummy, vox, smash, blastAll, get aim() { return aim; },
+  scene, camera, fx, sfx, debris, cars, props, birds, dummy, vox, smash, blastAll, get aim() { return aim; }, get fire() { return fire; },
   hand: (side) => robot.handWorld(side, new THREE.Vector3()),
   knockPlayer: (dir, power) => knockPlayer(dir, power, 'blast'),
   get player() { return player; },
@@ -739,11 +747,14 @@ function updateLaser(dt) {
   if (player.laserTick <= 0) {
     player.laserTick = 0.03;
     if (hitKind === 'voxel') {
+      if (Math.random() < 0.1) fire.ignite(tmp3.copy(p).addScaledVector(hitN, 0.4), { life: 4 + Math.random() * 3, size: 0.8 });
       smash(tmp.copy(p).addScaledVector(beamDir, 0.25), 0.6, { vel: tmp2.copy(hitN).multiplyScalar(7), inherit: 1, outward: 2.5, up: 2.5, noDust: Math.random() < 0.6 });
     } else if (hitKind === 'ground') {
       fx.addScorch(tmp.copy(p).add(rndVec(tmp2, 0.25)), 0.9 + Math.random() * 0.6);
+      if (Math.random() < 0.05) fire.ignite(tmp3.copy(p).setY(0.25), { life: 3 + Math.random() * 2, size: 0.7 });
     } else if (hitKind === 'car' && aim.car) {
       cars.hit(aim.car, p, tmp2.copy(beamDir).multiplyScalar(1.2));
+      fire.heatCar(aim.car, 0.035);
     } else if (hitKind === 'dummy') {
       dummy.hit(p, 0.7, tmp2.copy(beamDir).multiplyScalar(2.2).addScaledVector(UP, 0.6), 0.2);
       dummy.burn += 0.03; dummy.anger += 0.04;
@@ -1168,6 +1179,7 @@ function tick(rdt) {
   cascadeBudget = 25;
   if (!frozen) {
     debris.update(dt, dt > 1 / 70 ? 3 : 2); cars.update(dt); props.update(dt); birds.update(dt, player.pos, player.vel.length());
+    fire.update(dt, rainK > 0.3);
     vox.updateIntegrity(dt, detach); updateCarHits(); bumpProps();
   } else { debris.flush(); cars.flush(); props.flush(); }
   traffic.update(time);
@@ -1196,4 +1208,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
