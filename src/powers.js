@@ -8,7 +8,10 @@ const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3
 export class Powers {
   constructor(g) {
     this.g = g;
-    this.cool = { hole: 0, clap: 0, meteor: 0 };
+    this.cool = { hole: 0, clap: 0, meteor: 0, blink: 0, grav: 0, decoy: 0 };
+    this.grav = null; this.decoy = null;
+    this.gravCol = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 48, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 0.9, 1.6), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    this.gravCol.visible = false; g.scene.add(this.gravCol);
     this.zap = null;      // chain lightning while L is held
     this.meteor = null;   // incoming meteor
     // lightning arcs: one line-segment buffer, redrawn with fresh jagged paths every flicker
@@ -359,6 +362,135 @@ export class Powers {
     g.shake(1); g.hitstop(0.1); g.sfx.boom(2); g.sfx.crumble(400);
   }
 
+  // ---------------------------------------------------------------- blink strike
+  // Teleport to the aim point (up to 80 m), leaving a streak, and detonate on arrival.
+  blink() {
+    const g = this.g;
+    if (this.cool.blink > 0) return;
+    const from = g.chest(), dir = g.aimDir(from);
+    let to = g.aim.point.clone().addScaledVector(dir, -1.6);
+    if (to.distanceTo(from) > 80) to = from.clone().addScaledVector(dir, 80);
+    // don't arrive inside a wall: back off until clear
+    for (let k = 0; k < 20 && g.vox.solidAt(to.x, to.y, to.z); k++) to.addScaledVector(dir, -0.5);
+    const feet = to.clone(); feet.y = Math.max(0, to.y - 1.6);
+    // streak of light along the path
+    const n = Math.min(40, Math.ceil(from.distanceTo(to) / 2));
+    for (let i = 0; i <= n; i++) {
+      const p = from.clone().lerp(to, i / n);
+      g.fx.sparks.emit(p, _v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(3), new THREE.Color(1.2, 2.4, 4), 0.35 + Math.random() * 0.3, 0, 0.05);
+      if (i % 4 === 0) g.fx.dust.emit(p, _a.set(0, 0.3, 0), new THREE.Color(0.4, 0.7, 1.0), 0.8, 0.6, 1, 0.25);
+    }
+    g.fx.wave(from, 3, 0.3, new THREE.Color(1, 2, 4));
+    g.teleport(feet);
+    // arrival blast
+    const c = to;
+    g.smash(c, 1.6, { outward: 8, up: 3 });
+    g.blastAll(c, 9, 26, dir, 0.6);
+    const dc = g.dummy.chest(_a); const dd = dc.distanceTo(c);
+    if (dd < 6) g.dummy.hit(dc, 3, _b.subVectors(dc, c).normalize().multiplyScalar(38 * (1 - dd / 7)).add(_v.set(0, 8, 0)), 0.8);
+    g.fx.wave(c, 5, 0.3, new THREE.Color(1.2, 2.2, 4));
+    g.fx.punchLight.position.copy(c); g.fx.punchLight.intensity = 70;
+    g.shake(0.3); g.sfx.whoosh(); g.sfx.boom(0.6);
+    this.cool.blink = 1.5;
+  }
+
+  // ---------------------------------------------------------------- gravity flip
+  // Everything in a 25 m zone at the aim point floats up and tumbles, then slams back down.
+  gravityFlip() {
+    const g = this.g;
+    if (this.grav || this.cool.grav > 0) return;
+    const c = g.aim.point.clone(); c.y = Math.max(0, Math.min(c.y, 30));
+    this.grav = { c, t: 0, dur: 3.5, r: 25 };
+    this.cool.grav = 9;
+    g.sfx.freeze(true); setTimeout(() => g.sfx.freeze(false), 80);
+    g.birds.scare(c, 60);
+    if (g.dummy.chest(_a).distanceTo(c) < 28) g.dummy.say(['Why am I floating?!', 'Gravity, come back!', 'Up up and AWAY—'], true);
+  }
+
+  _updateGrav(dt, frozen) {
+    const g = this.g, Z = this.grav;
+    if (!frozen) Z.t += dt;
+    const { c, r } = Z;
+    const lift = 30 * dt; // beats gravity (20) with a gentle upward push
+    const inZone = (p) => Math.hypot(p.x - c.x, p.z - c.z) < r && p.y < c.y + 40;
+    if (!frozen && Z.t < Z.dur) {
+      for (const it of g.debris.items) if (!it.tk && inZone(it.p)) { g.debris.wake(it); it.v.y += lift * (it.p.y < c.y + 14 ? 1 : 0.6); it.v.x *= 0.995; it.v.z *= 0.995; it.w.x += (Math.random() - 0.5) * dt * 3; }
+      for (const car of g.cars.cars) if (!car.held && inZone(car.p)) { g.cars.wake(car); car.v.y += lift * (car.p.y < c.y + 12 ? 1 : 0.6); car.w.x += (Math.random() - 0.5) * dt * 1.5; car.w.z += (Math.random() - 0.5) * dt * 1.5; }
+      for (const pr of g.props.props) if (inZone(pr.p)) { pr.asleep = false; pr.v.y += lift; pr.w.x += (Math.random() - 0.5) * dt * 4; }
+      const dc = g.dummy.chest(_a);
+      if (inZone(dc) && g.dummy.mode !== 'held') g.dummy.hit(dc, 4, _v.set((Math.random() - 0.5) * dt * 4, lift * (dc.y < c.y + 14 ? 1 : 0.6), (Math.random() - 0.5) * dt * 4), 1);
+      if (Math.random() < 0.6) g.fx.dust.emit(_v.set(c.x + (Math.random() - 0.5) * r * 1.6, c.y + 0.5, c.z + (Math.random() - 0.5) * r * 1.6), _a.set(0, 6, 0), new THREE.Color(0.5, 0.8, 1.2), 0.6, 2, 0.6, 0.35);
+      if (Math.random() < dt * 4) g.fx.ring(c, r * 2, 0.8);
+    }
+    // a faint column marks the zone
+    this.gravCol.visible = true;
+    this.gravCol.position.set(c.x, c.y + 12, c.z); this.gravCol.scale.set(r, 24, r);
+    this.gravCol.material.opacity = Z.t < Z.dur ? 0.06 + Math.sin(Z.t * 6) * 0.02 : 0;
+    if (Z.t >= Z.dur) {
+      // gravity comes back with interest
+      for (const it of g.debris.items) if (!it.tk && inZone(it.p)) it.v.y = Math.min(it.v.y, -28);
+      for (const car of g.cars.cars) if (!car.held && inZone(car.p)) car.v.y = Math.min(car.v.y, -30);
+      for (const pr of g.props.props) if (inZone(pr.p)) pr.v.y = Math.min(pr.v.y, -25);
+      const dc = g.dummy.chest(_a);
+      if (inZone(dc) && g.dummy.mode !== 'held') g.dummy.hit(dc, 4, _v.set(0, -40, 0), 1);
+      g.sfx.boom(0.8); g.shake(0.25);
+      this.grav = null; this.gravCol.visible = false;
+    }
+  }
+
+  // ---------------------------------------------------------------- hologram decoy
+  spawnDecoy() {
+    const g = this.g;
+    if (this.decoy || this.cool.decoy > 0) return;
+    const p = g.aim.point.clone();
+    if (p.distanceTo(g.chest()) > 60) p.copy(g.chest()).addScaledVector(g.aimDir(g.chest()), 60);
+    p.y = 0;
+    if (!this.holo) { this.holo = g.makeHologram(); }
+    this.holo.root.visible = true; this.holo.root.position.copy(p);
+    this.decoy = { pos: p, t: 10, hp: 4, yaw: 0 };
+    this.cool.decoy = 14;
+    g.fx.wave(_v.copy(p).setY(1.2), 4, 0.4, new THREE.Color(0.4, 1.4, 2.4));
+    g.sfx.freeze(false);
+  }
+
+  decoyHit() {
+    const g = this.g, D = this.decoy;
+    if (!D) return;
+    D.hp--;
+    g.fx.wave(_v.copy(D.pos).setY(1.4), 2.5, 0.25, new THREE.Color(0.4, 1.4, 2.4));
+    g.sfx.glass();
+    if (D.hp <= 0) this._popDecoy(true);
+  }
+
+  _popDecoy(destroyed) {
+    const g = this.g, D = this.decoy;
+    const c = _v.copy(D.pos).setY(1.2).clone();
+    // it was a trap: the hologram detonates
+    g.blastAll(c, 12, 30, null, 0.8);
+    const dc = g.dummy.chest(_a); const dd = dc.distanceTo(c);
+    if (dd < 9) g.dummy.hit(dc, 3, _b.subVectors(dc, c).normalize().multiplyScalar(45 * (1 - dd / 10)).add(new THREE.Vector3(0, 10, 0)), 0.8);
+    g.fx.wave(c, 9, 0.45, new THREE.Color(0.6, 1.8, 3));
+    for (let i = 0; i < 50; i++) g.fx.sparks.emit(c, new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(30), new THREE.Color(0.8, 2.4, 4), 0.5, 0.6, 0.03);
+    g.sfx.boom(0.9); g.shake(0.3);
+    g.dummy.say(destroyed ? ["Hey! That's a hologram!", 'A FAKE?!', 'I KNEW it was too easy!'] : ['Where did it go?', 'Huh?'], true);
+    this.holo.root.visible = false;
+    this.decoy = null;
+  }
+
+  _updateDecoy(dt, frozen) {
+    const g = this.g, D = this.decoy;
+    if (!frozen) D.t -= dt;
+    // the hologram stands its ground, facing the dummy and taunting
+    const d = g.dummy.root;
+    const want = Math.atan2(d.x - D.pos.x, d.z - D.pos.z);
+    let dy = want - D.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); D.yaw += dy * Math.min(1, dt * 5);
+    this.holo.root.rotation.y = D.yaw;
+    this.holo.animate({ dt: frozen ? 0 : dt, flying: false, grounded: true, hSpeed: 0, fwdSpeed: 0, sideSpeed: 0, vSpeed: 0, boost: false, aimPitch: 0, aimYawRel: 0, turnRate: 0, charge: 0, punchT: 0, holding: false, throwWind: 0, throwT: 0, laser: false, accFwd: 0, accSide: 0 });
+    this.holo.holoMat.uniforms.uTime.value += dt;
+    this.holo.holoMat.uniforms.uK.value = D.t < 1.5 ? 0.4 + 0.6 * Math.abs(Math.sin(D.t * 12)) : 1;
+    if (D.t <= 0) this._popDecoy(false);
+  }
+
   // ---------------------------------------------------------------- thunderclap
   clap() {
     if (this.clapT > 0 || this.cool.clap > 0) return;
@@ -393,6 +525,8 @@ export class Powers {
     if (this.hole) this._updateHole(dt, frozen);
     if (this.zap) this._updateZap(dt, frozen);
     if (this.meteor) this._updateMeteor(dt, frozen);
+    if (this.grav) this._updateGrav(dt, frozen);
+    if (this.decoy) this._updateDecoy(dt, frozen);
     if (this.tk) this._updateTK(dt);
     if (this.clapT > 0) {
       this.clapT = Math.max(0, this.clapT - dt / 0.38);

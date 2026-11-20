@@ -40,6 +40,9 @@ High and steps down automatically if the frame rate drops).
 | `N` | thunderclap: a sonic boom that tunnels through whatever is in front of you |
 | hold `L` | chain lightning: arcs from your hands chain between the dummy, cars, props and walls |
 | `M` | meteor strike at your aim point |
+| `Y` | blink strike: teleport to your aim point and detonate on arrival |
+| `P` | gravity flip: everything near your aim point floats up, then slams down |
+| `U` | hologram decoy: the dummy fights it instead of you, and it explodes when destroyed |
 | `G` | dummy fights back on/off |
 | `Q` | cycle render quality |
 | `H` | hide the controls panel |

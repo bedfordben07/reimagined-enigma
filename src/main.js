@@ -263,6 +263,23 @@ const powers = new Powers({
   scene, camera, fx, sfx, debris, cars, props, birds, dummy, vox, smash, blastAll, get aim() { return aim; },
   hand: (side) => robot.handWorld(side, new THREE.Vector3()),
   knockPlayer: (dir, power) => knockPlayer(dir, power, 'blast'),
+  get player() { return player; },
+  teleport: (p) => { player.pos.copy(p); player.vel.multiplyScalar(0.15); player.stun = 0; },
+  // a see-through copy of the current character, drawn as a flickering cyan hologram
+  makeHologram: () => {
+    const h = new robot.constructor();
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uK: { value: 1 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: `varying vec3 vN; varying vec3 vV; varying float vY; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vY = w.y; vec4 mv = viewMatrix * w; vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `uniform float uTime; uniform float uK; varying vec3 vN; varying vec3 vV; varying float vY;
+        void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 2.0); float scan = 0.55 + 0.45 * sin(vY * 40.0 - uTime * 8.0);
+          float flick = 0.85 + 0.15 * sin(uTime * 37.0); gl_FragColor = vec4(vec3(0.25, 0.9, 1.6) * (0.25 + f * 1.4) * scan * flick * uK, 1.0); }`,
+    });
+    h.root.traverse((o) => { if (o.isMesh) { o.material = mat; o.castShadow = false; o.receiveShadow = false; } });
+    scene.add(h.root);
+    h.holoMat = mat;
+    return h;
+  },
   chest: () => chestPos(new THREE.Vector3()),
   forward: () => fwd3(new THREE.Vector3()),
   aimDir: (from) => aimDirFrom(from, new THREE.Vector3()),
@@ -279,6 +296,12 @@ const powers = new Powers({
   },
 });
 
+// what the dummy is fighting: the player, or the hologram decoy while one is up
+function targetPos() { return powers.decoy ? powers.decoy.pos : player.pos; }
+function targetChest(out) { return powers.decoy ? out.copy(powers.decoy.pos).setY(powers.decoy.pos.y + 1.6) : chestPos(out); }
+function targetVel() { return powers.decoy ? ZERO : player.vel; }
+const ZERO = new THREE.Vector3();
+
 // ---------------------------------------------------------------- flying cars
 function updateCarHits() {
   const pc = chestPos(tmp3), dc = dummy.chest(new THREE.Vector3());
@@ -286,7 +309,7 @@ function updateCarHits() {
     if (c.asleep || c.held) continue;
     const sp = c.v.length();
     if (sp < 9) continue;
-    if (c.thrownBy === 'dummy' && c.p.distanceTo(pc) < 2.7) {
+    if (c.thrownBy === 'dummy' && c.p.distanceTo(targetChest(tmp2)) < 2.7) {
       dummy.ctx.hitPlayer(c.v.clone(), 46, 'car'); c.v.multiplyScalar(0.35); c.thrownBy = null;
       dummy.say(['Parking ticket!', 'Special delivery!', 'Hope you have insurance!'], true);
     } else if (c.thrownBy !== 'dummy' && dummy.mode !== 'held' && c.p.distanceTo(dc) < 2.5) {
@@ -311,9 +334,9 @@ dummy.ctx.holdCar = (c) => cars.hold(c, 'dummy');
 dummy.ctx.carryCar = (c, pos, yaw) => cars.carry(c, pos, yaw);
 dummy.ctx.dropCar = (c) => cars.release(c, new THREE.Vector3(), null);
 dummy.ctx.throwCar = (c) => {
-  const aim = chestPos(new THREE.Vector3());
+  const aim = targetChest(new THREE.Vector3());
   const T = Math.max(0.35, Math.hypot(aim.x - c.p.x, aim.z - c.p.z) / 30);
-  aim.addScaledVector(player.vel, T * 0.7);
+  aim.addScaledVector(targetVel(), T * 0.7);
   cars.release(c, new THREE.Vector3((aim.x - c.p.x) / T, (aim.y - c.p.y) / T + 0.5 * 20 * T, (aim.z - c.p.z) / T), 'dummy');
   sfx.whoosh(); shake = Math.min(1, shake + 0.15);
 };
@@ -346,16 +369,17 @@ function knockPlayer(dir, power, kind = 'blast') {
   sfx.boom(0.4 + power / 45);
 }
 dummy.ctx.hitPlayer = (dir, power, kind) => {
+  if (powers.decoy) { powers.decoyHit(power); return; } // it was fighting the hologram
   knockPlayer(dir, power, kind);
   tagged++; $('tagHud').textContent = tagged;
 };
 // hurl a chunk of rubble on a ballistic arc, leading the player
 const rocks = [];
 dummy.ctx.throwRock = (from, spread = 0, size = 1) => {
-  const aim = chestPos(new THREE.Vector3());
+  const aim = targetChest(new THREE.Vector3());
   const dist = Math.hypot(aim.x - from.x, aim.z - from.z);
   const T = Math.max(0.3, dist / 30);
-  aim.addScaledVector(player.vel, T * 0.8);
+  aim.addScaledVector(targetVel(), T * 0.8);
   if (spread) { const side = new THREE.Vector3(aim.z - from.z, 0, -(aim.x - from.x)).normalize(); aim.addScaledVector(side, spread * 2.2); }
   const v = new THREE.Vector3((aim.x - from.x) / T, (aim.y - from.y) / T + 0.5 * 20 * T, (aim.z - from.z) / T);
   const it = debris.spawn(from, v, MAT.CONCRETE, new THREE.Color(0.75, 0.73, 0.7), 0.6 * size);
@@ -370,12 +394,12 @@ function rockBurst(p, size) {
   blastAll(p, 4, 10);
   dustColor.setRGB(0.6, 0.57, 0.53);
   for (let i = 0; i < 8; i++) fx.dust.emit(p, rndVec(tmp3, 6), dustColor, 1.2, 1.4, 2, 0.4);
-  const c = chestPos(new THREE.Vector3()), dd = c.distanceTo(p);
+  const c = targetChest(new THREE.Vector3()), dd = c.distanceTo(p);
   if (dd < 3.2) dummy.ctx.hitPlayer(c.clone().sub(p), 26 * size * (1 - dd / 4), 'rock');
   sfx.boom(0.3);
 }
 function updateRocks(dt) {
-  const c = chestPos(tmp3);
+  const c = targetChest(tmp3);
   for (let i = rocks.length - 1; i >= 0; i--) {
     const r = rocks[i];
     r.life -= dt;
@@ -399,8 +423,8 @@ dummy.ctx.slam = (p) => {
   blastAll(p, 12, 24, null, 0.9);
   dustColor.set(0xb9ad98);
   for (let i = 0; i < 36; i++) { const a = Math.random() * 6.28; fx.dust.emit(tmp.set(p.x, p.y + 0.4, p.z), tmp2.set(Math.cos(a) * 15, 0.6, Math.sin(a) * 15), dustColor, 1.6, 1.6 + Math.random(), 2.4, 0.45); }
-  const dd = Math.hypot(player.pos.x - p.x, player.pos.z - p.z);
-  if (dd < 9 && Math.abs(player.pos.y - p.y) < 4) dummy.ctx.hitPlayer(new THREE.Vector3(player.pos.x - p.x, 0, player.pos.z - p.z), 14 + 32 * (1 - dd / 9), 'slam');
+  const tp = targetPos(), dd = Math.hypot(tp.x - p.x, tp.z - p.z);
+  if (dd < 9 && Math.abs(tp.y - p.y) < 4) dummy.ctx.hitPlayer(new THREE.Vector3(tp.x - p.x, 0, tp.z - p.z), 14 + 32 * (1 - dd / 9), 'slam');
   shake = Math.min(1, shake + Math.max(0.15, 0.7 - p.distanceTo(camera.position) / 60));
   sfx.boom(1.1);
 };
@@ -501,6 +525,9 @@ addEventListener('keydown', (e) => {
     case 'KeyN': powers.clap(); break;
     case 'KeyM': powers.callMeteor(); break;
     case 'KeyL': powers.startZap(); break;
+    case 'KeyY': powers.blink(); break;
+    case 'KeyP': powers.gravityFlip(); break;
+    case 'KeyU': powers.spawnDecoy(); break;
     case 'KeyB': if (!player.holding) powers.grab(); break;
     case 'KeyH': $('help').hidden = !$('help').hidden; break;
     case 'KeyJ': mouse.l = true; onPrimaryDown(); break;
@@ -997,6 +1024,9 @@ function updateHud(rdt) {
     $('powLift').textContent = powers.tk ? 'holding' : 'hold';
     $('powMeteor').textContent = powers.meteor ? 'incoming' : st('meteor');
     $('powZap').textContent = powers.zap ? 'zapping' : 'hold';
+    $('powBlink').textContent = st('blink');
+    $('powGrav').textContent = powers.grav ? 'active' : st('grav');
+    $('powDecoy').textContent = powers.decoy ? 'up' : st('decoy');
   }
   hud.mode.textContent = tf.on ? 'TIME STOPPED' : player.flying ? (player.vel.length() > 45 ? 'SUPERSONIC' : 'FLIGHT') : 'GROUND';
   const c = player.charging ? Math.min(1, player.charge / 1.1) : 0;
@@ -1072,7 +1102,7 @@ function tick(rdt) {
   traffic.update(time);
   vox.flush();
   if (!frozen) dummy.think(dt, {
-    playerPos: player.pos, charging: player.charging, speed: player.vel.length(), playerAir: player.pos.y > 4,
+    playerPos: targetPos(), charging: !powers.decoy && player.charging, speed: powers.decoy ? 0 : player.vel.length(), playerAir: targetPos().y > 4,
     laserNear: player.laser && aim.point.distanceTo(dummy.chest(tmp)) < 5, laserOnMe: player.laser && aim.kind === 'dummy',
   });
   dummy.update(dt);
