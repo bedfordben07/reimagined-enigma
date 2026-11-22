@@ -419,10 +419,10 @@ function knockPlayer(dir, power, kind = 'blast') {
   const up = { tackle: 0.35, slam: 0.75, uppercut: 1.0, rock: 0.35, punch: 0.3 }[kind] ?? 0.3;
   player.vel.set(player.vel.x * 0.3, Math.max(0, player.vel.y * 0.3), player.vel.z * 0.3);
   player.vel.addScaledVector(d, power); player.vel.y += power * up;
-  player.stun = power >= 8 ? 0.25 + power / 90 : 0;
+  player.stun = power >= 18 ? 0.5 + power / 60 : power >= 8 ? 0.25 + power / 90 : 0;
   player.grounded = false; player.charging = false; player.punchT = 0;
   if (power >= 30) hitstop = Math.max(hitstop, 0.05 + power / 900);
-  robot.hitReact(power);
+  robot.hitReact(power, d);
   const c = chestPos(new THREE.Vector3());
   for (let i = 0; i < 24; i++) fx.sparks.emit(c, rndVec(new THREE.Vector3(), 14).addScaledVector(d, 6), new THREE.Color(5, 4, 2.5), 0.2 + Math.random() * 0.25, 0.6, 0.02);
   fx.wave(c, 1.6, 0.22);

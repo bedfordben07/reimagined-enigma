@@ -6,6 +6,7 @@ import { brushedMetalTex, pbr } from './textures.js';
 import { lathe, extrude, roundRect, smoothSym, smoothShape, cable, mesher, toX } from './geom.js';
 
 const lerpA = (a, b, k) => a + (b - a) * k;
+const _pivot = new THREE.Vector3();
 
 export class Robot {
   constructor() {
@@ -17,6 +18,10 @@ export class Robot {
     this.build();
     this._physique();
     this._addHandJets();
+    // a pivot between the root and the body, so a heavy hit can send the whole figure tumbling
+    this.tumbleG = new THREE.Group();
+    this.root.remove(this.body); this.tumbleG.add(this.body); this.root.add(this.tumbleG);
+    this.tumbleAxis = new THREE.Vector3(1, 0, 0); this.tumbleAng = 0; this.tumbleVel = 0; this.knock = null;
     this.phase = 0;
     this.punchFist = 0;
     this.hover = 0;
@@ -237,13 +242,93 @@ export class Robot {
 
   // Kick a joint's spring (e.g. absorb a landing): positive dy pushes the body down.
   // Recoil when the dummy lands a hit: the body snaps back and twists, the springs bring it round.
-  hitReact(power) {
+  // dir: the world direction the hit pushes you. Light hits make the body buckle away from the blow and
+  // the limbs fling; heavy ones send the whole figure tumbling end over end until it rights itself.
+  hitReact(power, dir = null) {
+    const yaw = this.root.rotation.y;
+    let nx = 0, nz = -1;
+    if (dir) {
+      const lx = dir.x * Math.cos(yaw) - dir.z * Math.sin(yaw), lz = dir.x * Math.sin(yaw) + dir.z * Math.cos(yaw), h = Math.hypot(lx, lz);
+      if (h > 1e-3) { nx = lx / h; nz = lz / h; }
+    }
+    const k = Math.max(0.2, Math.min(2, power / 30));
+    const heavy = power >= 18;
+    this.knock = { t: 0, k, nx, nz, heavy, dur: heavy ? 0.9 + k * 0.35 : 0.4 + k * 0.35, seed: Math.random() * 10, phase: 'air', downT: 0, side: Math.random() < 0.5 ? -1 : 1 };
+    if (heavy) {
+      // spin about the axis across the push: the top goes the way you're shoved
+      const ax = new THREE.Vector3(nz, 0, -nx);
+      if (this.tumbleVel > 1 && ax.dot(this.tumbleAxis) < 0) this.tumbleVel *= 0.3;
+      this.tumbleAxis.copy(ax);
+      this.tumbleVel = Math.min(18, Math.max(this.tumbleVel, 0) + 4 + 6 * k);
+    }
     if (!this.springs) return;
-    const k = Math.min(1.5, power / 15);
     const kick = (id, dv) => { const st = this.springs.get(id); if (st) st.v += dv; };
-    kick(this.body.uuid + 'r' + 'x', -6 * k); kick(this.spine.uuid + 'x', -5 * k);
-    kick(this.chest.uuid + 'y', (Math.random() - 0.5) * 10 * k); kick(this.head.uuid + 'x', -9 * k);
-    for (const side of [-1, 1]) kick(this.arms[side].sh.uuid + 'z', side * 8 * k);
+    const kk = Math.min(1.6, power / 15);
+    kick(this.body.uuid + 'r' + 'x', 9 * kk * nz); kick(this.body.uuid + 'r' + 'z', -9 * kk * nx);
+    kick(this.spine.uuid + 'x', 7 * kk * nz); kick(this.chest.uuid + 'y', (Math.random() - 0.5) * 16 * kk);
+    kick(this.head.uuid + 'x', 14 * kk * nz - 4 * kk); kick(this.head.uuid + 'z', -10 * kk * nx);
+    kick(this.body.uuid + 'p' + 'y', -2 * kk);
+    for (const side of [-1, 1]) { kick(this.arms[side].sh.uuid + 'z', side * 14 * kk); kick(this.arms[side].sh.uuid + 'x', -10 * kk * (0.5 + Math.random())); kick(this.arms[side].el.uuid + 'x', -12 * kk * Math.random()); }
+    for (const side of [-1, 1]) kick(this.legs[side].kn.uuid + 'x', 10 * kk * Math.random());
+  }
+
+  // Pose layer for being hit (called from animate before the springs run).
+  _knockPose(P, s, dt, sstep) {
+    const K = this.knock;
+    if (K) {
+      K.t += dt;
+      if (K.heavy && K.phase === 'air' && s.grounded && K.t > 0.12) { K.phase = 'down'; K.downT = 0; this.tumbleVel *= 0.3; }
+      if (K.phase === 'down') K.downT += dt;
+      const end = K.phase === 'down' ? K.downT > 0.75 : K.t > K.dur && (!K.heavy || s.flying || K.t > K.dur + 1.5);
+      if (end) this.knock = null;
+    }
+    if (this.knock) {
+      const fade = K.phase === 'down' ? 1 - sstep((K.downT - 0.35) / 0.4) : 1 - sstep((K.t - K.dur * 0.55) / (K.dur * 0.45));
+      const a = fade * Math.min(1.3, K.k + 0.3);
+      const bF = K.nz, bS = K.nx;
+      const fl = Math.sin(K.t * 13 + K.seed), fl2 = Math.sin(K.t * 10.3 + K.seed * 2), fl3 = Math.sin(K.t * 8.1 + K.seed * 3);
+      const mixP = (A, B, w) => { for (const k of Object.keys(B)) A[k] = A[k] + (B[k] - A[k]) * w; };
+      const w = Math.min(1, a);
+      if (K.phase === 'down') {
+        // skid to a stop on a knee and a hand, then push back up
+        const u = K.downT;
+        const kneel = { sx: -0.9, sy: 0, sz: -0.35, el: -0.3, curl: 0.2 };
+        mixP(P.L, kneel, w); mixP(P.R, { sx: -0.2, sy: 0.2, sz: 0.6, el: -0.5, curl: 0.6 }, w);
+        P.bodyY += (-0.55 * w); P.bodyX += 0.45 * w; P.spineX += 0.3 * w; P.headX -= 0.3 * w;
+        P.lHip += 1.2 * w; P.lKn += 1.5 * w; P.rHip += 0.2 * w; P.rKn += 1.9 * w; P.lAn -= 0.3 * w; P.rAn += 0.4 * w;
+        P.chestY += K.side * 0.25 * w * Math.max(0, 1 - u * 2);
+      } else {
+        // buckle away from the blow: hips lead, chest and head whip after, arms and legs fly loose
+        P.bodyX += bF * 0.7 * a; P.bodyZ += -bS * 0.6 * a; P.spineX += bF * 0.45 * a; P.chestX += bF * 0.25 * a;
+        P.chestY += (K.side * 0.6 + fl3 * 0.25) * a; P.bodyYaw += K.side * 0.3 * a;
+        P.headX += bF * 0.7 * a + fl2 * 0.15 * a; P.headZ += -bS * 0.6 * a + fl * 0.12 * a;
+        mixP(P.L, { sx: -0.5 + bF * 1.3 + fl * 0.55, sy: -0.4, sz: -1.35 - fl2 * 0.35, el: -0.5 + fl3 * 0.45, curl: 0.15 }, w);
+        mixP(P.R, { sx: -0.5 + bF * 1.3 - fl2 * 0.55, sy: 0.4, sz: 1.35 + fl3 * 0.35, el: -0.6 - fl * 0.45, curl: 0.15 }, w);
+        if (s.grounded && !s.flying) {
+          // stagger: knees give, hips drop, a foot slides back
+          P.bodyY -= 0.22 * a; P.lKn += 0.6 * a; P.rKn += 0.45 * a; P.lHip += (0.35 - bF * 0.4) * a; P.rHip += (-0.15 - bF * 0.3) * a;
+        } else {
+          P.lHip += (0.6 + fl * 0.5) * w; P.rHip += (0.15 - fl2 * 0.6) * w; P.lKn += (1.0 + fl3 * 0.4) * w; P.rKn += (0.55 + fl * 0.5) * w;
+          P.lHipZ += 0.3 * w; P.rHipZ -= 0.3 * w; P.lAn += 0.4 * w; P.rAn += 0.3 * w;
+        }
+      }
+    }
+    // tumble: spin while airborne, then right yourself (a quick flip back upright with the thrusters,
+    // or a hard stop on the ground)
+    const K2 = this.knock;
+    const spinning = K2 && K2.heavy && K2.phase === 'air' && K2.t < K2.dur * 0.7 && !s.grounded;
+    if (spinning) { this.tumbleAng += this.tumbleVel * dt; this.tumbleVel *= Math.exp(-0.5 * dt); }
+    else if (this.tumbleAng !== 0 || this.tumbleVel !== 0) {
+      const target = Math.round(this.tumbleAng / (Math.PI * 2)) * Math.PI * 2;
+      const wv = s.grounded ? 16 : 9, z = 0.7;
+      const n = Math.max(1, Math.ceil(dt * wv / 0.25)), h = dt / n;
+      for (let i = 0; i < n; i++) { this.tumbleVel += (wv * wv * (target - this.tumbleAng) - 2 * z * wv * this.tumbleVel) * h; this.tumbleAng += this.tumbleVel * h; }
+      if (Math.abs(this.tumbleAng - target) < 1e-3 && Math.abs(this.tumbleVel) < 1e-2) { this.tumbleAng = 0; this.tumbleVel = 0; }
+    }
+    const q = this.tumbleG.quaternion.setFromAxisAngle(this.tumbleAxis, this.tumbleAng);
+    const pivot = _pivot.set(0, 1.05, 0);
+    this.tumbleG.position.copy(pivot).sub(pivot.clone().applyQuaternion(q));
+    return !!this.knock;
   }
 
   land(speed) {
@@ -442,6 +527,10 @@ export class Robot {
       if (!s.flying && s.grounded) { P.lHip = 0.6 * k; P.lKn = 0.4 * k; P.rHip = -0.55 * k; P.rKn = 0.15; P.bodyY = 1.15 - 0.15 * k; P.rAn = 0.4 * k; }
       snap = u < 0.25;
     }
+
+    // being hit overrides the rest
+    const knocked = this._knockPose(P, s, dt, sstep);
+    if (knocked) { rate = 14; armRate = 15; }
 
     // Momentum from movement: lean into acceleration, bank into turns.
     const accF = clamp((s.accFwd || 0) / 50, -1, 1), accS = clamp((s.accSide || 0) / 50, -1, 1);
