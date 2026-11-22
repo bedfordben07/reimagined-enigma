@@ -329,20 +329,12 @@ export class Dummy {
       return true;
     }
     // damage
-    if (spd0 > 2) {
-      const dmg = (spd0 - this.v.armor * 0.5) * 0.55;
-      this.hp -= dmg;
-      this.onDamage?.(dmg);
-      // armour comes away as it takes damage
-      const frac = Math.max(0, this.hp / this.v.hp);
-      while (this.shedN < 4 && frac < 1 - (this.shedN + 1) * 0.2) this._shed();
-      if (this.hp <= 0 && !this.ko) { this.hp = 0; this.ko = true; this.mode = 'ragdoll'; this.atk = null; this.say(['I... need a... nap...', 'Tell my creator... I tried...', 'Ow. Okay. You win.'], true); this.onKO?.(); }
-    }
+    if (spd0 > 2) this.takeDamage((spd0 - this.v.armor * 0.5) * 0.55);
     // poise: while on its feet it shrugs off lighter hits with a stagger, until the poise breaks
     const spd = vel.length();
     if (this.frozen) this.frozenHits = (this.frozenHits || 0) + 1; // stored: it all lands when time resumes
     if (this.mode === 'stand' && !this.frozen && !this.ko && this.atk?.phase !== 'air' && spd < 32 && this.poise > spd * 0.6) {
-      this.poise -= spd * 0.6 + 3;
+      this.poise -= (spd * 0.6 + 3) * (this.ctx.poiseMul?.() ?? 1);
       this.stagger = Math.max(this.stagger || 0, 0.25 + spd * 0.01);
       this.root.x += vel.x * 0.02; this.root.z += vel.z * 0.02;
       if (spd > 6) { this.say(LINES.shrug); this.anger += 0.5; }
@@ -589,6 +581,18 @@ export class Dummy {
   }
 
   setVariant(v) { for (const m of this.shedable || []) m.visible = true; this.shedN = 0; this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
+
+  // Lose health (scaled by the player's damage upgrades); knocks it out at zero.
+  takeDamage(dmg) {
+    if (this.ko) return;
+    dmg *= this.ctx.dmgMul?.() ?? 1;
+    this.hp -= dmg; this.lastHurt = this.time;
+    this.onDamage?.(dmg);
+    // armour comes away as it takes damage
+    const frac = Math.max(0, this.hp / this.v.hp);
+    while (this.shedN < 4 && frac < 1 - (this.shedN + 1) * 0.2) this._shed();
+    if (this.hp <= 0 && !this.ko) { this.hp = 0; this.ko = true; this.mode = 'ragdoll'; this.atk = null; this.say(['I... need a... nap...', 'Tell my creator... I tried...', 'Ow. Okay. You win.'], true); this.onKO?.(); }
+  }
 
   // knock a couple of armour pieces off (they fly away as rubble)
   _shed() {

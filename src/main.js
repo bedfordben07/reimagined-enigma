@@ -16,6 +16,10 @@ import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js';
 import { buildWorld, groundH, WORLD_HALF } from './world.js';
 import { Life } from './life.js';
 import { Colossus } from './boss.js';
+import { newStats, rollUpgrades } from './upgrades.js';
+const up = newStats();
+const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
+let drones = [];
 let life = null, boss = null;
 import { addOutline } from './outline.js';
 import { Effects } from './effects.js';
@@ -341,11 +345,11 @@ boss = new Colossus({
   scene, fx, sfx, vox, smash, blastAll, get fire() { return fire; }, get player() { return player; },
   chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
   shake: (k) => { shake = Math.min(1, shake + k); }, hitstop: (t) => { hitstop = Math.max(hitstop, t); },
-  onDamage: (d) => dummy.onDamage?.(d), dummySay: (t) => {},
+  onDamage: (d) => dummy.onDamage?.(d), dummySay: (t) => {}, dmgMul: () => dummy.ctx.dmgMul(),
   onDefeat: () => {
     const bonus = 10000 * (boss.level + 1); game.score += bonus;
     banner('COLOSSUS DOWN!', `+${bonus.toLocaleString()} · the dummy is back`, 4);
-    sfx.boom(2); game.nextWaveT = 9;
+    sfx.boom(2); game.nextWaveT = -1; game.pickT = 5;
   },
 });
 heroP = new HeroPowers({
@@ -364,12 +368,13 @@ const POW_STATE = {
   TORNADO: () => (powers.twisters.length ? powers.twisters.length + ' active' : 'ready'),
   OVERDRIVE: () => (heroP.overdrive > 0 ? 'ON' : 'off'), STORM: () => (heroP.storms.length ? 'striking' : 'ready'),
   BOULDER: () => (heroP.boulders.length ? 'thrown' : 'ready'), 'GROUND POUND': () => (heroP.pound ? heroP.pound.phase : 'ready'),
-  RAGE: () => (heroP.rage > 0 ? 'RAGING' : 'off'), 'STOP TIME': () => (tf.on ? 'stopped' : 'ready'),
+  RAGE: () => (heroP.rage > 0 ? 'RAGING' : 'off'),
+  NOVA: () => (ult.k >= 1 ? 'READY' : Math.round(ult.k * 100) + '%'), SHIELD: () => (shield.on ? 'UP' : Math.round(shield.e * 100) + '%'), DRONES: () => (drones.length ? Math.ceil(drones[0].t) + 's' : 'ready'), 'STOP TIME': () => (tf.on ? 'stopped' : 'ready'),
 };
 let powCells = [];
 function buildPowerHud() {
   const el = $('powers'); el.textContent = '';
-  powCells = robot.kit.hud.map(([k, name]) => {
+  powCells = [...robot.kit.hud, ['4', 'NOVA'], ['5', 'SHIELD'], ['6', 'DRONES']].map(([k, name]) => {
     const s = document.createElement('span'); s.textContent = `${k} ${name} `;
     const b = document.createElement('b'); b.textContent = 'ready'; s.appendChild(b); el.appendChild(s);
     return [b, POW_STATE[name] || (() => 'ready')];
@@ -434,6 +439,7 @@ setFights(dummy.fights);
 // knock the player back with a jolt
 // knock the player around (any source); dummy hits also count on the scoreboard
 function knockPlayer(dir, power, kind = 'blast') {
+  if (shield.on && shield.e > 0) { shield.flash = 1; shield.e = Math.max(0, shield.e - power * 0.002); player.vel.addScaledVector(dir.clone().normalize(), power * 0.1); return; }
   const d = dir.clone().setY(0).normalize();
   // real knockback: big launch plus a short loss of control so it carries (hard hits smash you through walls)
   const up = { tackle: 0.35, slam: 0.75, uppercut: 1.0, rock: 0.35, punch: 0.3 }[kind] ?? 0.3;
@@ -456,6 +462,12 @@ dummy.ctx.hitPlayer = (dir, power, kind) => {
   knockPlayer(dir, power * Math.sqrt(m), kind);
   tagged++; $('tagHud').textContent = tagged;
   hurtPlayer(power * 0.75 * m);
+  // reactive armour / a raised shield sends it flying back
+  if ((up.thorns || shield.on) && power > 4) {
+    const dc = dummy.chest(new THREE.Vector3()), away = dc.clone().sub(player.pos).setY(0).normalize();
+    dummy.hit(dc, 3, away.multiplyScalar(30 + 15 * up.thorns + (shield.on ? 15 : 0)).add(new THREE.Vector3(0, 9, 0)), 1);
+    fx.wave(chestPos(new THREE.Vector3()), 3, 0.25, new THREE.Color(0.6, 2.4, 3.5));
+  }
 };
 dummy.ctx.clang = (p) => { sfx.clang?.(); for (let i = 0; i < 10; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 16), new THREE.Color(5, 4.5, 3), 0.2, 0.8, 0.02); };
 
@@ -472,7 +484,7 @@ function variantFor(i) {
 }
 const INTROS = { Rookie: 'Fresh out of the box!', Brawler: "I've been working out.", Speedster: 'Catch me if you can!', Juggernaut: 'Go on. Hit me.', Champion: 'Finally. A worthy opponent.' };
 function startWave(i, near = true) {
-  game.wave = i;
+  game.wave = i; game.windUsed = 0;
   if (i % 6 === 5) {
     // boss wave: the dummy steps aside and Colossus drops in
     boss.spawn(player.pos, Math.floor(i / 6));
@@ -494,18 +506,27 @@ dummy.onKO = () => {
   const bonus = 1000 * (game.wave + 1);
   game.score += bonus;
   banner('KNOCKOUT!', `+${bonus.toLocaleString()} · next: ${variantFor(game.wave + 1).name}`);
-  game.nextWaveT = 4.5;
+  game.nextWaveT = -1; game.pickT = 1.6;
   sfx.boom(1.2);
 };
 dummy.onDamage = (d) => {
+  if (up.lifesteal) game.php = Math.min(game.pmax, game.php + d * up.lifesteal);
+  if (!ult.lock) ult.k = Math.min(1, ult.k + d * 0.0028 * up.ult);
   game.combo = game.comboT > 0 ? game.combo + 1 : 1; game.comboT = 2.5;
   game.score += Math.round(d * 3 * (1 + Math.min(40, game.combo) * 0.1));
 };
 function hurtPlayer(d) {
   if (game.invuln > 0) return;
-  d *= kit().armor * heroP.armorMul;
-  game.php -= d; game.regenT = 3.5;
+  d *= kit().armor * heroP.armorMul * up.armor;
+  if (shield.on && shield.e > 0) { shield.e = Math.max(0, shield.e - d * 0.004); shield.flash = 1; sfx.clang(); return; }
+  ult.k = Math.min(1, ult.k + d * 0.003 * up.ult);
+  game.php -= d; game.regenT = up.regenDelay;
   $('hpBox').classList.add('hit'); setTimeout(() => $('hpBox').classList.remove('hit'), 140);
+  if (game.php <= 0 && up.secondWind > (game.windUsed || 0)) {
+    game.windUsed = (game.windUsed || 0) + 1; game.php = game.pmax * 0.5; game.invuln = 3;
+    banner('SECOND WIND', 'back in the fight', 1.6); nova(chestPos(new THREE.Vector3()), 0.7);
+    return;
+  }
   if (game.php <= 0) {
     game.php = game.pmax; game.invuln = 2.5; game.score = Math.max(0, game.score - 500);
     banner('KNOCKED OUT', 'back on your feet · −500');
@@ -515,7 +536,9 @@ function hurtPlayer(d) {
 function updateGame(dt) {
   game.comboT = Math.max(0, game.comboT - dt); if (game.comboT === 0) game.combo = 0;
   game.invuln = Math.max(0, game.invuln - dt);
-  game.regenT -= dt; if (game.regenT <= 0) game.php = Math.min(game.pmax, game.php + 14 * dt);
+  game.pmax = 200 + up.hpAdd;
+  game.regenT -= dt; if (game.regenT <= 0) game.php = Math.min(game.pmax, game.php + 14 * up.regen * dt);
+  if (game.pickT > 0) { game.pickT -= dt; if (game.pickT <= 0) openPicker(); }
   if (game.nextWaveT > 0) { game.nextWaveT -= dt; if (game.nextWaveT <= 0) { game.nextWaveT = -1; startWave(game.wave + 1); } }
   if (game.bannerT > 0) { game.bannerT -= dt; $('banner').style.opacity = Math.min(1, game.bannerT * 2); if (game.bannerT <= 0) $('banner').hidden = true; }
   if (game.score > game.best) { game.best = game.score; if (Math.random() < dt) { try { localStorage.setItem('rubble-best', String(Math.round(game.best))); } catch (e) { /* ignore */ } } }
@@ -525,6 +548,8 @@ function updateGame(dt) {
   $('scoreVal').textContent = Math.round(game.score).toLocaleString();
   $('comboVal').textContent = game.combo > 1 ? `×${(1 + Math.min(40, game.combo) * 0.1).toFixed(1)} · ${game.combo} hit combo` : `best ${Math.round(game.best).toLocaleString()}`;
   $('hpFill').style.transform = `scaleX(${Math.max(0, game.php / game.pmax)})`;
+  $('ultFill').style.transform = `scaleX(${ult.k})`; $('ultBox').classList.toggle('ready', ult.k >= 1);
+  $('shFill').style.transform = `scaleX(${shield.e})`; $('shBox').classList.toggle('on', shield.on);
 }
 
 // hurl a chunk of rubble on a ballistic arc, leading the player
@@ -541,6 +566,9 @@ dummy.ctx.throwRock = (from, spread = 0, size = 1) => {
   sfx.whoosh();
 };
 dummy.ctx.whoosh = () => sfx.whoosh();
+const adrenalineOn = () => up.adrenaline > 0 && game.php < game.pmax * 0.35;
+dummy.ctx.dmgMul = () => up.dmg * (adrenalineOn() ? 1 + 0.6 * up.adrenaline : 1);
+dummy.ctx.poiseMul = () => up.poise;
 // metal-on-metal sparks where it's hit, and armour plates that break off and clatter away
 dummy.ctx.sparks = (p, k) => { for (let i = 0; i < 4 + k * 22; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 6 + k * 18), new THREE.Color(5, 3.6, 1.8), 0.15 + Math.random() * 0.3, 0.9, 0.02); if (k > 0.5) sfx.clang(); };
 dummy.ctx.shed = (p) => { debris.spawn(p, rndVec(new THREE.Vector3(), 7).add(new THREE.Vector3(0, 6, 0)), MAT.TRIM_DARK, new THREE.Color(0.55, 0.58, 0.62), 0.35); sfx.clang(); };
@@ -680,6 +708,10 @@ addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   keys.add(e.code);
+  if (picker.open) { const k = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code]; if (k != null) pickUpgrade(k); return; }
+  if (e.code === 'Digit4') { if (ult.k >= 1) { ult.k = 0; nova(chestPos(new THREE.Vector3()), 1); } else banner('NOVA', `charging · ${Math.round(ult.k * 100)}%`, 0.8); return; }
+  if (e.code === 'Digit5') { if (shield.on) shield.on = false; else if (shield.e > 0.1) { shield.on = true; sfx.freeze(true); setTimeout(() => sfx.freeze(false), 60); } return; }
+  if (e.code === 'Digit6') { spawnDrones(); return; }
   const gated = ['KeyZ', 'KeyN', 'KeyM', 'KeyL', 'KeyY', 'KeyP', 'KeyU', 'KeyB', 'KeyX'];
   if (kit().allowed && gated.includes(e.code) && !kit().allowed.has(e.code)) { banner(robot.name.toUpperCase(), 'that power is not in this hero\'s kit · V to switch', 1.2); return; }
   if (kit().id === 'volt' && /^Digit[123]$/.test(e.code)) { ({ Digit1: () => heroP.toggleOverdrive(), Digit2: () => heroP.storm(), Digit3: () => heroP.boltDash() })[e.code](); return; }
@@ -797,7 +829,7 @@ function punchImpact(point, dir, power) {
 }
 
 function updatePunch(dt) {
-  if (player.charging) player.charge += dt * kit().charge;
+  if (player.charging) player.charge += dt * kit().charge * up.charge;
   if (player.punchT <= 0) return;
   player.punchT -= dt;
   if (player.punchHit || player.punchT < 0.04) return;
@@ -912,14 +944,14 @@ function updatePlayer(dt) {
     player.burn = boost && iz > 0 ? (player.burn || 0) + dt : Math.max(0, (player.burn || 0) - dt * 3);
     const top = (kit().mach || 4) * MACH;
     const boostSp = kit().boost + (top - kit().boost) * Math.pow(Math.min(1, player.burn / 9), 1.6);
-    const speed = (boost ? boostSp : kit().fly) * charging * (heroP.overdrive > 0 ? 1.4 : 1);
+    const speed = (boost ? boostSp : kit().fly * up.speed * (adrenalineOn() ? 1.2 : 1)) * charging * (heroP.overdrive > 0 ? 1.4 : 1);
     if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed);
     const rate = boost ? (player.burn > 1.5 ? 1.2 : 1.8) : (v.length() > 200 ? 0.9 : 4);
     if (player.stun > 0) v.multiplyScalar(Math.exp(-0.7 * dt)); // knocked back: no control until it wears off
     else v.lerp(wish, 1 - Math.exp(-rate * dt));
   } else {
     const wish = new THREE.Vector3().addScaledVector(fh, iz).addScaledVector(rt, ix);
-    if (wish.lengthSq() > 0) wish.normalize().multiplyScalar((boost ? kit().sprint : kit().walk) * charging * (heroP.overdrive > 0 ? 1.5 : 1));
+    if (wish.lengthSq() > 0) wish.normalize().multiplyScalar((boost ? kit().sprint : kit().walk) * up.speed * (adrenalineOn() ? 1.2 : 1) * charging * (heroP.overdrive > 0 ? 1.5 : 1));
     const k = player.stun > 0 ? (player.grounded ? 1 - Math.exp(-2 * dt) : 0) : 1 - Math.exp(-(player.grounded && player.punchT <= 0 ? 12 : 2.5) * dt);
     v.x += (wish.x - v.x) * k; v.z += (wish.z - v.z) * k;
     v.y -= 32 * dt;
@@ -1053,6 +1085,102 @@ function towerImpact(t, v) {
   sfx.boom(2); sfx.crumble(500); sfx.glass();
   shake = Math.min(1, shake + 0.7); hitstop = Math.max(hitstop, 0.08);
   game.score += 2500; banner('TOWER DOWN', '+2500', 1.4);
+}
+
+// ---------------------------------------------------------------- upgrades + new powers
+const picker = { open: false, opts: [] };
+function openPicker() {
+  picker.opts = rollUpgrades(3); picker.open = true;
+  const el = $('upgCards'); el.textContent = '';
+  picker.opts.forEach((u, i) => {
+    const b = document.createElement('button'); b.type = 'button';
+    const k = document.createElement('span'); k.className = 'k'; k.textContent = `${i + 1} · ${u.icon}`;
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = u.name;
+    const d = document.createElement('span'); d.className = 'd'; d.textContent = u.desc;
+    b.append(k, n, d); b.addEventListener('click', (e) => { e.stopPropagation(); pickUpgrade(i); }); el.appendChild(b);
+  });
+  $('upg').hidden = false;
+}
+function pickUpgrade(i) {
+  const u = picker.opts[i]; if (!u) return;
+  u.apply(up); up.picked.push(u.id);
+  picker.open = false; $('upg').hidden = true;
+  game.pmax = 200 + up.hpAdd; if (u.id === 'plating') game.php = game.pmax;
+  banner(u.name.toUpperCase(), `upgrade ${up.picked.length} installed`, 1.4);
+  sfx.freeze(false);
+  game.nextWaveT = 2.5;
+}
+
+// NOVA: the ultimate. Everything within ~40 m is blasted, the dummy loses a big chunk of health and is
+// thrown down, and the boss takes a huge hit.
+function nova(p, k = 1) {
+  ult.lock = true; setTimeout(() => { ult.lock = false; }, 600);
+  fx.wave(p, 40 * k, 0.8, new THREE.Color(3.5, 2.6, 1.2)); fx.wave(p, 18 * k, 0.45, new THREE.Color(5, 4.5, 3.5)); fx.ring(p.clone().setY(Math.max(0.1, groundH(p.x, p.z))), 50 * k);
+  fx.punchLight.position.copy(p); fx.punchLight.intensity = 400;
+  for (let i = 0; i < 120; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 2).normalize().multiplyScalar(30 + Math.random() * 40), new THREE.Color(5, 3.8, 1.8), 0.5 + Math.random() * 0.6, 0.4, 0.04);
+  smash(p.clone(), 5 * k, { outward: 18, up: 8, max: 3000 });
+  blastAll(p, 40 * k, 60 * k, null, 1);
+  const dc = dummy.chest(new THREE.Vector3()), dd = dc.distanceTo(p);
+  if (dd < 45 * k && dummy.group.visible) { dummy.takeDamage((dummy.v.hp * 0.28 + 120) * k); dummy.hit(dc, 3, dc.clone().sub(p).setY(0).normalize().multiplyScalar(55).add(new THREE.Vector3(0, 28, 0)), 1); }
+  if (boss.active && !boss.dead && boss._distTo(p) < 60 * k) boss.damage(900 * k, p);
+  game.invuln = Math.max(game.invuln, 1.2);
+  shake = 1; hitstop = Math.max(hitstop, 0.12); sfx.boom(2); sfx.duck?.(0.8); birds.scare(p, 200);
+}
+
+// SHIELD: a hard-light bubble that soaks hits and knockback and throws attackers back; drains while up.
+const bubble3 = new THREE.Mesh(new THREE.SphereGeometry(1.6, 40, 24), new THREE.ShaderMaterial({
+  uniforms: { uK: { value: 0 }, uFlash: { value: 0 }, uTime: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: 'varying vec3 vN; varying vec3 vV; varying vec3 vP; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vP = position; vec4 mv = viewMatrix * w; vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+  fragmentShader: 'uniform float uK; uniform float uFlash; uniform float uTime; varying vec3 vN; varying vec3 vV; varying vec3 vP; void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 2.5); float hex = 0.5 + 0.5 * sin(vP.y * 18.0 + uTime * 3.0) * sin(atan(vP.z, vP.x) * 12.0); gl_FragColor = vec4(vec3(0.35, 1.6, 2.4) * (f * 1.4 + hex * 0.08 + uFlash * 0.6) * uK, 1.0); }',
+}));
+bubble3.userData.noOutline = true; bubble3.visible = false; scene.add(bubble3);
+function updateShield(dt) {
+  if (shield.on) { shield.e -= dt * 0.2 / up.shieldMax; if (shield.e <= 0) { shield.e = 0; shield.on = false; sfx.glass(); } }
+  else shield.e = Math.min(1, shield.e + dt * 0.08);
+  shield.flash = Math.max(0, shield.flash - dt * 4);
+  const u = bubble3.material.uniforms; u.uK.value += ((shield.on ? 1 : 0) - u.uK.value) * Math.min(1, dt * 10); u.uFlash.value = shield.flash; u.uTime.value = time;
+  bubble3.visible = u.uK.value > 0.02;
+  if (bubble3.visible) { bubble3.position.copy(chestPos(tmp3)); bubble3.scale.setScalar(robot.root.scale.x * (1 + shield.flash * 0.08)); }
+}
+
+// DRONES: two (or more) attack drones orbit you and shoot the dummy or the boss for 30 seconds.
+const droneGeo = new THREE.OctahedronGeometry(0.16, 0), droneMat = new THREE.MeshStandardMaterial({ color: 0x223040, emissive: 0x40d8ff, emissiveIntensity: 2.5, metalness: 0.6, roughness: 0.3 });
+const droneRing = new THREE.TorusGeometry(0.24, 0.025, 6, 20);
+function spawnDrones() {
+  for (const d of drones) scene.remove(d.m);
+  drones = [];
+  const n = 2 + up.drones;
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Group(); m.add(new THREE.Mesh(droneGeo, droneMat)); const r = new THREE.Mesh(droneRing, droneMat); r.rotation.x = Math.PI / 2; m.add(r);
+    m.userData.noOutline = true; scene.add(m);
+    drones.push({ m, a: (i / n) * Math.PI * 2, t: 30, fire: Math.random() * 0.4, p: chestPos(new THREE.Vector3()) });
+  }
+  sfx.zap(0.8); banner('DRONES', `${n} deployed · 30s`, 1);
+}
+function updateDrones(dt) {
+  const c = chestPos(tmp3);
+  for (const D of drones) {
+    D.t -= dt; D.a += dt * 2.2;
+    const want = tmp2.set(c.x + Math.cos(D.a) * 1.8, c.y + 0.8 + Math.sin(D.a * 1.7) * 0.3, c.z + Math.sin(D.a) * 1.8);
+    D.p.lerp(want, Math.min(1, dt * 8)); D.m.position.copy(D.p); D.m.rotation.y += dt * 6;
+    D.fire -= dt;
+    if (D.fire <= 0) {
+      D.fire = 0.38;
+      let tgt = null, onBoss = false;
+      if (boss.active && !boss.dead) { const b = boss.pos.clone(); b.y += 1.2 * 8; if (b.distanceTo(D.p) < 110) { tgt = b; onBoss = true; } }
+      if (!tgt && dummy.group.visible && !dummy.ko) { const dc = dummy.chest(new THREE.Vector3()); if (dc.distanceTo(D.p) < 70) tgt = dc; }
+      if (tgt) {
+        const dir = tgt.clone().sub(D.p), L = dir.length(); dir.divideScalar(L);
+        for (let i = 0; i < 6; i++) fx.sparks.emit(D.p.clone().addScaledVector(dir, (i / 6) * L), dir.clone().multiplyScalar(0.01), new THREE.Color(1.5, 5, 7), 0.08, 0, 0.02);
+        const k = 1 + 0.35 * up.drones;
+        if (onBoss) boss.damage(9 * k, tgt);
+        else { dummy.takeDamage(5 * k); if (Math.random() < 0.3) dummy.hit(tgt, 1.5, dir.clone().multiplyScalar(10).add(UP), 0.5); dummy.ctx.sparks?.(tgt, 0.2); }
+        sfx.zap(0.25);
+      }
+    }
+  }
+  for (const D of drones) if (D.t <= 0) scene.remove(D.m);
+  drones = drones.filter((D) => D.t > 0);
 }
 
 function superLanding(vy) {
@@ -1485,7 +1613,9 @@ function tick(rdt) {
     life.update(wdt, { playerPos: player.pos, playerVel: player.vel, night: 1 - (atmo.dayK ?? 1) });
     life.bump(tmp.copy(player.pos).add(UP), player.vel);
     boss.update(wdt);
+    updateDrones(wdt);
   }
+  updateShield(dt);
   vox.flush();
   if (!frozen) dummy.think(wdt, {
     playerPos: targetPos(), charging: !powers.decoy && player.charging, speed: powers.decoy ? 0 : player.vel.length(), playerAir: targetPos().y > 4,
@@ -1519,4 +1649,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

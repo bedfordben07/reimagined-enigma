@@ -45,6 +45,26 @@
   #banner b { font-size: clamp(34px, 7vw, 64px); letter-spacing: 0.08em; color: var(--ink); }
   #banner span { font-size: 15px; letter-spacing: 0.3em; color: var(--amber); }
   #hpBox { display: grid; gap: 4px; margin-bottom: 4px; }
+  .meter { display: grid; gap: 3px; margin-top: 6px; }
+  .meter .bar { width: 150px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; }
+  #ultFill, #shFill { display: block; height: 100%; transform-origin: left center; }
+  #ultFill { background: linear-gradient(90deg, #ff9a2a, #ffe07a); }
+  #ultBox.ready .unit { color: #ffd25a; animation: pulse 0.8s infinite alternate; }
+  #shFill { background: #6fe6ff; }
+  #shBox.on .unit { color: #6fe6ff; }
+  @keyframes pulse { from { opacity: 0.55; } to { opacity: 1; } }
+  #upg { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; background: rgba(6,8,10,0.55); z-index: 5; padding: 16px; }
+  #upg[hidden] { display: none !important; }
+  .upgHead { display: grid; justify-items: center; gap: 2px; text-shadow: 0 2px 10px rgba(0,0,0,0.7); }
+  .upgHead b { font-size: clamp(22px, 4vw, 34px); letter-spacing: 0.12em; }
+  .upgHead span { font-size: 12px; letter-spacing: 0.2em; color: var(--dim); }
+  .upgCards { display: grid; grid-template-columns: repeat(3, minmax(0, 220px)); gap: 12px; }
+  @media (max-width: 640px) { .upgCards { grid-template-columns: 1fr; } }
+  .upgCards button { display: grid; gap: 6px; text-align: left; padding: 14px; border-radius: 6px; border: 1px solid rgba(255,201,74,0.4); background: rgba(20,22,26,0.88); color: var(--ink); font: 14px var(--display); cursor: pointer; }
+  .upgCards button:hover { border-color: var(--amber); background: rgba(40,36,24,0.92); }
+  .upgCards .k { font: 11px var(--mono); color: var(--amber); }
+  .upgCards .n { font-size: 17px; font-weight: 600; }
+  .upgCards .d { font-size: 13px; color: var(--dim); line-height: 1.4; }
   #hpBox .bar { width: 150px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; }
   #hpFill { background: linear-gradient(90deg, #4fd38a, #a8f0c4); }
   #hpBox.hit .bar { outline: 2px solid #ff6a50; }
@@ -107,6 +127,12 @@
   <div id="mode">GROUND</div>
   <div><span id="speed" class="big">0</span> <span class="unit">KM/H</span></div>
   <div id="freezeBox"><span class="unit">TIME STOP · X</span></div>
+  <div class="meter" id="ultBox"><span class="unit">ULTIMATE · 4</span><div class="bar"><i id="ultFill"></i></div></div>
+  <div class="meter" id="shBox"><span class="unit">SHIELD · 5</span><div class="bar"><i id="shFill"></i></div></div>
+</div>
+<div id="upg" hidden>
+  <div class="upgHead"><b>CHOOSE AN UPGRADE</b><span>press 1 · 2 · 3 or click</span></div>
+  <div class="upgCards" id="upgCards"></div>
 </div>
 
 <div id="powers" class="panel"><span>Z HOLE <b id="powHole">ready</b></span><span>N CLAP <b id="powClap">ready</b></span><span>B LIFT <b id="powLift">hold</b></span><span>L ZAP <b id="powZap">hold</b></span><span>M METEOR <b id="powMeteor">ready</b></span><span>Y BLINK <b id="powBlink">ready</b></span><span>P GRAVITY <b id="powGrav">ready</b></span><span>U DECOY <b id="powDecoy">ready</b></span><span>1 MISSILES <b id="powMiss">ready</b></span><span>2 QUAKE <b id="powQuake">ready</b></span><span>3 TORNADO <b id="powTwist">ready</b></span></div>
@@ -148,6 +174,7 @@
   <div class="row"><span><kbd>1</kbd></span><span>missiles · Volt: overdrive · Titan: boulder</span></div>
   <div class="row"><span><kbd>2</kbd></span><span>earthquake · Volt: storm · Titan: ground pound</span></div>
   <div class="row"><span><kbd>3</kbd></span><span>tornado · Volt: bolt dash · Titan: rage</span></div>
+  <div class="row"><span><kbd>4 5 6</kbd></span><span>ultimate nova · shield · combat drones</span></div>
   <div class="row"><span><kbd>9</kbd></span><span>skip 6 hours (day / night)</span></div>
   <div class="row"><span><kbd>8</kbd></span><span>music on / off</span></div>
   <div class="row"><span><kbd>0</kbd></span><span>weather: clear · rain · storm</span></div>

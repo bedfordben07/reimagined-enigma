@@ -59,6 +59,7 @@ export class Colossus {
 
   damage(n, at = null) {
     if (!this.active || this.dead || this.state === 'drop') return;
+    n *= this.g.dmgMul?.() ?? 1;
     this.hp -= n; this.g.onDamage?.(n);
     if (at && n > 20) { this.robot.hitReact(Math.min(17, n / 4), _v.subVectors(this.pos, at).setY(0).normalize()); for (let i = 0; i < 8; i++) this.g.fx.sparks.emit(at, _a.set(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).multiplyScalar(20), new THREE.Color(5, 3, 1.5), 0.3, 0.8, 0.02); }
     if (this.hp <= 0) this._die();
