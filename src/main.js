@@ -7,29 +7,29 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795378381';
-import { DebrisSystem } from './debris.js?v=1795378381';
-import { Dummy, VARIANTS } from './dummy.js?v=1795378381';
-import { Robot } from './robot.js?v=1795378381';
-import { Spectre } from './spectre.js?v=1795378381';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795378381';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795378381';
-import { Life } from './life.js?v=1795378381';
-import { Colossus } from './boss.js?v=1795378381';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795378381';
+import { VoxelWorld, VS } from './voxels.js?v=1795378812';
+import { DebrisSystem } from './debris.js?v=1795378812';
+import { Dummy, VARIANTS } from './dummy.js?v=1795378812';
+import { Robot } from './robot.js?v=1795378812';
+import { Spectre } from './spectre.js?v=1795378812';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795378812';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795378812';
+import { Life } from './life.js?v=1795378812';
+import { Colossus } from './boss.js?v=1795378812';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795378812';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
 let life = null, boss = null;
-import { addOutline } from './outline.js?v=1795378381';
-import { Effects } from './effects.js?v=1795378381';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795378381';
-import { CarSystem } from './cars.js?v=1795378381';
-import { Powers } from './powers.js?v=1795378381';
-import { PropSystem } from './props.js?v=1795378381';
-import { Birds } from './birds.js?v=1795378381';
-import { FireSystem } from './fire.js?v=1795378381';
-import { Sfx } from './audio.js?v=1795378381';
+import { addOutline } from './outline.js?v=1795378812';
+import { Effects } from './effects.js?v=1795378812';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795378812';
+import { CarSystem } from './cars.js?v=1795378812';
+import { Powers } from './powers.js?v=1795378812';
+import { PropSystem } from './props.js?v=1795378812';
+import { Birds } from './birds.js?v=1795378812';
+import { FireSystem } from './fire.js?v=1795378812';
+import { Sfx } from './audio.js?v=1795378812';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -1083,10 +1083,15 @@ function updateMach(dt) {
 const shocks = [];
 function sonicBoom(level = 1, at = null) {
   const p = at ? at.clone() : player.pos.clone().add(tmp.set(0, 1.2, 0));
-  const maxR = 45 + 30 * level;
-  shocks.push({ c: p.clone(), r: 0, prev: 0, maxR, level, budget: 1800 + 1200 * level, hitD: false, hitB: false, towersDone: false, vdir: player.vel.clone().normalize() });
+  const maxR = 60 + 40 * level;
+  shocks.push({ c: p.clone(), r: 0, prev: 0, maxR, level, budget: 5000 + 4000 * level, hitD: false, hitB: false, towersDone: false, vdir: player.vel.clone().normalize() });
   fx.wave(p, maxR, maxR / MACH, new THREE.Color(1.6, 1.7, 1.8)); fx.wave(p, 12 + 6 * level, 0.35, new THREE.Color(2.5, 2.6, 2.8));
-  blastAll(p, maxR * 0.55, 22 + 10 * level, null, 0.7);
+  blastAll(p, maxR * 0.55, 35 + 15 * level, null, 0.9);
+  // a fireball at the heart of the boom
+  fx.wave(p, 10 + 5 * level, 0.4, new THREE.Color(4, 2.4, 0.9)); fx.punchLight.position.copy(p); fx.punchLight.intensity = 300 + 150 * level;
+  for (let i = 0; i < 40 + 20 * level; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 2).normalize().multiplyScalar(40 + Math.random() * 60), new THREE.Color(5, 3, 1.2), 0.4 + Math.random() * 0.5, 0.5, 0.04);
+  for (let i = 0; i < 12; i++) fx.dust.emit(p, rndVec(new THREE.Vector3(), 14), new THREE.Color(2.6, 1.3, 0.4), 6 + 3 * level, 1.2, 2.5, 0.6);
+  if (Math.abs(p.x) < 190 && Math.abs(p.z) < 190) smash(p.clone(), 3 + level, { outward: 16, up: 6, max: 6000 });
   if (level > 1) banner(`MACH ${level}`, 'sonic boom', 0.9);
   for (let i = 0; i < 40; i++) fx.dust.emit(p, rndVec(new THREE.Vector3(), 10).addScaledVector(player.vel, -0.05), new THREE.Color(0.9, 0.92, 0.95), 2 + Math.random() * 2, 0.8, 2.5, 0.5);
   sfx.boom(2); sfx.thunder?.(0.05, 0.6); sfx.duck?.(0.9);
@@ -1099,17 +1104,20 @@ function updateShocks(dt) {
     S.prev = S.r; S.r = Math.min(S.maxR, S.r + (S.speed || MACH) * dt);
     const fall = 1 - S.r / S.maxR, L = S.level;
     // shatter whatever the shell passes through (glass goes first and furthest)
-    const tries = S.nuke ? 90 : Math.min(140, 40 + L * 25);
+    const tries = S.nuke ? 220 : Math.min(200, 60 + L * 35);
     for (let i = 0; i < tries && S.budget > 0; i++) {
       const rr = S.prev + Math.random() * (S.r - S.prev + 0.5);
       const dir = rndVec(tmp, 2).normalize(); if (dir.y < -0.2) dir.y *= 0.3;
       const q = tmp2.copy(S.c).addScaledVector(dir, rr);
+      // a share of every wave goes for the ground floors, so whole buildings lose their footing and come down
+      if (Math.random() < 0.4) { const a = Math.random() * Math.PI * 2; q.set(S.c.x + Math.cos(a) * rr, 0.3 + Math.random() * 5, S.c.z + Math.sin(a) * rr); }
       if (Math.abs(q.x) > 185 || Math.abs(q.z) > 185 || q.y < 0) continue;
       const mat = vox.solidAt(q.x, q.y, q.z);
       if (!mat) continue;
       const glass = mat === MAT.GLASS || mat === MAT.GLASS_LIT;
       if (!glass && fall < 0.35 && Math.random() > 0.5) continue;
-      S.budget -= smash(q.clone(), glass ? 1.8 + L * 0.3 : 1.0 + (0.6 + L * 0.3) * fall, { vel: dir.clone().multiplyScalar(10 + 8 * L * fall), inherit: 1, outward: 4 + 3 * L * fall, up: 2, noDust: Math.random() < 0.5, max: 300 });
+      if (Math.random() < 0.03 * L) fire.ignite(q.clone(), { life: 6, size: 1 });
+      S.budget -= smash(q.clone(), S.nuke ? 2.6 + 2.2 * fall : glass ? 2.2 + L * 0.4 : 1.4 + (0.8 + L * 0.4) * fall, { vel: dir.clone().multiplyScalar(10 + 8 * L * fall), inherit: 1, outward: 4 + 3 * L * fall, up: 2, noDust: Math.random() < 0.5, max: 300 });
       if (glass && Math.random() < 0.2) sfx.glass();
     }
     // the dummy and the boss get slammed as it passes
@@ -1167,17 +1175,20 @@ function pickUpgrade(i) {
 // The full NOVA is a nuke: a ~400 m blast with a blinding flash, a crater, a shock wave that rolls
 // through the whole town and a mushroom cloud. (Second Wind still sets off the small version.)
 const nukes = [];
+const craterQ = [];
 function nuke(p) {
-  const R = 400;
+  const R = 700;
   ult.lock = true; setTimeout(() => { ult.lock = false; }, 6000);
   const gp = p.clone().setY(Math.max(0.1, groundH(p.x, p.z)));
   atmo.flash = 3; fx.punchLight.position.copy(p); fx.punchLight.intensity = 4000;
   fx.wave(p, 70, 0.7, new THREE.Color(6, 5.5, 4.5)); fx.wave(p, R, R / 110, new THREE.Color(3.5, 2.2, 1.0)); fx.ring(gp, R);
   for (let i = 0; i < 300; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 2).normalize().multiplyScalar(60 + Math.random() * 140), new THREE.Color(6, 3.6, 1.4), 0.8 + Math.random() * 1.2, 0.3, 0.05);
-  smash(gp.clone().add(new THREE.Vector3(0, 2, 0)), 14, { outward: 30, up: 20, max: 25000 });
-  blastAll(p, R * 0.6, 90, null, 1.3);
-  shocks.push({ c: p.clone(), r: 0, prev: 0, maxR: R, level: 4, budget: 60000, speed: 110, nuke: true, hitD: false, hitB: false, towersDone: false });
-  fx.addScorch(gp, 40);
+  smash(gp.clone().add(new THREE.Vector3(0, 2, 0)), 16, { outward: 30, up: 20, max: 40000 });
+  // ground zero is levelled: a ring of crater blasts eaten through over the next couple of seconds
+  for (let i = 0; i < 40; i++) { const a = Math.random() * Math.PI * 2, rr = 10 + Math.sqrt(Math.random()) * 110; craterQ.push(gp.clone().add(new THREE.Vector3(Math.cos(a) * rr, 2 + Math.random() * 30, Math.sin(a) * rr))); }
+  blastAll(p, R * 0.6, 120, null, 1.5);
+  shocks.push({ c: p.clone(), r: 0, prev: 0, maxR: R, level: 6, budget: 260000, speed: 160, nuke: true, hitD: false, hitB: false, towersDone: false });
+  fx.addScorch(gp, 70);
   nukes.push({ p: gp, t: 0 });
   game.invuln = Math.max(game.invuln, 4);
   shake = 1; hitstop = Math.max(hitstop, 0.2);
@@ -1186,16 +1197,17 @@ function nuke(p) {
   banner('NOVA', 'ground zero', 2);
 }
 function updateNukes(dt) {
+  for (let i = 0; i < 3 && craterQ.length; i++) { const q = craterQ.shift(); smash(q, 9 + Math.random() * 4, { outward: 22, up: 14, max: 9000, noDust: Math.random() < 0.5 }); if (Math.random() < 0.3) fire.ignite(q.clone().setY(0.4), { life: 10, size: 1.6 }); }
   for (const N of nukes) {
     N.t += dt;
-    const t = N.t, rise = Math.min(220, t * 45);
+    const t = N.t, rise = Math.min(380, t * 70);
     if (t < 7) {
       // fireball, a rising stem, and the spreading cap of the mushroom cloud
       const hot = Math.max(0, 1 - t / 3);
       for (let i = 0; i < 3; i++) {
-        const a = Math.random() * Math.PI * 2, rr = Math.random() * (25 + Math.min(70, t * 18));
+        const a = Math.random() * Math.PI * 2, rr = Math.random() * (40 + Math.min(130, t * 30));
         fx.dust.emit(tmp.set(N.p.x + Math.cos(a) * rr, N.p.y + rise + (Math.random() - 0.3) * 25, N.p.z + Math.sin(a) * rr), tmp2.set(Math.cos(a) * 6, 4, Math.sin(a) * 6),
-          new THREE.Color().setRGB(0.25 + 3 * hot, 0.22 + 1.4 * hot, 0.2 + 0.3 * hot), 30 + Math.random() * 30, 8 + Math.random() * 6, 2.2, 0.55);
+          new THREE.Color().setRGB(0.25 + 3 * hot, 0.22 + 1.4 * hot, 0.2 + 0.3 * hot), 50 + Math.random() * 50, 8 + Math.random() * 6, 2.2, 0.55);
       }
       fx.dust.emit(tmp.set(N.p.x + (Math.random() - 0.5) * 18, N.p.y + Math.random() * rise, N.p.z + (Math.random() - 0.5) * 18), tmp2.set(0, 12, 0), new THREE.Color().setRGB(0.3 + 2 * hot, 0.26 + 0.9 * hot, 0.22), 18 + Math.random() * 12, 6, 2, 0.5);
       if (t < 1.5) { fx.punchLight.position.copy(N.p).y += rise; fx.punchLight.intensity = 2500 * (1 - t / 1.5); }

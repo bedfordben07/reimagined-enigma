@@ -3,10 +3,10 @@
 // off chunks of building to throw, and sweeps a heat beam from its eyes. Everything that hurts the dummy
 // hurts it too: punches, blasts, missiles, meteors, the laser.
 import * as THREE from 'three';
-import { Robot } from './robot.js?v=1795378381';
-import { retint } from './heroes.js?v=1795378381';
-import { brushedMetalTex, pbr } from './textures.js?v=1795378381';
-import { groundH } from './world.js?v=1795378381';
+import { Robot } from './robot.js?v=1795378812';
+import { retint } from './heroes.js?v=1795378812';
+import { brushedMetalTex, pbr } from './textures.js?v=1795378812';
+import { groundH } from './world.js?v=1795378812';
 
 const S = 8; // scale: the rig is ~2 m tall
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
