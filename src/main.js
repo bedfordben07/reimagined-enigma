@@ -1045,7 +1045,8 @@ vapor.userData.noOutline = true; scene.add(vapor);
 let machPrev = 0, shockT = 0;
 function updateMach(dt) {
   const sp = player.vel.length(), m = sp / MACH;
-  if (m >= 1 && machPrev < 1 && player.flying) sonicBoom();
+  // every Mach barrier you break sets off a boom, each bigger than the last
+  if (player.flying && Math.floor(m) > Math.floor(machPrev) && m >= 1) sonicBoom(Math.floor(m));
   machPrev = m;
   // the cone: strongest right around the barrier, a ghost of it above
   const k = m < 0.85 ? 0 : m < 1.2 ? Math.sin((m - 0.85) / 0.35 * Math.PI) : 0.12;
@@ -1061,20 +1062,66 @@ function updateMach(dt) {
       blastAll(g, 18 + m * 6, (10 + m * 8) * k2, player.vel.clone().normalize(), 0.9);
       birds.scare(g, 120);
       if (alt < 40) shake = Math.min(1, shake + 0.06 * k2);
+      // the shock cone rips windows and facades out of whatever it passes over
+      if (Math.abs(g.x) < 185 && Math.abs(g.z) < 185) {
+        for (let i = 0; i < 4 + m * 2; i++) {
+          const q = tmp3.set(player.pos.x + (Math.random() - 0.5) * (14 + m * 6), player.pos.y - Math.random() * Math.min(alt + 2, 40), player.pos.z + (Math.random() - 0.5) * (14 + m * 6)).addScaledVector(player.vel, -Math.random() * 0.08);
+          const mat = vox.solidAt(q.x, q.y, q.z);
+          if (mat) smash(q.clone(), mat === MAT.GLASS || mat === MAT.GLASS_LIT ? 1.6 : 0.8 + k2 * 0.8, { vel: new THREE.Vector3(player.vel.x * 0.05, -6, player.vel.z * 0.05), outward: 5 + m * 2, up: 2, noDust: Math.random() < 0.6, max: 250 });
+        }
+      }
       const dc = dummy.chest(tmp); if (dc.distanceTo(g) < 14 * k2 + 4 && dummy.mode === 'stand') dummy.hit(dc, 3, tmp2.copy(player.vel).setLength(18 * k2).add(tmp3.set(0, 10 * k2, 0)), 1);
       if (gh < -2.5 && alt < 25) for (let i = 0; i < 6; i++) fx.dust.emit(g, rndVec(new THREE.Vector3(), 5).setY(10 + Math.random() * 14 * k2), new THREE.Color(0.85, 0.9, 0.95), 2.5, 1.8, 2, 0.5); // rooster tail over the sea
     }
   }
 }
-function sonicBoom() {
+// A sonic boom launches a destructive shock sphere that expands at the speed of sound.
+const shocks = [];
+function sonicBoom(level = 1) {
   const p = player.pos.clone().add(tmp.set(0, 1.2, 0));
-  fx.wave(p, 26, 0.6, new THREE.Color(1.6, 1.7, 1.8)); fx.wave(p, 12, 0.35, new THREE.Color(2.5, 2.6, 2.8));
+  const maxR = 45 + 30 * level;
+  shocks.push({ c: p.clone(), r: 0, prev: 0, maxR, level, budget: 1800 + 1200 * level, hitD: false, hitB: false, towersDone: false, vdir: player.vel.clone().normalize() });
+  fx.wave(p, maxR, maxR / MACH, new THREE.Color(1.6, 1.7, 1.8)); fx.wave(p, 12 + 6 * level, 0.35, new THREE.Color(2.5, 2.6, 2.8));
+  blastAll(p, maxR * 0.55, 22 + 10 * level, null, 0.7);
+  if (level > 1) banner(`MACH ${level}`, 'sonic boom', 0.9);
   for (let i = 0; i < 40; i++) fx.dust.emit(p, rndVec(new THREE.Vector3(), 10).addScaledVector(player.vel, -0.05), new THREE.Color(0.9, 0.92, 0.95), 2 + Math.random() * 2, 0.8, 2.5, 0.5);
   sfx.boom(2); sfx.thunder?.(0.05, 0.6); sfx.duck?.(0.9);
   shake = Math.min(1, shake + 0.5); hitstop = Math.max(hitstop, 0.04);
   birds.scare(p, 200);
   if (dummy.chest(tmp).distanceTo(p) < 200) dummy.say(['Was that a SONIC BOOM?!', 'Show-off!', 'My EARS!'], true);
 }
+function updateShocks(dt) {
+  for (const S of shocks) {
+    S.prev = S.r; S.r = Math.min(S.maxR, S.r + MACH * dt);
+    const fall = 1 - S.r / S.maxR, L = S.level;
+    // shatter whatever the shell passes through (glass goes first and furthest)
+    const tries = Math.min(140, 40 + L * 25);
+    for (let i = 0; i < tries && S.budget > 0; i++) {
+      const rr = S.prev + Math.random() * (S.r - S.prev + 0.5);
+      const dir = rndVec(tmp, 2).normalize(); if (dir.y < -0.2) dir.y *= 0.3;
+      const q = tmp2.copy(S.c).addScaledVector(dir, rr);
+      if (Math.abs(q.x) > 185 || Math.abs(q.z) > 185 || q.y < 0) continue;
+      const mat = vox.solidAt(q.x, q.y, q.z);
+      if (!mat) continue;
+      const glass = mat === MAT.GLASS || mat === MAT.GLASS_LIT;
+      if (!glass && fall < 0.35 && Math.random() > 0.5) continue;
+      S.budget -= smash(q.clone(), glass ? 1.8 + L * 0.3 : 1.0 + (0.6 + L * 0.3) * fall, { vel: dir.clone().multiplyScalar(10 + 8 * L * fall), inherit: 1, outward: 4 + 3 * L * fall, up: 2, noDust: Math.random() < 0.5, max: 300 });
+      if (glass && Math.random() < 0.2) sfx.glass();
+    }
+    // the dummy and the boss get slammed as it passes
+    const dc = dummy.chest(new THREE.Vector3()), dd = dc.distanceTo(S.c);
+    if (!S.hitD && dd < S.r && dummy.group.visible) { S.hitD = true; const k = 1 - dd / S.maxR; dummy.takeDamage((25 + 25 * L) * k); dummy.hit(dc, 3, dc.clone().sub(S.c).normalize().multiplyScalar(25 + 20 * L * k).add(new THREE.Vector3(0, 8, 0)), 1); dummy.say(['MY EARS!', 'Was that a SONIC BOOM?!', 'Show-off!'], true); }
+    if (!S.hitB && boss.active && !boss.dead && boss._distTo(S.c) < S.r) { S.hitB = true; boss.damage((80 + 80 * L) * (1 - boss._distTo(S.c) / S.maxR), S.c); }
+    // far-city towers inside the blast come down
+    if (!S.towersDone && S.r >= S.maxR * 0.6) {
+      S.towersDone = true;
+      for (const t of world.towers.list) if (t.alive && Math.hypot(t.x - S.c.x, t.z - S.c.z) < S.maxR * 0.45 && S.c.y < t.y + t.h + 40) { world.towers.topple(t, tmp.set(t.x - S.c.x, 0, t.z - S.c.z)); game.score += 800; }
+    }
+    if (S.r >= S.maxR) S.dead = true;
+  }
+  for (let i = shocks.length - 1; i >= 0; i--) if (shocks[i].dead) shocks.splice(i, 1);
+}
+
 // slamming into a far-city tower at speed brings it down
 function towerImpact(t, v) {
   const p = player.pos.clone().add(tmp.set(0, 1.2, 0));
@@ -1614,6 +1661,7 @@ function tick(rdt) {
     life.bump(tmp.copy(player.pos).add(UP), player.vel);
     boss.update(wdt);
     updateDrones(wdt);
+    updateShocks(wdt);
   }
   updateShield(dt);
   vox.flush();
@@ -1649,4 +1697,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
