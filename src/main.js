@@ -7,29 +7,29 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js';
-import { DebrisSystem } from './debris.js';
-import { Dummy, VARIANTS } from './dummy.js';
-import { Robot } from './robot.js';
-import { Spectre } from './spectre.js';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js';
-import { buildWorld, groundH, WORLD_HALF } from './world.js';
-import { Life } from './life.js';
-import { Colossus } from './boss.js';
-import { newStats, rollUpgrades } from './upgrades.js';
+import { VoxelWorld, VS } from './voxels.js?v=1795378381';
+import { DebrisSystem } from './debris.js?v=1795378381';
+import { Dummy, VARIANTS } from './dummy.js?v=1795378381';
+import { Robot } from './robot.js?v=1795378381';
+import { Spectre } from './spectre.js?v=1795378381';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795378381';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795378381';
+import { Life } from './life.js?v=1795378381';
+import { Colossus } from './boss.js?v=1795378381';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795378381';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
 let life = null, boss = null;
-import { addOutline } from './outline.js';
-import { Effects } from './effects.js';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js';
-import { CarSystem } from './cars.js';
-import { Powers } from './powers.js';
-import { PropSystem } from './props.js';
-import { Birds } from './birds.js';
-import { FireSystem } from './fire.js';
-import { Sfx } from './audio.js';
+import { addOutline } from './outline.js?v=1795378381';
+import { Effects } from './effects.js?v=1795378381';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795378381';
+import { CarSystem } from './cars.js?v=1795378381';
+import { Powers } from './powers.js?v=1795378381';
+import { PropSystem } from './props.js?v=1795378381';
+import { Birds } from './birds.js?v=1795378381';
+import { FireSystem } from './fire.js?v=1795378381';
+import { Sfx } from './audio.js?v=1795378381';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -1047,6 +1047,10 @@ function updateMach(dt) {
   const sp = player.vel.length(), m = sp / MACH;
   // every Mach barrier you break sets off a boom, each bigger than the last
   if (player.flying && Math.floor(m) > Math.floor(machPrev) && m >= 1) sonicBoom(Math.floor(m));
+  // crossing into town at supersonic speed hits it with a boom too (you usually break the barrier out in the hills)
+  { const inT = Math.abs(player.pos.x) < 200 && Math.abs(player.pos.z) < 200;
+    if (inT && !updateMach.wasIn && m >= 1 && player.flying && time - (updateMach.lastEntry || -9) > 2) { updateMach.lastEntry = time; sonicBoom(Math.min(5, Math.floor(m)) + 1, player.pos.clone().addScaledVector(player.vel, 0.12)); }
+    updateMach.wasIn = inT; }
   machPrev = m;
   // the cone: strongest right around the barrier, a ghost of it above
   const k = m < 0.85 ? 0 : m < 1.2 ? Math.sin((m - 0.85) / 0.35 * Math.PI) : 0.12;
@@ -1055,7 +1059,7 @@ function updateMach(dt) {
   if (vapor.visible) { vapor.position.copy(player.pos).add(tmp.set(0, 1.2, 0)); vapor.lookAt(tmp2.copy(vapor.position).add(player.vel)); vapor.scale.setScalar(1 + Math.random() * 0.06); }
   // low-level supersonic pass: a rolling shockwave on the ground
   if (m >= 1 && (shockT -= dt) <= 0) {
-    shockT = 0.12;
+    shockT = 0.05;
     const gh = groundH(player.pos.x, player.pos.z), alt = player.pos.y - gh;
     if (alt < 80) {
       const g = new THREE.Vector3(player.pos.x, gh + 0.5, player.pos.z), k2 = 1 - alt / 80;
@@ -1064,7 +1068,7 @@ function updateMach(dt) {
       if (alt < 40) shake = Math.min(1, shake + 0.06 * k2);
       // the shock cone rips windows and facades out of whatever it passes over
       if (Math.abs(g.x) < 185 && Math.abs(g.z) < 185) {
-        for (let i = 0; i < 4 + m * 2; i++) {
+        for (let i = 0; i < 10 + m * 5; i++) {
           const q = tmp3.set(player.pos.x + (Math.random() - 0.5) * (14 + m * 6), player.pos.y - Math.random() * Math.min(alt + 2, 40), player.pos.z + (Math.random() - 0.5) * (14 + m * 6)).addScaledVector(player.vel, -Math.random() * 0.08);
           const mat = vox.solidAt(q.x, q.y, q.z);
           if (mat) smash(q.clone(), mat === MAT.GLASS || mat === MAT.GLASS_LIT ? 1.6 : 0.8 + k2 * 0.8, { vel: new THREE.Vector3(player.vel.x * 0.05, -6, player.vel.z * 0.05), outward: 5 + m * 2, up: 2, noDust: Math.random() < 0.6, max: 250 });
@@ -1077,8 +1081,8 @@ function updateMach(dt) {
 }
 // A sonic boom launches a destructive shock sphere that expands at the speed of sound.
 const shocks = [];
-function sonicBoom(level = 1) {
-  const p = player.pos.clone().add(tmp.set(0, 1.2, 0));
+function sonicBoom(level = 1, at = null) {
+  const p = at ? at.clone() : player.pos.clone().add(tmp.set(0, 1.2, 0));
   const maxR = 45 + 30 * level;
   shocks.push({ c: p.clone(), r: 0, prev: 0, maxR, level, budget: 1800 + 1200 * level, hitD: false, hitB: false, towersDone: false, vdir: player.vel.clone().normalize() });
   fx.wave(p, maxR, maxR / MACH, new THREE.Color(1.6, 1.7, 1.8)); fx.wave(p, 12 + 6 * level, 0.35, new THREE.Color(2.5, 2.6, 2.8));
