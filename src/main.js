@@ -709,7 +709,7 @@ addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(e.code);
   if (picker.open) { const k = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code]; if (k != null) pickUpgrade(k); return; }
-  if (e.code === 'Digit4') { if (ult.k >= 1) { ult.k = 0; nova(chestPos(new THREE.Vector3()), 1); } else banner('NOVA', `charging · ${Math.round(ult.k * 100)}%`, 0.8); return; }
+  if (e.code === 'Digit4') { if (ult.k >= 1) { ult.k = 0; nuke(chestPos(new THREE.Vector3())); } else banner('NOVA', `charging · ${Math.round(ult.k * 100)}%`, 0.8); return; }
   if (e.code === 'Digit5') { if (shield.on) shield.on = false; else if (shield.e > 0.1) { shield.on = true; sfx.freeze(true); setTimeout(() => sfx.freeze(false), 60); } return; }
   if (e.code === 'Digit6') { spawnDrones(); return; }
   const gated = ['KeyZ', 'KeyN', 'KeyM', 'KeyL', 'KeyY', 'KeyP', 'KeyU', 'KeyB', 'KeyX'];
@@ -1092,10 +1092,10 @@ function sonicBoom(level = 1) {
 }
 function updateShocks(dt) {
   for (const S of shocks) {
-    S.prev = S.r; S.r = Math.min(S.maxR, S.r + MACH * dt);
+    S.prev = S.r; S.r = Math.min(S.maxR, S.r + (S.speed || MACH) * dt);
     const fall = 1 - S.r / S.maxR, L = S.level;
     // shatter whatever the shell passes through (glass goes first and furthest)
-    const tries = Math.min(140, 40 + L * 25);
+    const tries = S.nuke ? 90 : Math.min(140, 40 + L * 25);
     for (let i = 0; i < tries && S.budget > 0; i++) {
       const rr = S.prev + Math.random() * (S.r - S.prev + 0.5);
       const dir = rndVec(tmp, 2).normalize(); if (dir.y < -0.2) dir.y *= 0.3;
@@ -1110,8 +1110,8 @@ function updateShocks(dt) {
     }
     // the dummy and the boss get slammed as it passes
     const dc = dummy.chest(new THREE.Vector3()), dd = dc.distanceTo(S.c);
-    if (!S.hitD && dd < S.r && dummy.group.visible) { S.hitD = true; const k = 1 - dd / S.maxR; dummy.takeDamage((25 + 25 * L) * k); dummy.hit(dc, 3, dc.clone().sub(S.c).normalize().multiplyScalar(25 + 20 * L * k).add(new THREE.Vector3(0, 8, 0)), 1); dummy.say(['MY EARS!', 'Was that a SONIC BOOM?!', 'Show-off!'], true); }
-    if (!S.hitB && boss.active && !boss.dead && boss._distTo(S.c) < S.r) { S.hitB = true; boss.damage((80 + 80 * L) * (1 - boss._distTo(S.c) / S.maxR), S.c); }
+    if (!S.hitD && dd < S.r && dummy.group.visible) { S.hitD = true; const k = 1 - dd / S.maxR; dummy.takeDamage(S.nuke ? (dummy.v.hp * 0.75 + 400) * (0.4 + 0.6 * k) : (25 + 25 * L) * k); dummy.hit(dc, 3, dc.clone().sub(S.c).normalize().multiplyScalar(25 + 20 * L * k).add(new THREE.Vector3(0, 8, 0)), 1); dummy.say(['MY EARS!', 'Was that a SONIC BOOM?!', 'Show-off!'], true); }
+    if (!S.hitB && boss.active && !boss.dead && boss._distTo(S.c) < S.r) { S.hitB = true; boss.damage(S.nuke ? boss.max * 0.6 : (80 + 80 * L) * (1 - boss._distTo(S.c) / S.maxR), S.c); }
     // far-city towers inside the blast come down
     if (!S.towersDone && S.r >= S.maxR * 0.6) {
       S.towersDone = true;
@@ -1160,6 +1160,46 @@ function pickUpgrade(i) {
 
 // NOVA: the ultimate. Everything within ~40 m is blasted, the dummy loses a big chunk of health and is
 // thrown down, and the boss takes a huge hit.
+// The full NOVA is a nuke: a ~400 m blast with a blinding flash, a crater, a shock wave that rolls
+// through the whole town and a mushroom cloud. (Second Wind still sets off the small version.)
+const nukes = [];
+function nuke(p) {
+  const R = 400;
+  ult.lock = true; setTimeout(() => { ult.lock = false; }, 6000);
+  const gp = p.clone().setY(Math.max(0.1, groundH(p.x, p.z)));
+  atmo.flash = 3; fx.punchLight.position.copy(p); fx.punchLight.intensity = 4000;
+  fx.wave(p, 70, 0.7, new THREE.Color(6, 5.5, 4.5)); fx.wave(p, R, R / 110, new THREE.Color(3.5, 2.2, 1.0)); fx.ring(gp, R);
+  for (let i = 0; i < 300; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 2).normalize().multiplyScalar(60 + Math.random() * 140), new THREE.Color(6, 3.6, 1.4), 0.8 + Math.random() * 1.2, 0.3, 0.05);
+  smash(gp.clone().add(new THREE.Vector3(0, 2, 0)), 14, { outward: 30, up: 20, max: 25000 });
+  blastAll(p, R * 0.6, 90, null, 1.3);
+  shocks.push({ c: p.clone(), r: 0, prev: 0, maxR: R, level: 4, budget: 60000, speed: 110, nuke: true, hitD: false, hitB: false, towersDone: false });
+  fx.addScorch(gp, 40);
+  nukes.push({ p: gp, t: 0 });
+  game.invuln = Math.max(game.invuln, 4);
+  shake = 1; hitstop = Math.max(hitstop, 0.2);
+  sfx.boom(2); sfx.thunder?.(0, 1); sfx.thunder?.(0.6, 1); sfx.duck?.(1); setTimeout(() => sfx.boom(2), 250); setTimeout(() => sfx.boom(1.6), 700);
+  birds.scare(p, 1000);
+  banner('NOVA', 'ground zero', 2);
+}
+function updateNukes(dt) {
+  for (const N of nukes) {
+    N.t += dt;
+    const t = N.t, rise = Math.min(220, t * 45);
+    if (t < 7) {
+      // fireball, a rising stem, and the spreading cap of the mushroom cloud
+      const hot = Math.max(0, 1 - t / 3);
+      for (let i = 0; i < 3; i++) {
+        const a = Math.random() * Math.PI * 2, rr = Math.random() * (25 + Math.min(70, t * 18));
+        fx.dust.emit(tmp.set(N.p.x + Math.cos(a) * rr, N.p.y + rise + (Math.random() - 0.3) * 25, N.p.z + Math.sin(a) * rr), tmp2.set(Math.cos(a) * 6, 4, Math.sin(a) * 6),
+          new THREE.Color().setRGB(0.25 + 3 * hot, 0.22 + 1.4 * hot, 0.2 + 0.3 * hot), 30 + Math.random() * 30, 8 + Math.random() * 6, 2.2, 0.55);
+      }
+      fx.dust.emit(tmp.set(N.p.x + (Math.random() - 0.5) * 18, N.p.y + Math.random() * rise, N.p.z + (Math.random() - 0.5) * 18), tmp2.set(0, 12, 0), new THREE.Color().setRGB(0.3 + 2 * hot, 0.26 + 0.9 * hot, 0.22), 18 + Math.random() * 12, 6, 2, 0.5);
+      if (t < 1.5) { fx.punchLight.position.copy(N.p).y += rise; fx.punchLight.intensity = 2500 * (1 - t / 1.5); }
+    }
+    if (t > 9) N.dead = true;
+  }
+  for (let i = nukes.length - 1; i >= 0; i--) if (nukes[i].dead) nukes.splice(i, 1);
+}
 function nova(p, k = 1) {
   ult.lock = true; setTimeout(() => { ult.lock = false; }, 600);
   fx.wave(p, 40 * k, 0.8, new THREE.Color(3.5, 2.6, 1.2)); fx.wave(p, 18 * k, 0.45, new THREE.Color(5, 4.5, 3.5)); fx.ring(p.clone().setY(Math.max(0.1, groundH(p.x, p.z))), 50 * k);
@@ -1662,6 +1702,7 @@ function tick(rdt) {
     boss.update(wdt);
     updateDrones(wdt);
     updateShocks(wdt);
+    updateNukes(wdt);
   }
   updateShield(dt);
   vox.flush();
@@ -1697,4 +1738,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
