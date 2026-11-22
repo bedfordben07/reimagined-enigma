@@ -67,6 +67,8 @@ All powers can be used as often as you like (no cooldowns).
 - `src/spectre.js` — Spectre V-01: purple mecha with a red mono-eye laser, built on the same rig.
 - `src/heroes.js` — Volt (speedster: overdrive slows the world, lightning storm, bolt dash) and Titan (no flight, huge jumps and punches, boulder throw, ground pound, rage), each with their own kit. Sentinel and Spectre keep every power.
 - `src/world.js` — the 24 km world around the town: hills, a northern mountain range, an eastern coast and sea, forests, a cloud layer and five far cities whose towers topple if you hit them at speed. Hold Shift + W in flight to keep accelerating: Mach 4 for Sentinel, Mach 3 for Spectre, Mach 5 for Volt, with a sonic boom and vapour cone at Mach 1.
+- `src/boss.js` — COLOSSUS, the 16 m boss every sixth wave: drops from the sky, walks through buildings, stomps, backhands, throws building chunks and sweeps an eye beam.
+- `src/life.js` — news helicopters, police that respond to destruction, a train line through the countryside and container ships at sea; all of them can be wrecked.
 - `src/fire.js` — fire spread, burning/exploding cars and petrol pumps, hydrants and rain douse.
 - `src/audio.js` — synthesized sound: reverb bus, layered impacts, rain, thunder, fire, day/night ambience, a procedural combat score.
 - `src/outline.js` — optional inverted-hull ink outline for the characters.

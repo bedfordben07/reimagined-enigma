@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { brushedMetalTex, pbr } from './textures.js';
 import { lathe, extrude, roundRect, smoothShape } from './geom.js';
+import { groundH, WORLD_HALF } from './world.js';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
@@ -82,7 +83,8 @@ const LIMBS = ['head', 'lel', 'rel', 'lha', 'rha', 'lkn', 'rkn', 'lft', 'rft'];
 const ID = Object.fromEntries(NAMES.map((n, i) => [n, i]));
 const G = -20;
 // how far from the town centre it can roam (the flat ground around the town)
-export const DUMMY_BOUND = 560;
+export const DUMMY_BOUND = WORLD_HALF - 300; // it follows you anywhere
+const inTown = (x, z) => Math.abs(x) < 182 && Math.abs(z) < 182;
 const clampB = (x) => Math.max(-DUMMY_BOUND, Math.min(DUMMY_BOUND, x));
 const BREAK_SPEED = 17;
 
@@ -119,7 +121,7 @@ export class Dummy {
     this.atk = null; this.anger = 0; this.atkCool = 0; this.fights = true; this.runFast = false;
     // what it has learned about you: which attacks land, and whether you like to fight from the air
     this.stats = Object.fromEntries(ATTACKS.map((k) => [k, { tries: 0, hits: 0 }]));
-    this.airHabit = 0; this.lastKind = null; this.guardT = 0; this.counterT = 0; this.strafeT = 0; this.strafeSide = 1; this.lastHurt = 0; this.whiffUsed = false;
+    this.shedN = 0; this.airHabit = 0; this.lastKind = null; this.guardT = 0; this.counterT = 0; this.strafeT = 0; this.strafeSide = 1; this.lastHurt = 0; this.whiffUsed = false;
     this.poise = 45; this.stagger = 0; this.dodge = null;
     this.v = VARIANTS[0]; this.hp = this.v.hp; this.ko = false; this.onDamage = null; this.tintC = new THREE.Color(1, 1, 1);
     this.cmd = null; this.walkPh = 0; this.brainOn = false; this.brainMood = 'cheerful'; this.onEvent = null;
@@ -148,7 +150,7 @@ export class Dummy {
     const eyeCore = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 3.2, 2.6) });
     this.mats = [armor, plate, edge];
     this.baseColors = this.mats.map((m) => m.color.clone());
-    this.group = new THREE.Group();
+    this.group = new THREE.Group(); this.shedable = [];
     const M = (geo, mat, parent = this.group) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m; };
     const poly = (pts) => { const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) sh.lineTo(pts[i][0], pts[i][1]); sh.closePath(); return sh; };
 
@@ -165,11 +167,11 @@ export class Dummy {
     vb.scale.set(0.93, 1, 1.17);
     // crest: a thin blade running from the brow over the crown
     const crest = M(extrude(poly([[0.1, 0.11], [0.06, 0.19], [-0.06, 0.215], [-0.19, 0.17], [-0.12, 0.15], [0.0, 0.16]]), 0.012, 0.004, 2), edge, this.head);
-    crest.rotation.y = Math.PI / 2;
+    crest.rotation.y = Math.PI / 2; this.shedable.push(crest);
     // swept-back cheek blades
     for (const sx of [-1, 1]) {
       const fin = M(extrude(poly([[0.05, 0.0], [-0.12, 0.05], [-0.16, 0.02], [-0.02, -0.04]]), 0.01, 0.004, 2), plate, this.head);
-      fin.position.set(0.1 * sx, 0.02, -0.01); fin.rotation.y = Math.PI / 2 + sx * 0.15;
+      fin.position.set(0.1 * sx, 0.02, -0.01); fin.rotation.y = Math.PI / 2 + sx * 0.15; this.shedable.push(fin);
     }
     // eyes: narrow slits slanting down toward the centre, a white-hot core in each
     this.eyesD = [];
@@ -207,7 +209,7 @@ export class Dummy {
     this.pelvis = new THREE.Group(); this.group.add(this.pelvis);
     M(lathe([[0, 0.07], [0.125, 0.065], [0.15, 0.0], [0.12, -0.07], [0.05, -0.11], [0, -0.11]], 40, 0, Math.PI * 2, 3), plate, this.pelvis).scale.z = 0.7;
     // a tasset plate hanging at each hip and a glowing belt line
-    for (const sx of [-1, 1]) { const t = M(extrude(poly([[-0.05, 0.03], [0.05, 0.03], [0.04, -0.09], [0, -0.12], [-0.04, -0.09]]), 0.015, 0.005, 1), armor, this.pelvis); t.position.set(0.12 * sx, -0.03, 0.03); t.rotation.y = sx * 1.1; }
+    for (const sx of [-1, 1]) { const t = M(extrude(poly([[-0.05, 0.03], [0.05, 0.03], [0.04, -0.09], [0, -0.12], [-0.04, -0.09]]), 0.015, 0.005, 1), armor, this.pelvis); t.position.set(0.12 * sx, -0.03, 0.03); t.rotation.y = sx * 1.1; this.shedable.push(t); }
     const belt = M(new THREE.TorusGeometry(0.142, 0.007, 8, 48), this.glowMat, this.pelvis); belt.rotation.x = Math.PI / 2; belt.position.y = 0.05; belt.scale.y = 0.72; belt.castShadow = false;
 
     // ---- limbs: slim and tapered, armour shells over the upper segments, blades on the forearms
@@ -235,7 +237,7 @@ export class Dummy {
       const sh = limb(a, b, 0.052, 0.032, plate);
       // greave: a pointed shin guard
       const gv = new THREE.Mesh(extrude(poly([[-0.045, 0.17], [0.045, 0.17], [0.035, -0.12], [0, -0.16], [-0.035, -0.12]]), 0.012, 0.005, 1), armor);
-      gv.castShadow = true; gv.position.set(0, 0.0, 0.042); sh.add(gv);
+      gv.castShadow = true; gv.position.set(0, 0.0, 0.042); sh.add(gv); this.shedable.push(gv);
     }
     // joints: carbon balls with a thin glowing ring
     this.joints = [];
@@ -267,7 +269,7 @@ export class Dummy {
       if (name.endsWith('sh')) {
         for (let l = 0; l < 2; l++) {
           const p = M(lathe([[0, 0.085], [0.06, 0.08], [0.105, 0.045], [0.12, 0.0], [0.11, -0.025], [0, -0.025]], 6, 0, Math.PI * 2, 0), l ? plate : armor, g);
-          p.position.set((0.04 + l * 0.02) * sx, 0.04 - l * 0.045, 0); p.rotation.z = -sx * (0.55 + l * 0.25); p.scale.set(1 - l * 0.15, 0.85, 1.2 - l * 0.15);
+          p.position.set((0.04 + l * 0.02) * sx, 0.04 - l * 0.045, 0); p.rotation.z = -sx * (0.55 + l * 0.25); p.scale.set(1 - l * 0.15, 0.85, 1.2 - l * 0.15); this.shedable.push(p);
         }
         const sp = M(new THREE.ConeGeometry(0.018, 0.11, 8), edge, g); sp.position.set(0.07 * sx, 0.1, -0.01); sp.rotation.z = -sx * 0.6;
       }
@@ -331,6 +333,9 @@ export class Dummy {
       const dmg = (spd0 - this.v.armor * 0.5) * 0.55;
       this.hp -= dmg;
       this.onDamage?.(dmg);
+      // armour comes away as it takes damage
+      const frac = Math.max(0, this.hp / this.v.hp);
+      while (this.shedN < 4 && frac < 1 - (this.shedN + 1) * 0.2) this._shed();
       if (this.hp <= 0 && !this.ko) { this.hp = 0; this.ko = true; this.mode = 'ragdoll'; this.atk = null; this.say(['I... need a... nap...', 'Tell my creator... I tried...', 'Ow. Okay. You win.'], true); this.onKO?.(); }
     }
     // poise: while on its feet it shrugs off lighter hits with a stagger, until the poise breaks
@@ -354,6 +359,16 @@ export class Dummy {
       this.o[i].addScaledVector(vel, -f * this.h);
     }
     this.lastHitTime = performance.now(); this.lastHurt = this.time;
+    // heavy blows send it cartwheeling: spin the whole body about the axis across the hit
+    if (spd0 > 28) {
+      const com = _c.set(0, 0, 0); for (let i = 0; i < this.n; i++) com.add(this.p[i]); com.multiplyScalar(1 / this.n);
+      const axis = _d.set(0, 1, 0).cross(_e.copy(vel).setY(0)).normalize();
+      if (axis.lengthSq() > 0.5) {
+        const w = Math.min(16, spd0 * 0.14) * (Math.random() < 0.3 ? -0.6 : 1);
+        for (let i = 0; i < this.n; i++) { const r = _a.subVectors(this.p[i], com); this.o[i].addScaledVector(_b.crossVectors(axis, r), -w * this.h); }
+      }
+    }
+    if (spd0 > 6) this.ctx.sparks?.(center.clone(), Math.min(1, spd0 / 50));
     const sp = vel.length();
     this.slack = Math.min(0.25, 0.05 + sp * 0.003);
     if (sp > 3) this.anger += sp > 45 ? 2.2 : 1;
@@ -402,8 +417,8 @@ export class Dummy {
     const dir = new THREE.Vector3().subVectors(P[ID.head], mid); dir.y = 0;
     this.toYaw = dir.lengthSq() > 0.01 ? Math.atan2(dir.x, dir.z) : this.yaw;
     // stand on whatever is underneath: the ground, rubble-free floor or a roof
-    let gy = 0;
-    for (let y = mid.y + 0.4; y > 0; y -= 0.25) { if (this.voxels.solidAt(mid.x, y, mid.z)) { gy = (Math.floor(y / 0.5) + 1) * 0.5; break; } }
+    let gy = inTown(mid.x, mid.z) ? 0 : groundH(mid.x, mid.z);
+    for (let y = mid.y + 0.4; y > gy; y -= 0.25) { if (this.voxels.solidAt(mid.x, y, mid.z)) { gy = (Math.floor(y / 0.5) + 1) * 0.5; break; } }
     this.toRoot.set(mid.x, gy, mid.z);
     this.from = P.map((p) => p.clone());
     this.getT = 0; this.mode = 'getup';
@@ -523,8 +538,9 @@ export class Dummy {
         _v.multiplyScalar(0.7);
         o.subVectors(p, _v);
       }
-      if (p.y < r) {
-        p.y = r;
+      const gy = inTown(p.x, p.z) ? 0 : groundH(p.x, p.z);
+      if (p.y < gy + r) {
+        p.y = gy + r;
         _v.subVectors(p, o);
         if (_v.y < 0) _v.y = -_v.y * 0.25;
         _v.x *= 0.7; _v.z *= 0.7;
@@ -572,7 +588,19 @@ export class Dummy {
     }
   }
 
-  setVariant(v) { this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
+  setVariant(v) { for (const m of this.shedable || []) m.visible = true; this.shedN = 0; this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
+
+  // knock a couple of armour pieces off (they fly away as rubble)
+  _shed() {
+    this.shedN++;
+    const left = (this.shedable || []).filter((m) => m.visible);
+    for (let k = 0; k < 2 && left.length; k++) {
+      const m = left.splice(Math.floor(Math.random() * left.length), 1)[0];
+      m.visible = false;
+      this.ctx.shed?.(m.getWorldPosition(new THREE.Vector3()));
+    }
+    this.say(['My ARMOUR!', 'That was load-bearing!', 'You will PAY for that paint job.'], true);
+  }
 
   // Cap how fast stored-up hits can launch it (frozen time can stack a lot of momentum).
   clampSpeed(max) {
@@ -640,6 +668,7 @@ export class Dummy {
 
   // Where it would stand at (x, z): the top of whatever is below `fromY`, or the street.
   _groundAt(x, z, fromY) {
+    if (!inTown(x, z)) return groundH(x, z);
     for (let y = fromY; y > 0; y -= 0.25) if (this.voxels.solidAt(x, y, z)) return (Math.floor(y / 0.5) + 1) * 0.5;
     return 0;
   }
@@ -718,12 +747,13 @@ export class Dummy {
           // aim where you're going to be, not where you are
           const pv = ctx.playerVel || _v.set(0, 0, 0), lead = Math.min(1.2, 0.5 + d / 90);
           const tx = ctx.playerPos.x + pv.x * lead - this.root.x, tz = ctx.playerPos.z + pv.z * lead - this.root.z, td = Math.hypot(tx, tz) || 1;
-          const dir = new THREE.Vector3(tx / td, 0, tz / td), hop = Math.min(55, Math.max(8, td - 4));
+          const dir = new THREE.Vector3(tx / td, 0, tz / td), hop = Math.min(td > 120 ? 450 : 55, Math.max(8, td - 4));
           A.from = this.root.clone();
           A.to = new THREE.Vector3(clampB(this.root.x + dir.x * hop), 0, clampB(this.root.z + dir.z * hop));
           A.to.y = this._groundAt(A.to.x, A.to.z, Math.max(ctx.playerPos.y + 1, this.root.y + 2));
-          A.peak = Math.max(A.from.y, A.to.y) + 5 + hop * 0.25;
-          A.dur = 0.5 + hop / 45;
+          A.peak = Math.max(A.from.y, A.to.y) + 5 + Math.min(120, hop * 0.25);
+          A.dur = hop > 60 ? 0.9 + Math.sqrt(hop) / 6 : 0.5 + hop / 45;
+          if (hop > 60) this.say(['You can run...', 'INCOMING!', 'Did you think I would just WAIT?', 'Wherever you go, I go.'], true);
           next('air');
         }
       } else if (A.phase === 'air') {
@@ -802,7 +832,7 @@ export class Dummy {
       // patient regeneration: left alone for a while it patches itself up
       if (this.fights && this.time - this.lastHurt > 6 && this.hp < this.v.hp) this.hp = Math.min(this.v.hp, this.hp + this.v.hp * 0.012 * dt);
       this.guardT = Math.max(0, this.guardT - dt);
-      const outOfReach = Math.abs(ctx.playerPos.x) > DUMMY_BOUND + 20 || Math.abs(ctx.playerPos.z) > DUMMY_BOUND + 20 || dy > 45;
+      const outOfReach = dy > 45;
       if (!ctx.whiff) this.whiffUsed = false;
       if (this.counterT > 0 && !this.dodge) {
         // the counter-attack right after a dodge
@@ -900,6 +930,12 @@ export class Dummy {
       return true;
     }
     this.wallT = 0;
+    if (!inTown(nx, nz)) {
+      // out in the country: follow the lie of the land
+      this.root.x = nx; this.root.z = nz; this.root.y = groundH(nx, nz);
+      this.walkPh += dt * speed * (speed > 6 ? 2.2 : 3.4);
+      return true;
+    }
     this.root.x = nx; this.root.z = nz;
     this.walkPh += dt * speed * (speed > 6 ? 2.2 : 3.4);
     if (y > 0.01 && !v.solidAt(nx, y - 0.25, nz)) {
@@ -1011,6 +1047,12 @@ export class Dummy {
   }
 
   update(dt) {
+    // damage: the glow stutters and joints spit sparks as it gets beaten up
+    const dmgK = 1 - Math.max(0, this.hp / this.v.hp);
+    const fl = dmgK > 0.45 && Math.random() < dmgK * 0.25 ? 0.15 : 1;
+    this.glowMat.emissiveIntensity = 3.2 * fl * (this.ko ? 0.2 : 1); this.eyeMat.emissiveIntensity = 9 * (fl < 1 ? 0.3 : 1) * (this.ko ? 0.1 : 1);
+    if (dmgK > 0.55 && Math.random() < dt * dmgK * 3) this.ctx.sparks?.(this.p[[ID.lsh, ID.rsh, ID.lkn, ID.rkn, ID.neck][Math.floor(Math.random() * 5)]].clone(), 0.25);
+    for (const m of this.mats) if (m.clearcoat !== undefined) m.clearcoat = 0.8 * (1 - dmgK * 0.8);
     // burn tint
     if (this.burn > 0) {
       const k = Math.min(1, this.burn / 3);

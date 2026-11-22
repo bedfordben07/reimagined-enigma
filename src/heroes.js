@@ -11,7 +11,7 @@ import { brushedMetalTex, pbr } from './textures.js';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
 
-function retint(robot, swaps, glow, eye) {
+export function retint(robot, swaps, glow, eye) {
   const map = new Map();
   for (const [k, mat] of Object.entries(swaps)) if (robot.mats[k]) map.set(robot.mats[k], mat);
   robot.root.traverse((o) => { if (o.isMesh && map.has(o.material)) o.material = map.get(o.material); });

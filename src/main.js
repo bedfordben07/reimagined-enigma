@@ -14,6 +14,9 @@ import { Robot } from './robot.js';
 import { Spectre } from './spectre.js';
 import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js';
 import { buildWorld, groundH, WORLD_HALF } from './world.js';
+import { Life } from './life.js';
+import { Colossus } from './boss.js';
+let life = null, boss = null;
 import { addOutline } from './outline.js';
 import { Effects } from './effects.js';
 import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js';
@@ -176,6 +179,7 @@ function smash(center, radius, o = {}) {
   if (o.vel) o = { ...o, vel: o.vel.clone() };
   const removed = vox.breakSphere(center, radius, [], o.max ?? 700);
   if (!removed.length) return 0;
+  if (life) life.heat += removed.length * 0.35;
   if (typeof game !== 'undefined') game.score += removed.length;
   const inherit = o.inherit ?? 0.5, outward = o.outward ?? 5, up = o.up ?? 2;
   let glass = 0;
@@ -246,6 +250,7 @@ props.onExplode = (pr) => fire.explode(pr.p.clone());
 // shockwaves push rubble, cars and street furniture alike, and send the pigeons flying
 function blastAll(center, radius, strength, dir = null, up) {
   debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);
+  life?.blast(center, radius, strength, dir); boss?.blast(center, radius, strength);
   birds.scare(center, radius * 3 + 10);
 }
 
@@ -326,6 +331,21 @@ const powers = new Powers({
     const dist = p.distanceTo(camera.position);
     if (v.z > 1 || dist < 0.5) { u.w = 0; return; }
     u.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, Math.min(0.35, (size * 2.6) / (dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) * 0.5), 1);
+  },
+});
+life = new Life({
+  scene, fx, sfx, vox, smash, blastAll, cars, dummy, get fire() { return fire; },
+  score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1.4); },
+});
+boss = new Colossus({
+  scene, fx, sfx, vox, smash, blastAll, get fire() { return fire; }, get player() { return player; },
+  chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
+  shake: (k) => { shake = Math.min(1, shake + k); }, hitstop: (t) => { hitstop = Math.max(hitstop, t); },
+  onDamage: (d) => dummy.onDamage?.(d), dummySay: (t) => {},
+  onDefeat: () => {
+    const bonus = 10000 * (boss.level + 1); game.score += bonus;
+    banner('COLOSSUS DOWN!', `+${bonus.toLocaleString()} · the dummy is back`, 4);
+    sfx.boom(2); game.nextWaveT = 9;
   },
 });
 heroP = new HeroPowers({
@@ -453,6 +473,14 @@ function variantFor(i) {
 const INTROS = { Rookie: 'Fresh out of the box!', Brawler: "I've been working out.", Speedster: 'Catch me if you can!', Juggernaut: 'Go on. Hit me.', Champion: 'Finally. A worthy opponent.' };
 function startWave(i, near = true) {
   game.wave = i;
+  if (i % 6 === 5) {
+    // boss wave: the dummy steps aside and Colossus drops in
+    boss.spawn(player.pos, Math.floor(i / 6));
+    dummy.fights = false; dummy.group.visible = false; dummy.spawn(new THREE.Vector3(0, groundH(0, -3000), -3000), 0);
+    banner(`WAVE ${i + 1}`, 'BOSS · COLOSSUS', 3.5);
+    return;
+  }
+  if (!dummy.group.visible) { dummy.group.visible = true; setFights(true); }
   const v = variantFor(i);
   dummy.setVariant(v);
   // arrive 35 m away and come hunting
@@ -491,8 +519,9 @@ function updateGame(dt) {
   if (game.nextWaveT > 0) { game.nextWaveT -= dt; if (game.nextWaveT <= 0) { game.nextWaveT = -1; startWave(game.wave + 1); } }
   if (game.bannerT > 0) { game.bannerT -= dt; $('banner').style.opacity = Math.min(1, game.bannerT * 2); if (game.bannerT <= 0) $('banner').hidden = true; }
   if (game.score > game.best) { game.best = game.score; if (Math.random() < dt) { try { localStorage.setItem('rubble-best', String(Math.round(game.best))); } catch (e) { /* ignore */ } } }
-  $('waveName').textContent = `WAVE ${game.wave + 1} · ${dummy.v.name.toUpperCase()}`;
-  $('dhpFill').style.transform = `scaleX(${Math.max(0, dummy.hp / dummy.v.hp)})`;
+  const bossOn = boss.active && !boss.dead;
+  $('waveName').textContent = bossOn ? `WAVE ${game.wave + 1} · COLOSSUS` : `WAVE ${game.wave + 1} · ${dummy.v.name.toUpperCase()}`;
+  $('dhpFill').style.transform = `scaleX(${Math.max(0, bossOn ? boss.hp / boss.max : dummy.hp / dummy.v.hp)})`;
   $('scoreVal').textContent = Math.round(game.score).toLocaleString();
   $('comboVal').textContent = game.combo > 1 ? `×${(1 + Math.min(40, game.combo) * 0.1).toFixed(1)} · ${game.combo} hit combo` : `best ${Math.round(game.best).toLocaleString()}`;
   $('hpFill').style.transform = `scaleX(${Math.max(0, game.php / game.pmax)})`;
@@ -512,6 +541,9 @@ dummy.ctx.throwRock = (from, spread = 0, size = 1) => {
   sfx.whoosh();
 };
 dummy.ctx.whoosh = () => sfx.whoosh();
+// metal-on-metal sparks where it's hit, and armour plates that break off and clatter away
+dummy.ctx.sparks = (p, k) => { for (let i = 0; i < 4 + k * 22; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 6 + k * 18), new THREE.Color(5, 3.6, 1.8), 0.15 + Math.random() * 0.3, 0.9, 0.02); if (k > 0.5) sfx.clang(); };
+dummy.ctx.shed = (p) => { debris.spawn(p, rndVec(new THREE.Vector3(), 7).add(new THREE.Vector3(0, 6, 0)), MAT.TRIM_DARK, new THREE.Color(0.55, 0.58, 0.62), 0.35); sfx.clang(); };
 // the rock bursts where it lands: a small blast that hurts if you're near it
 function rockBurst(p, size) {
   smash(p, 1.1 * size, { outward: 6, up: 3 });
@@ -593,7 +625,18 @@ function updateAim() {
   if (dummy.mode !== 'held') { const dh = dummy.raycast(o, d, best); if (dh) { best = dh.t; kind = 'dummy'; aim.normal.copy(d).negate(); } }
   aim.car = null;
   { const ch = cars.raycast(o, d, best); if (ch && ch.car !== player.holdingCar) { best = ch.t; kind = 'car'; aim.car = ch.car; aim.normal.copy(d).negate(); } }
-  if (d.y < 0) { const tg = -o.y / d.y; if (tg < best) { best = tg; kind = 'ground'; aim.normal.set(0, 1, 0); } }
+  if (boss.active) { const bt = boss.rayHit(o, d, best); if (bt != null) { best = bt; kind = 'boss'; aim.normal.copy(d).negate(); } }
+  if (d.y < 0) {
+    const tg = -o.y / d.y;
+    if (Math.hypot(o.x, o.z) < 600 && Math.hypot(o.x + d.x * Math.min(tg, best), o.z + d.z * Math.min(tg, best)) < 600) { if (tg < best) { best = tg; kind = 'ground'; aim.normal.set(0, 1, 0); } }
+    else {
+      // march the hills
+      for (let t = 2; t < best; t += Math.max(2, t * 0.02)) {
+        const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+        if (y < groundH(x, z)) { best = t; kind = 'ground'; aim.normal.set(0, 1, 0); break; }
+      }
+    }
+  }
   aim.point.copy(o).addScaledVector(d, best); aim.kind = kind; aim.t = best + skip;
 }
 function aimDirFrom(from, out) { return out.subVectors(aim.point, from).normalize(); }
@@ -767,6 +810,7 @@ function updatePunch(dt) {
   dummy.chest(tmp);
   const fist = c.clone().addScaledVector(dir, 1.4);
   if (tmp.distanceTo(fist) < 1.6 && dummy.mode !== 'held') { punchImpact(tmp.clone(), dir, player.punchPow); return; }
+  if (boss.active && !boss.dead && boss._distTo(fist) < boss.radius + 0.6) { punchImpact(fist.clone(), dir, player.punchPow); boss.damage(40 * player.punchPow, fist); return; }
   { const car = cars.carAt(fist, 0.6); if (car && car !== player.holdingCar) { punchImpact(fist.clone(), dir, player.punchPow); cars.hit(car, fist, dir.clone().multiplyScalar(30 + 60 * player.punchPow).add(new THREE.Vector3(0, 6, 0))); return; } }
   if (fist.y < 0.35) { punchImpact(new THREE.Vector3(fist.x, 0.1, fist.z), dir, player.punchPow); return; }
   // also bump any debris in the path
@@ -816,6 +860,8 @@ function updateLaser(dt) {
     } else if (hitKind === 'car' && aim.car) {
       cars.hit(aim.car, p, tmp2.copy(beamDir).multiplyScalar(1.2));
       fire.heatCar(aim.car, 0.035);
+    } else if (hitKind === 'boss') {
+      boss.damage(1.2, p);
     } else if (hitKind === 'dummy') {
       dummy.hit(p, 0.7, tmp2.copy(beamDir).multiplyScalar(2.2).addScaledVector(UP, 0.6), 0.2);
       dummy.burn += 0.03; dummy.anger += 0.04;
@@ -992,7 +1038,7 @@ function sonicBoom() {
   const p = player.pos.clone().add(tmp.set(0, 1.2, 0));
   fx.wave(p, 26, 0.6, new THREE.Color(1.6, 1.7, 1.8)); fx.wave(p, 12, 0.35, new THREE.Color(2.5, 2.6, 2.8));
   for (let i = 0; i < 40; i++) fx.dust.emit(p, rndVec(new THREE.Vector3(), 10).addScaledVector(player.vel, -0.05), new THREE.Color(0.9, 0.92, 0.95), 2 + Math.random() * 2, 0.8, 2.5, 0.5);
-  sfx.boom(2); sfx.thunder?.(0.05, 0.6);
+  sfx.boom(2); sfx.thunder?.(0.05, 0.6); sfx.duck?.(0.9);
   shake = Math.min(1, shake + 0.5); hitstop = Math.max(hitstop, 0.04);
   birds.scare(p, 200);
   if (dummy.chest(tmp).distanceTo(p) < 200) dummy.say(['Was that a SONIC BOOM?!', 'Show-off!', 'My EARS!'], true);
@@ -1239,7 +1285,8 @@ function updateCamera(dt) {
   const sp = player.vel.length();
   const boosting = player.flying && sp > 45;
   const hs = robot.root.scale.x;
-  const wantDist = (boosting ? 8 : player.flying ? 6.5 : 5.2) * hs * hs;
+  const machK = Math.min(1, Math.max(0, sp / MACH - 0.5) / 3);
+  const wantDist = (boosting ? 8 + machK * 6 : player.flying ? 6.5 : 5.2) * hs * hs;
   camState.dist += (wantDist - camState.dist) * Math.min(1, dt * 3);
   const target = new THREE.Vector3(player.pos.x, player.pos.y + 1.9 * hs, player.pos.z);
   const back = f3.clone().negate();
@@ -1254,10 +1301,12 @@ function updateCamera(dt) {
   pos.x += (Math.random() - 0.5) * s * 0.9; pos.y += (Math.random() - 0.5) * s * 0.9; pos.z += (Math.random() - 0.5) * s * 0.9;
   camera.position.copy(pos);
   camera.rotation.set(player.camPitch, player.camYaw + Math.PI, (Math.random() - 0.5) * s * 0.06);
-  const wantFov = 72 + Math.min(22, Math.max(0, sp - 20) * 0.2);
+  const wantFov = 72 + Math.min(22, Math.max(0, sp - 20) * 0.2) + machK * 14;
+  // supersonic buffeting
+  if (sp > MACH * 0.9) { const b = machK * 0.05 + 0.01; camera.rotation.z += (Math.random() - 0.5) * b; camera.position.addScaledVector(rndVec(tmp3, 1), b * 0.6); }
   camState.fov += (wantFov - camState.fov) * Math.min(1, dt * 4);
   camera.fov = camState.fov; camera.updateProjectionMatrix();
-  finish.uniforms.uAb.value = Math.min(0.02, Math.max(0, sp - 40) * 0.0003) + s * 0.01;
+  finish.uniforms.uAb.value = Math.min(0.02, Math.max(0, sp - 40) * 0.0003) + s * 0.01 + machK * 0.012;
   sky.position.copy(camera.position);
   const alt = Math.max(0, camera.position.y - groundH(camera.position.x, camera.position.z));
   camera.near = Math.min(4, 0.1 + alt * 0.004 + Math.max(0, sp - 150) * 0.004);
@@ -1432,6 +1481,11 @@ function tick(rdt) {
   } else { debris.flush(); cars.flush(); props.flush(); }
   traffic.update(time);
   world.towers.update(wdt, frozen ? null : fx);
+  if (!frozen) {
+    life.update(wdt, { playerPos: player.pos, playerVel: player.vel, night: 1 - (atmo.dayK ?? 1) });
+    life.bump(tmp.copy(player.pos).add(UP), player.vel);
+    boss.update(wdt);
+  }
   vox.flush();
   if (!frozen) dummy.think(wdt, {
     playerPos: targetPos(), charging: !powers.decoy && player.charging, speed: powers.decoy ? 0 : player.vel.length(), playerAir: targetPos().y > 4,
@@ -1465,4 +1519,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, startWave, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

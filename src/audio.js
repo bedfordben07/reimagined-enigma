@@ -153,6 +153,32 @@ export class Sfx {
     this._tone(t, { f0: on ? 520 : 55, f1: on ? 45 : 600, gain: 0.7, dur: 0.8, attack: 0.05, out: this.direct });
     this._burst(t, { type: 'bandpass', f0: on ? 3000 : 300, f1: on ? 200 : 4000, q: 3, gain: 0.25, dur: 0.55, out: this.direct });
   }
+  // the world drops away for a moment (the sonic boom), then rushes back
+  duck(k = 1) {
+    if (!this.ctx) return; const t = this.ctx.currentTime, f = this.world.frequency;
+    f.cancelScheduledValues(t); f.setValueAtTime(Math.max(300, 4000 * (1 - k)), t); f.exponentialRampToValueAtTime(20000, t + 0.9 + k * 0.6);
+  }
+  // a police siren at distance d (0 = off), wailing
+  policeSiren(d) {
+    if (!this.ctx) return; const c = this.ctx, t = c.currentTime;
+    if (!this.pol) {
+      const o = c.createOscillator(); o.type = 'triangle'; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2200;
+      const g = c.createGain(); g.gain.value = 0; o.connect(f); f.connect(g); g.connect(this.master);
+      const lfo = c.createOscillator(); lfo.frequency.value = 0.55; const lg = c.createGain(); lg.gain.value = 180; lfo.connect(lg); lg.connect(o.frequency); o.frequency.value = 820;
+      o.start(); lfo.start(); this.pol = { g };
+    }
+    this.pol.g.gain.setTargetAtTime(d > 0 ? Math.min(0.06, 3 / (d + 20)) : 0, t, 0.3);
+  }
+  // helicopter rotor chop, louder as it gets closer
+  heli(d) {
+    if (!this.ctx) return; const c = this.ctx, t = c.currentTime;
+    if (!this.hl) {
+      const n = this._src(this.brown, true); const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 320;
+      const am = c.createGain(); am.gain.value = 0.5; const lfo = c.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 11; const lg = c.createGain(); lg.gain.value = 0.5; lfo.connect(lg); lg.connect(am.gain);
+      const g = c.createGain(); g.gain.value = 0; n.connect(f); f.connect(am); am.connect(g); g.connect(this.master); n.start(); lfo.start(); this.hl = { g };
+    }
+    this.hl.g.gain.setTargetAtTime(d > 0 ? Math.min(0.35, 18 / (d + 30)) : 0, t, 0.3);
+  }
   tick(high) {
     if (!this.ctx) return; const t = this.ctx.currentTime;
     this._tone(t, { type: 'square', f0: high ? 1900 : 1450, gain: 0.05, dur: 0.04, attack: 0.001, out: this.direct });
