@@ -81,6 +81,9 @@ const BRACE = { ...POSE, lel: [-0.33, 1.15, 0.05], rel: [0.33, 1.15, 0.05], lha:
 const LIMBS = ['head', 'lel', 'rel', 'lha', 'rha', 'lkn', 'rkn', 'lft', 'rft'];
 const ID = Object.fromEntries(NAMES.map((n, i) => [n, i]));
 const G = -20;
+// how far from the town centre it can roam (the flat ground around the town)
+export const DUMMY_BOUND = 560;
+const clampB = (x) => Math.max(-DUMMY_BOUND, Math.min(DUMMY_BOUND, x));
 const BREAK_SPEED = 17;
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
@@ -114,6 +117,9 @@ export class Dummy {
     this.time = 0; this.blinkT = 2; this.lastSay = 0; this.speech = null;
     this.mood = 'idle'; this.moodT = 0; this.moodW = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0, wind: 0, jab: 0, throwW: 0, throwF: 0, lean: 0 };
     this.atk = null; this.anger = 0; this.atkCool = 0; this.fights = true; this.runFast = false;
+    // what it has learned about you: which attacks land, and whether you like to fight from the air
+    this.stats = Object.fromEntries(ATTACKS.map((k) => [k, { tries: 0, hits: 0 }]));
+    this.airHabit = 0; this.lastKind = null; this.guardT = 0; this.counterT = 0; this.strafeT = 0; this.strafeSide = 1; this.lastHurt = 0; this.whiffUsed = false;
     this.poise = 45; this.stagger = 0; this.dodge = null;
     this.v = VARIANTS[0]; this.hp = this.v.hp; this.ko = false; this.onDamage = null; this.tintC = new THREE.Color(1, 1, 1);
     this.cmd = null; this.walkPh = 0; this.brainOn = false; this.brainMood = 'cheerful'; this.onEvent = null;
@@ -314,7 +320,7 @@ export class Dummy {
       const f = Math.max(minFrac, 1 - d / (radius * 1.6));
       this.o[i].addScaledVector(vel, -f * this.h);
     }
-    this.lastHitTime = performance.now();
+    this.lastHitTime = performance.now(); this.lastHurt = this.time;
     const sp = vel.length();
     this.slack = Math.min(0.25, 0.05 + sp * 0.003);
     if (sp > 3) this.anger += sp > 45 ? 2.2 : 1;
@@ -395,7 +401,8 @@ export class Dummy {
       if (this.getT >= T1 + T2) {
         this.root.copy(this.toRoot); this.yaw = this.toYaw; this.mode = 'stand';
         // shake it off: dizzy after a big one, then put its fists up
-        if (this.bigHit) { this.mood = 'dizzy'; this.moodT = 1.6; this.moodW.dizzy = 1; this.say(['Whoa... stars...', 'Which one of you is real?', '...ow.']); }
+        this.atkCool = Math.min(this.atkCool, 0.15); // straight back into it
+        if (this.bigHit && !this.fights) { this.mood = 'dizzy'; this.moodT = 1.6; this.moodW.dizzy = 1; this.say(['Whoa... stars...', 'Which one of you is real?', '...ow.']); }
         else { this.mood = 'taunt'; this.moodT = 2.2; this.moodW.taunt = 1; this.say(LINES.getup); }
         this.onEvent?.(this.bigHit ? 'You got back up after a huge hit and you are dizzy.' : 'You got back on your feet.');
         this.bigHit = 0;
@@ -405,7 +412,7 @@ export class Dummy {
     if (this.mode === 'ragdoll') {
       let maxV = 0;
       for (let i = 0; i < this.n; i++) maxV = Math.max(maxV, this.p[i].distanceToSquared(this.o[i]));
-      if (!this.ko && Math.sqrt(maxV) / h < 1.4) { this.restT += h; if (this.restT > 0.4) { this.restT = 0; this._startGetup(); return; } }
+      if (!this.ko && Math.sqrt(maxV) / h < 1.4) { this.restT += h; if (this.restT > (this.fights ? 0.2 : 0.4)) { this.restT = 0; this._startGetup(); return; } }
       else this.restT = 0;
     }
     if (this.mode === 'stand') { this._setPose(); for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]); return; }
@@ -557,24 +564,45 @@ export class Dummy {
     this.cmd = { name, t: Math.max(1, Math.min(6, secs || 3)) };
   }
 
-  startAttack(kind, quiet = false) {
-    this.atk = { kind, phase: kind === 'throw' || kind === 'volley' ? 'windup' : kind === 'slam' || kind === 'leap' ? 'crouch' : 'approach', t: 0, n: 0 };
+  startAttack(kind, quiet = false, fast = false) {
+    this.atk = { kind, phase: kind === 'throw' || kind === 'volley' ? 'windup' : kind === 'slam' || kind === 'leap' ? 'crouch' : 'approach', t: 0, n: 0, fast };
+    if (this.stats[kind] && kind !== 'leap') { this.stats[kind].tries++; this.lastKind = kind; }
     if (kind === 'car') { this.atk.car = this.ctx.nearestCar?.(this.root, 22); if (!this.atk.car) { this.atk = null; return this.startAttack('volley', quiet); } this.atk.phase = 'fetch'; }
     this.anger = Math.max(0, this.anger - 0.6);
-    this.atkCool = (Math.max(0.7, 1.9 - this.anger * 0.35) + Math.random() * 0.9) * this.v.cool; // angrier = relentless
+    this.atkCool = (Math.max(0.25, 0.85 - this.anger * 0.2) + Math.random() * 0.4) * this.v.cool; // relentless, and angrier = faster still
     if (kind !== 'leap' && (!quiet || !this.speech)) this.say(LINES[kind] || LINES.punch, true);
     const what = { punch: 'punch', combo: 'hit with a three-punch combo', throw: 'throw rubble at', volley: 'hurl a volley of rubble at', charge: 'tackle', slam: 'leap at and ground-slam', car: 'pick up a parked car and throw it at', leap: 'leap after' }[kind];
     if (kind !== 'leap') this.onEvent?.(`You decided to ${what} the player.`);
   }
 
+  // The player was hit by our last attack: remember that it works.
+  noteHit() { if (this.lastKind && this.stats[this.lastKind]) this.stats[this.lastKind].hits++; this.anger = Math.max(0, this.anger - 0.2); }
+
   // Pick the attack that suits the range: up close combos, mid range leaps and tackles, far away volleys.
-  _chooseAttack(d, air) {
-    const r = Math.random();
-    if (d > 9 && r < 0.35 && this.ctx.nearestCar?.(this.root, 16)) return 'car';
-    if (air) return r < 0.55 ? 'volley' : 'slam';
-    if (d < 4) return r < 0.55 ? 'combo' : 'punch';
-    if (d < 16) return r < 0.45 ? 'slam' : r < 0.75 ? 'charge' : 'combo';
-    return r < 0.5 ? 'volley' : r < 0.75 ? 'charge' : 'throw';
+  // It weighs every option by range, by how well each attack has worked on you so far, by whether you
+  // tend to fight from the air, and goes for the heavy hitters when you're nearly finished.
+  _chooseAttack(d, air, ctx = {}) {
+    const w = {};
+    const add = (k, x) => { w[k] = (w[k] || 0) + x; };
+    const car = d > 7 && this.ctx.nearestCar?.(this.root, 18);
+    if (air) { add('volley', 3); add('slam', 2.5); add('throw', 1); if (car) add('car', 2.5); }
+    else if (d < 4) { add('combo', 3); add('punch', 1.5); add('slam', 0.6); }
+    else if (d < 16) { add('slam', 2); add('charge', 2.2); add('combo', 1); if (car) add('car', 1); }
+    else { add('volley', 2); add('charge', 1.6); add('throw', 1); add('slam', 0.8); if (car) add('car', 2); }
+    // habits: an air fighter gets more ranged attacks; a ground fighter more rushes
+    const h = this.airHabit;
+    for (const k of ['volley', 'throw', 'car']) if (w[k]) w[k] *= 1 + h;
+    for (const k of ['combo', 'charge']) if (w[k]) w[k] *= 1.4 - h * 0.6;
+    if (ctx.playerHp != null && ctx.playerHp < 0.3) { if (w.charge) w.charge *= 1.8; if (w.slam) w.slam *= 1.8; if (w.car) w.car *= 1.5; }
+    // learning: success rate shifts the odds (a Bayesian-ish running estimate)
+    for (const k in w) { const st = this.stats[k]; w[k] *= 0.5 + 2 * (st.hits + 1) / (st.tries + 3); }
+    // never the same thing three times running
+    if (this.prevKinds && this.prevKinds[0] === this.prevKinds[1] && w[this.prevKinds[0]]) w[this.prevKinds[0]] *= 0.25;
+    let sum = 0; for (const k in w) sum += w[k];
+    let r = Math.random() * sum, pick = 'punch';
+    for (const k in w) { r -= w[k]; if (r <= 0) { pick = k; break; } }
+    this.prevKinds = [pick, (this.prevKinds || [])[0]];
+    return pick;
   }
 
   // Where it would stand at (x, z): the top of whatever is below `fromY`, or the street.
@@ -585,11 +613,14 @@ export class Dummy {
 
   // Sidestep a punch it sees coming.
   tryDodge(punchDir) {
-    if (this.mode !== 'stand' || this.dodge || this.time - (this.lastDodge || 0) < 2.5 || Math.random() > this.v.dodge) return false;
+    const guarding = this.guardT > 0;
+    const chance = guarding ? Math.max(this.v.dodge, 0.75) : Math.max(this.v.dodge, 0.4);
+    if (this.mode !== 'stand' || this.dodge || this.time - (this.lastDodge || 0) < (guarding ? 1.1 : 2) || Math.random() > chance) return false;
     const side = Math.random() < 0.5 ? -1 : 1;
     this.dodge = { x: -punchDir.z * side, z: punchDir.x * side, t: 0.24 };
     this.lastDodge = this.time; this.atk = null;
-    this.say(['Too slow!', 'Missed me!', 'Nope!', 'Ole!'], true);
+    this.counterT = 0.26; // the moment the sidestep ends, it hits back
+    this.say(['Too slow!', 'Missed me!', 'Saw that coming.', 'Predictable.'], true);
     this.onEvent?.('You dodged the player\'s punch.');
     return true;
   }
@@ -605,13 +636,13 @@ export class Dummy {
       const hits = A.kind === 'combo' ? 3 : 1;
       if (A.phase === 'approach') {
         if (d < 2.1) next('windup');
-        else if (A.t > 4 || d > 35 || !this._walk(dt, toP, 6.5)) this.atk = null;
+        else if (A.t > 4 || d > 35 || !this._walk(dt, toP, A.fast ? 11 : 8, true)) this.atk = null;
         else { want.walk = 1; want.lean = 0.4; this.runFast = true; }
       } else if (A.phase === 'windup') {
         this.runFast = false;
         want.wind = 1;
         if (d > 2.1 && d < 6) { this._walk(dt, toP, 7); want.walk = 0.6; } // press forward between blows
-        if (A.t > (A.n === 0 ? 0.24 : 0.1)) {
+        if (A.t > (A.n === 0 ? (A.fast ? 0.07 : 0.2) : 0.09)) {
           next('strike'); A.n++;
           const last = A.n >= hits;
           if (strike(last ? (hits === 3 ? 40 : 34) : 2, A.n === 3 ? 'uppercut' : last ? 'punch' : 'jab') && last) this.say(LINES.scored, true);
@@ -651,9 +682,12 @@ export class Dummy {
       if (A.phase === 'approach' || A.phase === 'crouch') {
         want.wind = 1; want.cower = 0.35;
         if (A.t > 0.22) {
-          const dir = dirToPlayer(), hop = Math.min(40, Math.max(8, d - 5));
+          // aim where you're going to be, not where you are
+          const pv = ctx.playerVel || _v.set(0, 0, 0), lead = Math.min(1.2, 0.5 + d / 90);
+          const tx = ctx.playerPos.x + pv.x * lead - this.root.x, tz = ctx.playerPos.z + pv.z * lead - this.root.z, td = Math.hypot(tx, tz) || 1;
+          const dir = new THREE.Vector3(tx / td, 0, tz / td), hop = Math.min(55, Math.max(8, td - 4));
           A.from = this.root.clone();
-          A.to = new THREE.Vector3(this.root.x + dir.x * hop, 0, this.root.z + dir.z * hop);
+          A.to = new THREE.Vector3(clampB(this.root.x + dir.x * hop), 0, clampB(this.root.z + dir.z * hop));
           A.to.y = this._groundAt(A.to.x, A.to.z, Math.max(ctx.playerPos.y + 1, this.root.y + 2));
           A.peak = Math.max(A.from.y, A.to.y) + 5 + hop * 0.25;
           A.dur = 0.5 + hop / 45;
@@ -673,7 +707,8 @@ export class Dummy {
         want.wind = 1; want.cower = 0.35;
         if (A.t > 0.28) {
           A.from = this.root.clone();
-          A.to = new THREE.Vector3(ctx.playerPos.x - dirToPlayer().x * 1.2, 0, ctx.playerPos.z - dirToPlayer().z * 1.2);
+          const pv = ctx.playerVel || _v.set(0, 0, 0), lead = Math.min(0.8, 0.45 + d / 60);
+          A.to = new THREE.Vector3(clampB(ctx.playerPos.x + pv.x * lead - dirToPlayer().x * 1.2), 0, clampB(ctx.playerPos.z + pv.z * lead - dirToPlayer().z * 1.2));
           A.to.y = this._groundAt(A.to.x, A.to.z, Math.max(ctx.playerPos.y + 1, this.root.y + 1));
           A.peak = Math.max(A.from.y, A.to.y, ctx.playerPos.y) + 4.5;
           A.dur = Math.min(1.0, 0.45 + A.from.distanceTo(A.to) / 30);
@@ -694,7 +729,7 @@ export class Dummy {
         this.atk = null; this.runFast = false;
         // it keeps its feet now: a short stumble instead of bouncing off
         this.stagger = 0.4; this.say(['TACKLE!', 'Down you go!', 'Like a freight train!'], true);
-      } else if (A.t > 3 || d > 45 || !this._walk(dt, toP, 12)) { this.atk = null; this.runFast = false; }
+      } else if (A.t > 3.5 || d > 50 || !this._walk(dt, ctx.playerVel ? Math.atan2(dx + ctx.playerVel.x * 0.35, dz + ctx.playerVel.z * 0.35) : toP, 14, true)) { this.atk = null; this.runFast = false; }
     }
     return toP;
   }
@@ -729,17 +764,53 @@ export class Dummy {
       // (with Claude driving, Claude's own choice of action takes priority while it plays)
       const free = !this.atk && !this.dodge && !(this.stagger > 0) && this.fights && !(this.cmd && this.cmd.name !== 'idle');
       const dy = ctx.playerPos.y - this.root.y;
-      if (free && this.atkCool <= 0 && d < 34 && dy < 14) {
-        this.startAttack(this._chooseAttack(d, ctx.playerAir));
-      } else if (free && (d >= 34 || dy >= 14)) {
+      // read the player: how much they fight from the air (slow running average)
+      this.airHabit += ((ctx.playerAir ? 1 : 0) - this.airHabit) * Math.min(1, dt * 0.08);
+      // patient regeneration: left alone for a while it patches itself up
+      if (this.fights && this.time - this.lastHurt > 6 && this.hp < this.v.hp) this.hp = Math.min(this.v.hp, this.hp + this.v.hp * 0.012 * dt);
+      this.guardT = Math.max(0, this.guardT - dt);
+      const outOfReach = Math.abs(ctx.playerPos.x) > DUMMY_BOUND + 20 || Math.abs(ctx.playerPos.z) > DUMMY_BOUND + 20 || dy > 45;
+      if (!ctx.whiff) this.whiffUsed = false;
+      if (this.counterT > 0 && !this.dodge) {
+        // the counter-attack right after a dodge
+        this.counterT -= dt;
+        if (this.counterT <= 0 && free && d < 9) { this.startAttack('combo', true, true); this.say(['My turn.', 'Counter!', 'And THAT is how you do it.'], true); }
+      } else if (free && ctx.whiff && d < 8 && !this.whiffUsed) {
+        // you swung and missed: punish the recovery
+        this.whiffUsed = true;
+        this.startAttack(d < 3.5 ? 'combo' : 'charge', true, true);
+        this.say(['Missed. My turn.', 'Opening!', 'Wide open!'], true);
+      } else if (free && ctx.charging && d < 12 && dy < 3) {
+        // you're winding up a punch: close and interrupt it, or set up a dodge and a counter
+        if (d < 4.5 && Math.random() < dt * 3) { this.startAttack('punch', true, true); this.say(['Not so fast!', 'Interrupted!'], true); }
+        else { this.guardT = 0.4; want.wind = 0.4; want.lean = 0.2; if (d > 4.5) { this._walk(dt, Math.atan2(dx, dz) + this.strafeSide * 0.9, 6, false); want.walk = 0.6; } }
+      } else if (free && this.atkCool <= 0 && !outOfReach && d < 45 && dy < 16) {
+        this.startAttack(this._chooseAttack(d, ctx.playerAir, ctx));
+      } else if (free && outOfReach) {
+        // you've gone where it can't follow: arm itself and wait at the closest point, taunting
+        const tx = clampB(ctx.playerPos.x), tz = clampB(ctx.playerPos.z);
+        const ex = tx - this.root.x, ez = tz - this.root.z, ed = Math.hypot(ex, ez);
+        if (ed > 3) { this._walk(dt, Math.atan2(ex, ez), 10, true); want.walk = 1; this.runFast = true; }
+        else { this.runFast = false; want.taunt = 0.6; }
+        if (d < 70 && this.atkCool <= 0) this.startAttack(this.ctx.nearestCar?.(this.root, 20) ? 'car' : 'volley');
+        if (Math.random() < dt * 0.12) this.say(['Come down here and fight!', 'I can wait. I am VERY patient.', 'You have to land eventually.', 'Coward! ...Respectfully.']);
+      } else if (free && (d >= 45 || dy >= 16)) {
         // the hunt: far away or high up, it leaps after you; otherwise it runs at you through anything
         this.huntT = (this.huntT || 0) - dt;
-        if ((d > 60 || dy > 6 || this.huntStuck) && this.huntT <= 0) { this.huntStuck = false; this.huntT = 0.4; this.startAttack('leap', true); }
-        else if (!(d > 60 || dy > 6)) {
-          if (!this._walk(dt, Math.atan2(dx, dz), 9.5, true)) this.huntStuck = true;
+        if ((d > 45 || dy > 6 || this.huntStuck) && this.huntT <= 0) { this.huntStuck = false; this.huntT = 0.25; this.startAttack('leap', true); }
+        else if (!(d > 45 || dy > 6)) {
+          if (!this._walk(dt, Math.atan2(dx, dz), 13, true)) this.huntStuck = true;
           want.walk = 1; want.lean = 0.6; this.runFast = true;
-          if (Math.random() < dt * 0.15) this.say(['Where do you think YOU\'RE going?', 'Running? I love running!', 'Found you!', 'Here I COME!']);
         }
+        if (Math.random() < dt * 0.15) this.say(['Where do you think YOU\'RE going?', 'Running? I love running!', 'Found you!', 'Here I COME!', 'You can\'t hide from me.']);
+      } else if (free && d > 3) {
+        // between attacks it never stands still: it stalks you, weaving side to side so it's hard to laser
+        if ((this.strafeT -= dt) <= 0) { this.strafeT = 0.5 + Math.random() * 0.7; this.strafeSide = -this.strafeSide; }
+        const lead = ctx.playerVel ? Math.atan2(dx + ctx.playerVel.x * 0.3, dz + ctx.playerVel.z * 0.3) : Math.atan2(dx, dz);
+        const weave = (ctx.laserNear || ctx.laserOnMe) ? 1.1 : 0.55;
+        if (!this._walk(dt, lead + this.strafeSide * weave, (ctx.laserNear ? 12 : 8.5), true)) this.strafeSide = -this.strafeSide;
+        want.walk = 1; want.lean = 0.35; this.runFast = d > 10;
+        faceTarget = Math.atan2(dx, dz);
       } else if (!this.atk) this.runFast = false;
       if (this.atk && !this.fights) this.atk = null;
       if (this.dodge || this.stagger > 0) { /* busy */ }
@@ -755,7 +826,7 @@ export class Dummy {
             want.walk = 1; faceTarget = dir; turnRate = 8;
           }
         } else if (c in want) want[c] = 1;
-      } else if (threatened) {
+      } else if (threatened && !this.fights) {
         want.cower = 1;
         if (!this.wasThreat && !this.brainOn) this.say(ctx.laserNear ? LINES.laserNear : LINES.cower);
       } else if (this.mood === 'dizzy' && this.moodT > 0) want.dizzy = 1;
@@ -785,7 +856,7 @@ export class Dummy {
     speed *= this.v.speed;
     const nx = this.root.x + Math.sin(dir) * speed * dt, nz = this.root.z + Math.cos(dir) * speed * dt;
     const y = this.root.y, v = this.voxels;
-    if (Math.abs(nx) > 185 || Math.abs(nz) > 185) { this.cmd = null; return false; }
+    if (Math.abs(nx) > DUMMY_BOUND || Math.abs(nz) > DUMMY_BOUND) { this.cmd = null; return false; }
     if (v.solidAt(nx, y + 0.6, nz) || v.solidAt(nx, y + 1.4, nz)) {
       if (!smashWalls) { this.cmd = null; return false; }
       // shoulder straight through the wall

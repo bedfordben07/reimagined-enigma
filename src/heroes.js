@@ -22,7 +22,7 @@ function retint(robot, swaps, glow, eye) {
 }
 
 export const SENTINEL_KIT = {
-  id: 'sentinel', canFly: true, fly: 26, boost: 125, walk: 8, sprint: 17, jump: 13, punch: 1, charge: 1, armor: 1, allowed: null,
+  id: 'sentinel', canFly: true, fly: 26, boost: 125, mach: 4, walk: 8, sprint: 17, jump: 13, punch: 1, charge: 1, armor: 1, allowed: null,
   hud: [['Z', 'HOLE'], ['N', 'CLAP'], ['B', 'LIFT'], ['L', 'ZAP'], ['M', 'METEOR'], ['Y', 'BLINK'], ['P', 'GRAVITY'], ['U', 'DECOY'], ['1', 'MISSILES'], ['2', 'QUAKE'], ['3', 'TORNADO']],
 };
 
@@ -40,7 +40,7 @@ export class Volt extends Robot {
       graphite: pbr(brushedMetalTex(63, '#1b2230', 0.4), { metalness: 0.85 }),
     }, 0x38c8ff, 0x60e0ff);
     this.kit = {
-      id: 'volt', canFly: true, fly: 38, boost: 190, walk: 11, sprint: 34, jump: 15, punch: 0.85, charge: 2, armor: 0.9,
+      id: 'volt', canFly: true, fly: 38, boost: 190, mach: 5, walk: 11, sprint: 34, jump: 15, punch: 0.85, charge: 2, armor: 0.9,
       allowed: new Set(['KeyX', 'KeyY', 'KeyL', 'KeyN', 'KeyB']),
       hud: [['1', 'OVERDRIVE'], ['2', 'STORM'], ['3', 'BOLT DASH'], ['L', 'ZAP'], ['Y', 'BLINK'], ['N', 'CLAP'], ['B', 'LIFT'], ['X', 'STOP TIME']],
     };

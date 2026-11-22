@@ -13,6 +13,7 @@ import { Dummy, VARIANTS } from './dummy.js';
 import { Robot } from './robot.js';
 import { Spectre } from './spectre.js';
 import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js';
+import { buildWorld, groundH, WORLD_HALF } from './world.js';
 import { addOutline } from './outline.js';
 import { Effects } from './effects.js';
 import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js';
@@ -37,7 +38,7 @@ renderer.toneMappingExposure = 1.15;
 $('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 3000);
+const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 26000);
 camera.rotation.order = 'YXZ';
 
 // ---------------------------------------------------------------- sky, sun, environment
@@ -52,7 +53,7 @@ function makeSky() {
   s.material.fragmentShader = s.material.fragmentShader.replace('gl_FragColor = vec4( retColor, 1.0 );', 'gl_FragColor = vec4( retColor * 0.42, 1.0 );');
   return s;
 }
-const sky = makeSky(); sky.scale.setScalar(5000); scene.add(sky);
+const sky = makeSky(); sky.scale.setScalar(20000); scene.add(sky);
 // reflections come from a captured copy of the sky, re-captured as the time of day changes
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envScene = new THREE.Scene();
@@ -119,6 +120,8 @@ const matDefs = makeVoxelMaterials();
 const vox = new VoxelWorld(scene, matDefs);
 buildVoxelTown(vox);
 const { lampLights, traffic, wetMats, lampMats } = buildScenery(scene, renderer);
+const world = buildWorld(scene);
+const MACH = 343;
 const debris = new DebrisSystem(scene, vox, matDefs, 4500);
 const fx = new Effects(scene);
 const sfx = new Sfx();
@@ -127,7 +130,7 @@ const CHAR_TYPES = [Robot, Spectre, Volt, Titan];
 const chars = [];
 let onNewChar = null;
 function getChar(i) {
-  if (!chars[i]) { const c = new CHAR_TYPES[i](); c.kit = c.kit || SENTINEL_KIT; chars[i] = c; onNewChar?.(c); }
+  if (!chars[i]) { const c = new CHAR_TYPES[i](); c.kit = c.kit || (i === 1 ? { ...SENTINEL_KIT, mach: 3 } : SENTINEL_KIT); chars[i] = c; onNewChar?.(c); }
   return chars[i];
 }
 const kit = () => robot.kit;
@@ -428,6 +431,7 @@ function knockPlayer(dir, power, kind = 'blast') {
 }
 dummy.ctx.hitPlayer = (dir, power, kind) => {
   if (powers.decoy) { powers.decoyHit(power); return; } // it was fighting the hologram
+  dummy.noteHit();
   const m = dummy.v.dmg;
   knockPlayer(dir, power * Math.sqrt(m), kind);
   tagged++; $('tagHud').textContent = tagged;
@@ -858,9 +862,13 @@ function updatePlayer(dt) {
   const charging = player.charging ? 0.5 : 1;
   if (player.flying) {
     const wish = new THREE.Vector3().addScaledVector(f3, iz).addScaledVector(rt, ix).addScaledVector(UP, iy);
-    const speed = (boost ? kit().boost : kit().fly) * charging * (heroP.overdrive > 0 ? 1.4 : 1);
+    // afterburner: holding boost keeps accelerating toward the hero's top speed (Mach 3–5)
+    player.burn = boost && iz > 0 ? (player.burn || 0) + dt : Math.max(0, (player.burn || 0) - dt * 3);
+    const top = (kit().mach || 4) * MACH;
+    const boostSp = kit().boost + (top - kit().boost) * Math.pow(Math.min(1, player.burn / 9), 1.6);
+    const speed = (boost ? boostSp : kit().fly) * charging * (heroP.overdrive > 0 ? 1.4 : 1);
     if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed);
-    const rate = boost ? 1.8 : 4;
+    const rate = boost ? (player.burn > 1.5 ? 1.2 : 1.8) : (v.length() > 200 ? 0.9 : 4);
     if (player.stun > 0) v.multiplyScalar(Math.exp(-0.7 * dt)); // knocked back: no control until it wears off
     else v.lerp(wish, 1 - Math.exp(-rate * dt));
   } else {
@@ -871,7 +879,8 @@ function updatePlayer(dt) {
     v.y -= 32 * dt;
   }
   const speed = v.length();
-  const steps = Math.max(1, Math.ceil(speed * dt / 0.3));
+  const steps = Math.min(140, Math.max(1, Math.ceil(speed * dt / 0.3)));
+  let smashBudget = speed > 200 ? 5 : 1e9;
   const h = dt / steps;
   const wasGrounded = player.grounded;
   player.grounded = false;
@@ -884,8 +893,10 @@ function updatePlayer(dt) {
     if (sp > 32 || sprinting) {
       const dir = tmp.copy(v).divideScalar(sp);
       const head = tmp2.copy(player.pos).add(new THREE.Vector3(0, 1.15, 0)).addScaledVector(dir, sprinting ? 0.9 : 1.1);
-      if (vox.solidAt(head.x, head.y, head.z) || vox.solidAt(head.x, head.y + 0.7, head.z) || vox.solidAt(head.x, head.y - 0.7, head.z)) {
-        const n = smash(head, sprinting && sp <= 32 ? 1.7 : 1.9, { vel: v, inherit: 0.75, outward: 7, up: 2 });
+      if (smashBudget > 0 && (vox.solidAt(head.x, head.y, head.z) || vox.solidAt(head.x, head.y + 0.7, head.z) || vox.solidAt(head.x, head.y - 0.7, head.z))) {
+        smashBudget--;
+        const hyper = sp > 200;
+        const n = smash(head, hyper ? 2.6 : sprinting && sp <= 32 ? 1.7 : 1.9, { vel: hyper ? tmp.clone().multiplyScalar(60) : v, inherit: 0.75, outward: hyper ? 14 : 7, up: 2, max: hyper ? 900 : undefined });
         if (n) { v.multiplyScalar(sprinting ? 0.995 : 0.985); shake = Math.min(1, shake + 0.12); }
       }
     }
@@ -901,8 +912,22 @@ function updatePlayer(dt) {
         if (upN > 0.6 && bh === BODY[0]) player.grounded = true;
       }
     }
-    if (player.pos.y < 0) {
-      player.pos.y = 0;
+    if (Math.abs(player.pos.x) > 300 || Math.abs(player.pos.z) > 300) {
+      const tw = world.towers.at(tmp3.set(player.pos.x, player.pos.y + 1, player.pos.z));
+      if (tw) {
+        if (sp > 120) { towerImpact(tw, v); v.multiplyScalar(0.8); }
+        else { // push out through the nearest face
+          const ex = tw.w / 2 - Math.abs(player.pos.x - tw.x), ez = tw.d / 2 - Math.abs(player.pos.z - tw.z), ey = tw.y + tw.h - player.pos.y;
+          if (ey < Math.min(ex, ez) && ey < 3) { player.pos.y = tw.y + tw.h; if (v.y < 0) v.y = 0; player.grounded = true; }
+          else if (ex < ez) { player.pos.x = tw.x + Math.sign(player.pos.x - tw.x) * (tw.w / 2 + 0.05); v.x = 0; }
+          else { player.pos.z = tw.z + Math.sign(player.pos.z - tw.z) * (tw.d / 2 + 0.05); v.z = 0; }
+        }
+      }
+    }
+    const gh = groundH(player.pos.x, player.pos.z);
+    if (player.pos.y < gh) {
+      if (v.y < -20 && gh < -2.5) { for (let i = 0; i < 20; i++) fx.dust.emit(player.pos, rndVec(new THREE.Vector3(), 6).setY(8 + Math.random() * 10), new THREE.Color(0.8, 0.88, 0.95), 1.5, 1.4, 1.8, 0.5); } // splash
+      player.pos.y = gh;
       if (v.y < 0) v.y = 0;
       player.grounded = true;
     }
@@ -916,7 +941,10 @@ function updatePlayer(dt) {
     dummy.chest(tmp); chestPos(tmp2);
     if (tmp.distanceTo(tmp2) < 1.5) dummy.hit(tmp, 1.8, tmp3.copy(v).multiplyScalar(1.15).addScaledVector(UP, 4));
   }
-  player.pos.y = Math.min(player.pos.y, 160);
+  player.pos.y = Math.min(player.pos.y, 4200);
+  // the edge of the world: slide along it
+  for (const k of ['x', 'z']) if (Math.abs(player.pos[k]) > WORLD_HALF - 200) { player.pos[k] = Math.sign(player.pos[k]) * (WORLD_HALF - 200); v[k] *= -0.2; }
+  updateMach(dt);
   // facing
   const hv = Math.hypot(v.x, v.z);
   let targetYaw = player.yaw;
@@ -928,6 +956,57 @@ function updatePlayer(dt) {
   const wy = player.punchT > 0 || player.charging || player.throwWind > 0 ? 26 : 13;
   player.yawVel += (wy * wy * dy - 2 * 0.85 * wy * player.yawVel) * dt;
   player.yaw += player.yawVel * dt;
+}
+
+// ---------------------------------------------------------------- supersonic flight
+// A vapour cone flashes around you as you pass Mach 1, with a sonic boom; flying low and fast drags
+// a shockwave over everything beneath you.
+const vapor = new THREE.Mesh(new THREE.ConeGeometry(2.2, 5, 32, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 1.5, 1.6), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+vapor.geometry.rotateX(-Math.PI / 2); vapor.geometry.translate(0, 0, -1.2); // tip forward along +Z
+vapor.userData.noOutline = true; scene.add(vapor);
+let machPrev = 0, shockT = 0;
+function updateMach(dt) {
+  const sp = player.vel.length(), m = sp / MACH;
+  if (m >= 1 && machPrev < 1 && player.flying) sonicBoom();
+  machPrev = m;
+  // the cone: strongest right around the barrier, a ghost of it above
+  const k = m < 0.85 ? 0 : m < 1.2 ? Math.sin((m - 0.85) / 0.35 * Math.PI) : 0.12;
+  vapor.material.opacity += (k * 0.55 - vapor.material.opacity) * Math.min(1, dt * 10);
+  vapor.visible = vapor.material.opacity > 0.01;
+  if (vapor.visible) { vapor.position.copy(player.pos).add(tmp.set(0, 1.2, 0)); vapor.lookAt(tmp2.copy(vapor.position).add(player.vel)); vapor.scale.setScalar(1 + Math.random() * 0.06); }
+  // low-level supersonic pass: a rolling shockwave on the ground
+  if (m >= 1 && (shockT -= dt) <= 0) {
+    shockT = 0.12;
+    const gh = groundH(player.pos.x, player.pos.z), alt = player.pos.y - gh;
+    if (alt < 80) {
+      const g = new THREE.Vector3(player.pos.x, gh + 0.5, player.pos.z), k2 = 1 - alt / 80;
+      blastAll(g, 18 + m * 6, (10 + m * 8) * k2, player.vel.clone().normalize(), 0.9);
+      birds.scare(g, 120);
+      if (alt < 40) shake = Math.min(1, shake + 0.06 * k2);
+      const dc = dummy.chest(tmp); if (dc.distanceTo(g) < 14 * k2 + 4 && dummy.mode === 'stand') dummy.hit(dc, 3, tmp2.copy(player.vel).setLength(18 * k2).add(tmp3.set(0, 10 * k2, 0)), 1);
+      if (gh < -2.5 && alt < 25) for (let i = 0; i < 6; i++) fx.dust.emit(g, rndVec(new THREE.Vector3(), 5).setY(10 + Math.random() * 14 * k2), new THREE.Color(0.85, 0.9, 0.95), 2.5, 1.8, 2, 0.5); // rooster tail over the sea
+    }
+  }
+}
+function sonicBoom() {
+  const p = player.pos.clone().add(tmp.set(0, 1.2, 0));
+  fx.wave(p, 26, 0.6, new THREE.Color(1.6, 1.7, 1.8)); fx.wave(p, 12, 0.35, new THREE.Color(2.5, 2.6, 2.8));
+  for (let i = 0; i < 40; i++) fx.dust.emit(p, rndVec(new THREE.Vector3(), 10).addScaledVector(player.vel, -0.05), new THREE.Color(0.9, 0.92, 0.95), 2 + Math.random() * 2, 0.8, 2.5, 0.5);
+  sfx.boom(2); sfx.thunder?.(0.05, 0.6);
+  shake = Math.min(1, shake + 0.5); hitstop = Math.max(hitstop, 0.04);
+  birds.scare(p, 200);
+  if (dummy.chest(tmp).distanceTo(p) < 200) dummy.say(['Was that a SONIC BOOM?!', 'Show-off!', 'My EARS!'], true);
+}
+// slamming into a far-city tower at speed brings it down
+function towerImpact(t, v) {
+  const p = player.pos.clone().add(tmp.set(0, 1.2, 0));
+  world.towers.topple(t, v);
+  fx.wave(p, 30, 0.5, new THREE.Color(3, 2.2, 1.4));
+  for (let i = 0; i < 60; i++) fx.sparks.emit(p, rndVec(new THREE.Vector3(), 40).addScaledVector(v, 0.1), new THREE.Color(5, 3.5, 2), 0.4 + Math.random() * 0.5, 0.8, 0.03);
+  for (let i = 0; i < 30; i++) fx.dust.emit(p, rndVec(new THREE.Vector3(), 18).addScaledVector(v, 0.05), new THREE.Color(0.6, 0.56, 0.5), 8 + Math.random() * 10, 3 + Math.random() * 3, 2, 0.55);
+  sfx.boom(2); sfx.crumble(500); sfx.glass();
+  shake = Math.min(1, shake + 0.7); hitstop = Math.max(hitstop, 0.08);
+  game.score += 2500; banner('TOWER DOWN', '+2500', 1.4);
 }
 
 function superLanding(vy) {
@@ -1113,7 +1192,8 @@ function updateAtmo(dt) {
   scene.environmentIntensity = (0.1 + 0.8 * dayK) * (1 - 0.35 * R) + atmo.flash * 0.8;
   // haze
   scene.fog.color.copy(FOG.day).lerp(FOG.dusk, golden * 0.7).lerp(FOG.night, 1 - dayK).lerp(tc.copy(FOG.rain).multiplyScalar(0.25 + 0.75 * dayK), R * 0.8);
-  scene.fog.density = 0.0021 + 0.0045 * R + 0.0008 * (1 - dayK);
+  scene.fog.density = (0.0021 + 0.0045 * R + 0.0008 * (1 - dayK)) * (camState.fogK ?? 1);
+  world.towers.uNight.value = 1 - dayK; world.cloudMat.emissiveIntensity = 0.1 + 0.3 * dayK; world.cloudMat.color.setScalar(0.25 + 0.75 * dayK);
   renderer.toneMappingExposure = 1.15 + 0.35 * (1 - dayK) + atmo.flash * 0.7;
   stars.material.opacity = (1 - dayK) * (1 - R) * 0.9;
   stars.position.copy(camera.position);
@@ -1178,11 +1258,15 @@ function updateCamera(dt) {
   camState.fov += (wantFov - camState.fov) * Math.min(1, dt * 4);
   camera.fov = camState.fov; camera.updateProjectionMatrix();
   finish.uniforms.uAb.value = Math.min(0.02, Math.max(0, sp - 40) * 0.0003) + s * 0.01;
+  sky.position.copy(camera.position);
+  const alt = Math.max(0, camera.position.y - groundH(camera.position.x, camera.position.z));
+  camera.near = Math.min(4, 0.1 + alt * 0.004 + Math.max(0, sp - 150) * 0.004);
+  camState.fogK = 1 - 0.93 * Math.min(1, Math.max(Math.max(0, camera.position.y - 25) / 350, Math.max(0, Math.hypot(camera.position.x, camera.position.z) - 500) / 1500));
 }
 
 let lampT = 0;
 function updateSunShadow() {
-  const t = new THREE.Vector3(player.pos.x, 0, player.pos.z);
+  const t = new THREE.Vector3(player.pos.x, Math.max(groundH(player.pos.x, player.pos.z), player.pos.y - 30), player.pos.z);
   const texel = 140 / sun.shadow.mapSize.x;
   t.x = Math.round(t.x / texel) * texel; t.z = Math.round(t.z / texel) * texel;
   sun.target.position.copy(t);
@@ -1202,7 +1286,7 @@ function updateSunShadow() {
 function speedLines(dt) {
   const sp = player.vel.length();
   if (sp < 55) return;
-  const n = Math.floor((sp - 50) * 0.08);
+  const n = Math.min(45, Math.floor((sp - 50) * 0.08));
   const d = tmp.copy(player.vel).normalize();
   for (let i = 0; i < n; i++) {
     const p = tmp2.copy(camera.position).addScaledVector(d, 18 + Math.random() * 20).add(rndVec(tmp3, 14));
@@ -1272,7 +1356,7 @@ function updateHud(rdt) {
     hud.powT = 0.1;
     for (const [b, f] of powCells) { const t = f(); if (b.textContent !== t) b.textContent = t; }
   }
-  hud.mode.textContent = tf.on ? 'TIME STOPPED' : player.flying ? (player.vel.length() > 45 ? 'SUPERSONIC' : 'FLIGHT') : 'GROUND';
+  { const m = player.vel.length() / MACH; hud.mode.textContent = tf.on ? 'TIME STOPPED' : player.flying ? (m >= 0.95 ? `MACH ${m.toFixed(1)}` : player.vel.length() > 45 ? 'HIGH SPEED' : 'FLIGHT') : 'GROUND'; }
   const c = player.charging ? Math.min(1, player.charge / 1.1) : 0;
   hud.charge.style.setProperty('--c', c);
   hud.charge.classList.toggle('on', player.charging);
@@ -1347,10 +1431,12 @@ function tick(rdt) {
     vox.updateIntegrity(dt, detach); updateCarHits(); bumpProps();
   } else { debris.flush(); cars.flush(); props.flush(); }
   traffic.update(time);
+  world.towers.update(wdt, frozen ? null : fx);
   vox.flush();
   if (!frozen) dummy.think(wdt, {
     playerPos: targetPos(), charging: !powers.decoy && player.charging, speed: powers.decoy ? 0 : player.vel.length(), playerAir: targetPos().y > 4,
     laserNear: player.laser && aim.point.distanceTo(dummy.chest(tmp)) < 5, laserOnMe: player.laser && aim.kind === 'dummy',
+    playerVel: powers.decoy ? null : targetVel(), playerHp: game.php / game.pmax, whiff: !powers.decoy && player.punchT > 0 && player.punchT < 0.3 && !player.punchHit,
   });
   dummy.update(wdt);
   if (!frozen) updateRocks(dt);
