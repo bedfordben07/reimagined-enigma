@@ -3,12 +3,12 @@
 // off chunks of building to throw, and sweeps a heat beam from its eyes. Everything that hurts the dummy
 // hurts it too: punches, blasts, missiles, meteors, the laser.
 import * as THREE from 'three';
-import { Robot } from './robot.js?v=1795442091';
-import { retint } from './heroes.js?v=1795442091';
-import { brushedMetalTex, pbr } from './textures.js?v=1795442091';
-import { groundH } from './world.js?v=1795442091';
+import { Robot } from './robot.js?v=1795442342';
+import { retint } from './heroes.js?v=1795442342';
+import { brushedMetalTex, pbr } from './textures.js?v=1795442342';
+import { groundH } from './world.js?v=1795442342';
 
-const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
+const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _r1 = new THREE.Vector3(), _r2 = new THREE.Vector3();
 const inTown = (x, z) => Math.abs(x) < 182 && Math.abs(z) < 182;
 
 export class Colossus {
@@ -73,7 +73,13 @@ export class Colossus {
   // ray against the body capsule: returns the distance along the ray, or null
   rayHit(o, d, maxT) {
     if (!this.active || this.dead) return null;
-    for (let t = 0; t < maxT; t += 1.5) { if (this._distTo(_b.copy(o).addScaledVector(d, t)) < this.radius) return t; }
+    // quick reject: is the ray anywhere near the body at all?
+    const mid = _r1.copy(this.pos); mid.y += 0.97 * this.S;
+    const tc = Math.max(0, _r2.subVectors(mid, o).dot(d));
+    if (tc - this.S * 1.2 > maxT || _r2.copy(o).addScaledVector(d, tc).distanceTo(mid) > this.S * 1.1 + this.radius) return null;
+    // march finely through the body (step scales with its size, so a slim boss can't be skipped)
+    const step = Math.max(0.15, this.radius * 0.35);
+    for (let t = Math.max(0, tc - this.S * 1.3); t < Math.min(maxT, tc + this.S * 1.3); t += step) { if (this._distTo(_r2.copy(o).addScaledVector(d, t)) < this.radius) return t; }
     return null;
   }
 
@@ -310,6 +316,7 @@ export class Warlord extends Colossus {
     for (let i = 0; i < 30; i++) g.fx.sparks.emit(p.clone().add(_b.set(0, 2, 0)), _a.set(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).multiplyScalar(14), new THREE.Color(3, 1, 6), 0.4, 0.2, 0.03);
     g.sfx.zap?.(1.2);
   }
+  get radius() { return 0.62 * this.S; } // its arms and shoulders are wide
   _choose(d, pl) {
     const g = this.g, air = pl.pos.y - this.pos.y > 6, r = Math.random();
     const car = d > 10 && g.cars?.cars.find((c) => !c.held && !c.burnt && c.p.distanceTo(this.pos) < 35);
