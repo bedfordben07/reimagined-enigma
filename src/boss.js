@@ -3,10 +3,10 @@
 // off chunks of building to throw, and sweeps a heat beam from its eyes. Everything that hurts the dummy
 // hurts it too: punches, blasts, missiles, meteors, the laser.
 import * as THREE from 'three';
-import { Robot } from './robot.js?v=1795441931';
-import { retint } from './heroes.js?v=1795441931';
-import { brushedMetalTex, pbr } from './textures.js?v=1795441931';
-import { groundH } from './world.js?v=1795441931';
+import { Robot } from './robot.js?v=1795442091';
+import { retint } from './heroes.js?v=1795442091';
+import { brushedMetalTex, pbr } from './textures.js?v=1795442091';
+import { groundH } from './world.js?v=1795442091';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const inTown = (x, z) => Math.abs(x) < 182 && Math.abs(z) < 182;
@@ -314,11 +314,14 @@ export class Warlord extends Colossus {
     const g = this.g, air = pl.pos.y - this.pos.y > 6, r = Math.random();
     const car = d > 10 && g.cars?.cars.find((c) => !c.held && !c.burnt && c.p.distanceTo(this.pos) < 35);
     let k;
+    // blinking is rare: at most once every 9 seconds, and mostly when you've got well away from it
+    const canBlink = this.t - (this.lastBlink ?? -99) > 9;
     if (d < 5 && !air) k = r < 0.75 ? 'hammer' : 'slam';
-    else if (d > 28 && r < 0.45) k = 'blink';
-    else if (air) k = r < 0.6 ? 'orb' : 'blink';
+    else if (canBlink && d > 35 && r < 0.3) k = 'blink';
+    else if (air) k = r < 0.75 ? 'orb' : canBlink && r < 0.85 ? 'blink' : 'orb';
     else if (car && r < 0.3) k = 'fling';
-    else k = r < 0.4 ? 'orb' : r < 0.75 ? 'slam' : 'blink';
+    else k = r < 0.5 ? 'orb' : 'slam';
+    if (k === 'blink') this.lastBlink = this.t;
     this.atk = { k, t: 0, fired: false, car };
     this.cool = Math.max(0.35, 0.9 - this.level * 0.15);
   }
@@ -351,17 +354,20 @@ export class Warlord extends Colossus {
       }
       if (K.t > 1.0) this.atk = null;
     } else if (K.k === 'blink') {
-      // vanish in a flash and reappear right behind you, already swinging
-      if (!K.fired) {
-        K.fired = true; this._blinkFx(this.pos);
+      // telegraphed: it gathers violet energy for most of a second, then vanishes and reappears a few
+      // metres from you, and pauses before it swings, so you can see it coming and get away
+      A.charge = Math.min(1, K.t / 0.8);
+      if (!K.fired && Math.random() < 0.6) g.fx.sparks.emit(this.pos.clone().add(_b.set((Math.random() - 0.5) * 2, Math.random() * 4, (Math.random() - 0.5) * 2)), _b.set(0, 4, 0), new THREE.Color(3, 1, 6), 0.4, -0.3, 0.03);
+      if (!K.fired && K.t > 0.8) {
+        K.fired = true; this._blinkFx(this.pos); A.charge = 0;
         const pf = _b.set(Math.sin(g.player.yaw ?? 0), 0, Math.cos(g.player.yaw ?? 0));
-        const to = g.player.pos.clone().addScaledVector(pf, -3.2);
+        const to = g.player.pos.clone().addScaledVector(pf, -7).add(_a.set((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4));
         to.y = inTown(to.x, to.z) ? 0 : groundH(to.x, to.z);
         if (g.player.pos.y - to.y > 6) to.y = g.player.pos.y - 2.6; // it can hang in the air for a moment
         this.pos.copy(to); this.yaw = Math.atan2(g.player.pos.x - to.x, g.player.pos.z - to.z);
         this._blinkFx(this.pos);
       }
-      if (K.t > 0.15) this.atk = { k: 'hammer', t: 0.15, fired: false };
+      if (K.fired && K.t > 1.5) { this.atk = null; this.cool = 1.2; }
     } else if (K.k === 'slam') {
       // leap high and come down on where you'll be
       if (!K.from) { K.from = this.pos.clone(); const tg = g.player.pos.clone().addScaledVector(g.player.vel, 0.6); K.to = new THREE.Vector3(tg.x, inTown(tg.x, tg.z) ? 0 : groundH(tg.x, tg.z), tg.z); K.dur = 0.55 + K.from.distanceTo(K.to) / 60; }
