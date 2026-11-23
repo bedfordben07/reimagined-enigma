@@ -53,6 +53,13 @@
   #shFill { background: #6fe6ff; }
   #shBox.on .unit { color: #6fe6ff; }
   @keyframes pulse { from { opacity: 0.55; } to { opacity: 1; } }
+  #spawnMenu { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 14px 16px; display: grid; gap: 6px; min-width: 260px; z-index: 6; }
+  #spawnMenu[hidden] { display: none !important; }
+  #spawnMenu b { letter-spacing: 0.2em; color: var(--amber); }
+  #spawnMenu .sub { font-size: 11px; color: var(--dim); }
+  #spawnMenu button { text-align: left; font: 14px var(--display); color: var(--ink); background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 8px 10px; cursor: pointer; }
+  #spawnMenu button:hover { border-color: var(--amber); }
+  #spawnMenu em { font-style: normal; color: var(--dim); font-size: 12px; margin-left: 6px; }
   #upg { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; background: rgba(6,8,10,0.55); z-index: 5; padding: 16px; }
   #upg[hidden] { display: none !important; }
   .upgHead { display: grid; justify-items: center; gap: 2px; text-shadow: 0 2px 10px rgba(0,0,0,0.7); }
@@ -116,7 +123,7 @@
 <div id="grabHint" class="panel" hidden><kbd>E</kbd>&nbsp; <span id="grabLabel">GRAB DUMMY</span></div>
 
 <div id="topHud">
-  <div id="waveName">WAVE 1 · ROOKIE</div>
+  <div id="waveName">PRESS R TO SPAWN AN ENEMY</div>
   <div class="bar dummy"><i id="dhpFill"></i></div>
   <div id="score"><span id="scoreVal">0</span><small id="comboVal">best 0</small></div>
 </div>
@@ -129,6 +136,15 @@
   <div id="freezeBox"><span class="unit">TIME STOP · X</span></div>
   <div class="meter" id="ultBox"><span class="unit">ULTIMATE · 4</span><div class="bar"><i id="ultFill"></i></div></div>
   <div class="meter" id="shBox"><span class="unit">SHIELD · 5</span><div class="bar"><i id="shFill"></i></div></div>
+</div>
+<div id="spawnMenu" class="panel" hidden>
+  <b>SPAWN</b><span class="sub">max 2 at once · a third replaces the oldest</span>
+  <button type="button" data-spawn="1"><kbd>1</kbd> Fighting Dummy</button>
+  <button type="button" data-spawn="2"><kbd>2</kbd> Champion</button>
+  <button type="button" data-spawn="3"><kbd>3</kbd> Colossus <em>16 m boss</em></button>
+  <button type="button" data-spawn="4"><kbd>4</kbd> Warlord <em>tyrant boss</em></button>
+  <button type="button" data-spawn="0"><kbd>0</kbd> Clear all</button>
+  <span class="sub">R or Esc to close</span>
 </div>
 <div id="upg" hidden>
   <div class="upgHead"><b>CHOOSE AN UPGRADE</b><span>press 1 · 2 · 3 or click</span></div>
@@ -157,7 +173,7 @@
   <div class="row"><span>Left click <kbd>J</kbd></span><span>punch · hold to charge</span></div>
   <div class="row"><span>Right click <kbd>K</kbd></span><span>laser eyes</span></div>
   <div class="row"><span><kbd>E</kbd></span><span>grab · throw dummy</span></div>
-  <div class="row"><span><kbd>R</kbd></span><span>new dummy in front</span></div>
+  <div class="row"><span><kbd>R</kbd></span><span>spawn menu: dummy, champion, Colossus, Warlord (max 2)</span></div>
   <div class="row"><span><kbd>T</kbd></span><span>rebuild town</span></div>
   <div class="row"><span><kbd>V</kbd></span><span>switch character</span></div>
   <div class="row"><span><kbd>O</kbd></span><span>ink outlines on/off</span></div>
@@ -166,14 +182,12 @@
   <div class="row"><span><kbd>Z</kbd></span><span>singularity (black hole)</span></div>
   <div class="row"><span>hold <kbd>B</kbd></span><span>telekinesis · release to fire</span></div>
   <div class="row"><span><kbd>N</kbd></span><span>thunderclap</span></div>
-  <div class="row"><span>hold <kbd>L</kbd></span><span>chain lightning</span></div>
   <div class="row"><span><kbd>M</kbd></span><span>meteor strike</span></div>
-  <div class="row"><span><kbd>Y</kbd></span><span>blink strike (teleport)</span></div>
   <div class="row"><span><kbd>P</kbd></span><span>gravity flip</span></div>
   <div class="row"><span><kbd>U</kbd></span><span>hologram decoy</span></div>
   <div class="row"><span><kbd>1</kbd></span><span>missiles · Volt: overdrive · Titan: boulder</span></div>
   <div class="row"><span><kbd>2</kbd></span><span>earthquake · Volt: storm · Titan: ground pound</span></div>
-  <div class="row"><span><kbd>3</kbd></span><span>tornado · Volt: bolt dash · Titan: rage</span></div>
+  <div class="row"><span><kbd>3</kbd></span><span>Volt: bolt dash · Titan: rage</span></div>
   <div class="row"><span><kbd>4 5 6</kbd></span><span>NOVA nuke (when charged) · shield · combat drones</span></div>
   <div class="row"><span><kbd>9</kbd></span><span>skip 6 hours (day / night)</span></div>
   <div class="row"><span><kbd>8</kbd></span><span>music on / off</span></div>
@@ -199,14 +213,11 @@
       <div><kbd>Z</kbd> black hole</div>
       <div><kbd>B</kbd> telekinesis</div>
       <div><kbd>N</kbd> thunderclap</div>
-      <div><kbd>L</kbd> lightning</div>
       <div><kbd>M</kbd> meteor</div>
-      <div><kbd>Y</kbd> blink</div>
       <div><kbd>P</kbd> gravity flip</div>
       <div><kbd>U</kbd> decoy</div>
       <div><kbd>1</kbd> missiles</div>
       <div><kbd>2</kbd> earthquake</div>
-      <div><kbd>3</kbd> tornado</div>
     </div>
     <div class="pick" role="group" aria-label="Character">
       <button type="button" data-char="0" aria-pressed="true"><b>Sentinel</b><span>silver android, twin-eye lasers</span></button>
@@ -238,4 +249,4 @@
   })();
 </script>
 
-<script type="module" src="./src/main.js?v=1795378812"></script>
+<script type="module" src="./src/main.js?v=1795441931"></script>

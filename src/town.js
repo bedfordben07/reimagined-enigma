@@ -1,7 +1,7 @@
 // Town layout: voxel buildings plus static scenery (roads, sidewalks, lamps, trees).
 import * as THREE from 'three';
-import { VS } from './voxels.js?v=1795378812';
-import * as T from './textures.js?v=1795378812';
+import { VS } from './voxels.js?v=1795441931';
+import * as T from './textures.js?v=1795441931';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11, GLASS_LIT: 12, AWN_RED: 13, AWN_GREEN: 14, AWN_BLUE: 15, SIGN_WARM: 16, SIGN_CYAN: 17, SIGN_PINK: 18, WOOD: 19 };

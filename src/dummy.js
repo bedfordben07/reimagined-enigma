@@ -1,9 +1,9 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795378812';
-import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795378812';
-import { groundH, WORLD_HALF } from './world.js?v=1795378812';
+import { brushedMetalTex, pbr } from './textures.js?v=1795441931';
+import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795441931';
+import { groundH, WORLD_HALF } from './world.js?v=1795441931';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
@@ -591,7 +591,7 @@ export class Dummy {
     // armour comes away as it takes damage
     const frac = Math.max(0, this.hp / this.v.hp);
     while (this.shedN < 4 && frac < 1 - (this.shedN + 1) * 0.2) this._shed();
-    if (this.hp <= 0 && !this.ko) { this.hp = 0; this.ko = true; this.mode = 'ragdoll'; this.atk = null; this.say(['I... need a... nap...', 'Tell my creator... I tried...', 'Ow. Okay. You win.'], true); this.onKO?.(); }
+    if (this.hp <= 0 && !this.ko) { this.hp = 0; this.ko = true; this.mode = 'ragdoll'; this.atk = null; this.say(['I... need a... nap...', 'Tell my creator... I tried...', 'Ow. Okay. You win.'], true); this.onKO?.(this); }
   }
 
   // knock a couple of armour pieces off (they fly away as rubble)

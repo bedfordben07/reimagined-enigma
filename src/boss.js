@@ -1,14 +1,13 @@
-// COLOSSUS: the boss that arrives every sixth wave. A 16 m android in black and crimson armour that falls
+// COLOSSUS: a giant boss you can summon. A 16 m android in black and crimson armour that falls
 // out of the sky, strides through buildings, stomps out shockwaves, backhands you across the town, tears
 // off chunks of building to throw, and sweeps a heat beam from its eyes. Everything that hurts the dummy
 // hurts it too: punches, blasts, missiles, meteors, the laser.
 import * as THREE from 'three';
-import { Robot } from './robot.js?v=1795378812';
-import { retint } from './heroes.js?v=1795378812';
-import { brushedMetalTex, pbr } from './textures.js?v=1795378812';
-import { groundH } from './world.js?v=1795378812';
+import { Robot } from './robot.js?v=1795441931';
+import { retint } from './heroes.js?v=1795441931';
+import { brushedMetalTex, pbr } from './textures.js?v=1795441931';
+import { groundH } from './world.js?v=1795441931';
 
-const S = 8; // scale: the rig is ~2 m tall
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const inTown = (x, z) => Math.abs(x) < 182 && Math.abs(z) < 182;
 
@@ -16,6 +15,7 @@ export class Colossus {
   constructor(g) {
     this.g = g; // { scene, fx, sfx, vox, smash, blastAll, fire, player, chest(), knockPlayer, hurtPlayer, quake }
     this.active = false; this.robot = null;
+    this.S = 8; this.name = 'COLOSSUS'; this.baseHp = 4000; this.walkSpeed = 9; this.reach = 13; this.dropH = 260; this.score = 10000;
     this.rocks = [];
     const bm = new THREE.MeshBasicMaterial({ color: new THREE.Color(10, 1.2, 0.6), transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
     this.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1, 12, 1, true), bm);
@@ -33,18 +33,19 @@ export class Colossus {
       graphite: pbr(brushedMetalTex(83, '#141518', 0.4), { metalness: 0.8 }),
     }, 0xff2010, 0xff3010);
     r.eyeIntensity = 12;
-    r.root.scale.setScalar(S);
+    r.root.scale.setScalar(this.S);
     r.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
     this.robot = r;
   }
 
-  spawn(near, level = 0) {
+  spawn(near, level = 0, at = null) {
     if (!this.robot) this._build();
     const a = Math.random() * Math.PI * 2;
-    const x = Math.max(-150, Math.min(150, near.x + Math.cos(a) * 70)), z = Math.max(-150, Math.min(150, near.z + Math.sin(a) * 70));
-    this.pos = new THREE.Vector3(x, 260, z);
+    const x = at ? at.x : near.x + Math.cos(a) * 70, z = at ? at.z : near.z + Math.sin(a) * 70;
+    this.pos = new THREE.Vector3(x, (inTown(x, z) ? 0 : groundH(x, z)) + this.dropH, z);
     this.yaw = Math.atan2(near.x - x, near.z - z);
-    this.max = Math.round(4000 * (1 + level * 0.6)); this.hp = this.max; this.level = level;
+    this.max = Math.round(this.baseHp * (1 + level * 0.6)); this.hp = this.max; this.level = level;
+    this.crashed = false; this.rocks.forEach((k) => this.g.scene.remove(k.m)); this.rocks = [];
     this.state = 'drop'; this.t = 0; this.cool = 2; this.atk = null; this.vy = -60;
     this.active = true; this.dead = false;
     this.g.scene.add(this.robot.root);
@@ -53,9 +54,9 @@ export class Colossus {
   }
 
   // top of the head and the feet, for hit tests
-  _axis(a, b) { a.copy(this.pos); b.copy(this.pos).y += 1.95 * S; }
+  _axis(a, b) { a.copy(this.pos); b.copy(this.pos).y += 1.95 * this.S; }
   _distTo(p) { this._axis(_a, _b); const ab = _b.sub(_a); const t = Math.max(0, Math.min(1, _v.subVectors(p, _a).dot(ab) / ab.lengthSq())); return _v.copy(_a).addScaledVector(ab, t).distanceTo(p); }
-  get radius() { return 0.42 * S; }
+  get radius() { return 0.42 * this.S; }
 
   damage(n, at = null) {
     if (!this.active || this.dead || this.state === 'drop') return;
@@ -79,7 +80,7 @@ export class Colossus {
   _die() {
     this.dead = true; this.state = 'fall'; this.t = 0; this.atk = null; this.anim.laser = false; this.beam.visible = false;
     this.fallAxis = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)); // topple forward
-    this.g.onDefeat?.();
+    this.g.onDefeat?.(this);
   }
 
   update(dt) {
@@ -113,21 +114,21 @@ export class Colossus {
       let dy = want - this.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       this.yaw += Math.max(-1.4 * dt, Math.min(1.4 * dt, dy));
       this.cool -= dt;
-      if (!this.atk && d > 13 && Math.abs(dy) < 1.2) {
+      if (!this.atk && d > this.reach && Math.abs(dy) < 1.2) {
         walk = 1;
-        const sp = 9 + this.level * 2;
+        const sp = this.walkSpeed + this.level * 2;
         this.pos.x += Math.sin(this.yaw) * sp * dt; this.pos.z += Math.cos(this.yaw) * sp * dt;
         this.pos.y = inTown(this.pos.x, this.pos.z) ? 0 : groundH(this.pos.x, this.pos.z);
         this.smashT = (this.smashT || 0) - dt;
         if (this.smashT <= 0 && inTown(this.pos.x, this.pos.z)) {
           this.smashT = 0.12;
           const fw = _a.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
-          const p = this.pos.clone().addScaledVector(fw, 2.2 + Math.random() * 1.5).add(_b.set((Math.random() - 0.5) * 5, 1 + Math.random() * 14, 0));
-          if (g.vox.solidAt(p.x, p.y, p.z)) g.smash(p, 2.4, { vel: fw.clone().multiplyScalar(14), inherit: 1, outward: 8, up: 3, max: 600 });
+          const p = this.pos.clone().addScaledVector(fw, 2.2 + Math.random() * 1.5).add(_b.set((Math.random() - 0.5) * 0.6 * this.S, 0.5 + Math.random() * 1.75 * this.S, 0));
+          if (g.vox.solidAt(p.x, p.y, p.z)) g.smash(p, 0.3 * this.S + 0.4, { vel: fw.clone().multiplyScalar(14), inherit: 1, outward: 8, up: 3, max: 600 });
         }
         // footfalls
         this.stepT = (this.stepT || 0) - dt;
-        if (this.stepT <= 0) { this.stepT = 0.5; g.shake(Math.max(0, 0.25 - d / 400)); g.sfx.boom(0.5); g.fx.ring(this.pos.clone(), 6); g.blastAll(this.pos.clone(), 8, 10, null, 0.6); }
+        if (this.stepT <= 0) { this.stepT = 0.5 * Math.sqrt(this.S / 8); g.shake(this.S / 8 * Math.max(0, 0.25 - d / 400)); g.sfx.boom(0.5); g.fx.ring(this.pos.clone(), 0.75 * this.S); if (this.S > 4) g.blastAll(this.pos.clone(), this.S, 10, null, 0.6); }
       }
       if (!this.atk && this.cool <= 0) this._choose(d, pl);
       if (this.atk) this._attack(dt, d);
@@ -161,7 +162,7 @@ export class Colossus {
     // pose the rig
     if (this.state !== 'fall') { R.root.position.copy(this.pos); R.root.rotation.set(0, this.yaw, 0); } else R.root.position.copy(this.pos).y += Math.max(0, this.t - 6) * -3;
     let rel = Math.atan2(toP.x, toP.z) - this.yaw; rel = Math.atan2(Math.sin(rel), Math.cos(rel));
-    const pitch = Math.atan2(g.chest().y - (this.pos.y + 1.8 * S), Math.max(1, d));
+    const pitch = Math.atan2(g.chest().y - (this.pos.y + 1.8 * this.S), Math.max(1, d));
     R.animate({ dt, flying: false, grounded: this.state !== 'drop', hSpeed: walk * 4.5, fwdSpeed: walk * 4.5, sideSpeed: 0, vSpeed: this.state === 'drop' ? -20 : 0, boost: false,
       aimPitch: -pitch, aimYawRel: Math.max(-1, Math.min(1, rel)), turnRate: 0, charge: A.charge, punchT: A.punchT, holding: false, throwWind: A.throwWind, throwT: A.throwT, laser: A.laser, tk: false, clapT: 0, accFwd: 0, accSide: 0 });
     R.root.updateMatrixWorld(true);
@@ -254,3 +255,159 @@ export class Colossus {
   }
 }
 const _q1 = new THREE.Quaternion(), _y1 = new THREE.Vector3(0, 1, 0);
+
+// WARLORD: a conqueror-class tyrant (original design). About 4.6 m tall and built like a fortress:
+// violet-black plate with gold trim, swept-back horns, and a massive power gauntlet on the right hand
+// with a burning core. Smaller than Colossus but fast, cunning and brutal: it blinks behind you,
+// hammers you up close, fires gauntlet orbs, leaps in for crushing slams and flings cars with its mind.
+class BruteRig extends Robot {
+  _physique() { super._physique({ chest: 1.5, shoulders: 1.42, arms: 1.6, hands: 1.35, waist: 1.12, thigh: 1.42, calf: 1.32 }); }
+}
+export class Warlord extends Colossus {
+  constructor(g) {
+    super(g);
+    this.S = 2.3; this.name = 'WARLORD'; this.baseHp = 6500; this.walkSpeed = 11; this.reach = 3.2; this.dropH = 45; this.score = 15000;
+    this.orbs = [];
+    this.orbGeo = new THREE.SphereGeometry(0.7, 20, 14);
+    this.orbMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 1.2, 7) });
+  }
+  _build() {
+    const r = new BruteRig();
+    const gold = pbr(brushedMetalTex(92, '#c9a23a', 0.25), { metalness: 1 });
+    retint(r, {
+      silver: pbr(brushedMetalTex(91, '#6a4f8c', 0.28), { metalness: 0.75, clearcoat: 0.7, clearcoatRoughness: 0.2, envMapIntensity: 1.6 }, THREE.MeshPhysicalMaterial),
+      steel: gold,
+      graphite: pbr(brushedMetalTex(93, '#16121c', 0.4), { metalness: 0.8 }),
+    }, 0xb040ff, 0xd070ff);
+    r.eyeIntensity = 10;
+    const M = (geo, mat, parent, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+    // swept-back horns and a crest
+    for (const sx of [-1, 1]) {
+      const h = M(new THREE.ConeGeometry(0.055, 0.5, 12), gold, r.head, 0.1 * sx, 0.16, -0.04);
+      h.rotation.set(-0.9, 0, -sx * 0.55);
+    }
+    M(new THREE.ConeGeometry(0.02, 0.16, 6), gold, r.head, 0, 0.17, 0.04).rotation.x = -0.4;
+    // the power gauntlet: an armoured shell over the right fist, a burning core, gold knuckle plates
+    const hand = r.arms[1].hand;
+    const shell = M(new THREE.SphereGeometry(0.11, 20, 14), gold, hand, 0, -0.06, 0); shell.scale.set(1, 1.3, 1);
+    const coreMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 1.6, 8) });
+    this.core = M(new THREE.SphereGeometry(0.045, 16, 10), coreMat, hand, 0, -0.04, 0.1); this.core.castShadow = false;
+    for (let i = 0; i < 4; i++) M(new THREE.BoxGeometry(0.03, 0.05, 0.03), gold, hand, -0.05 + i * 0.033, -0.17, 0.06);
+    // shoulder spikes
+    for (const sx of [-1, 1]) M(new THREE.ConeGeometry(0.03, 0.18, 8), gold, r.arms[sx].sh, 0.06 * sx, 0.09, 0).rotation.z = -sx * 0.5;
+    r.root.scale.setScalar(this.S);
+    r.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    this.robot = r;
+  }
+  spawn(near, level = 0, at = null) {
+    super.spawn(near, level, at || near.clone().add(new THREE.Vector3(Math.cos(Math.random() * 6.28) * 30, 0, Math.sin(Math.random() * 6.28) * 30)));
+    this.orbs.forEach((o) => this.g.scene.remove(o.m)); this.orbs = [];
+    this.cool = 1;
+  }
+  _blinkFx(p) {
+    const g = this.g;
+    g.fx.wave(p.clone().add(_b.set(0, 2, 0)), 6, 0.35, new THREE.Color(3, 1, 5));
+    for (let i = 0; i < 30; i++) g.fx.sparks.emit(p.clone().add(_b.set(0, 2, 0)), _a.set(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).multiplyScalar(14), new THREE.Color(3, 1, 6), 0.4, 0.2, 0.03);
+    g.sfx.zap?.(1.2);
+  }
+  _choose(d, pl) {
+    const g = this.g, air = pl.pos.y - this.pos.y > 6, r = Math.random();
+    const car = d > 10 && g.cars?.cars.find((c) => !c.held && !c.burnt && c.p.distanceTo(this.pos) < 35);
+    let k;
+    if (d < 5 && !air) k = r < 0.75 ? 'hammer' : 'slam';
+    else if (d > 28 && r < 0.45) k = 'blink';
+    else if (air) k = r < 0.6 ? 'orb' : 'blink';
+    else if (car && r < 0.3) k = 'fling';
+    else k = r < 0.4 ? 'orb' : r < 0.75 ? 'slam' : 'blink';
+    this.atk = { k, t: 0, fired: false, car };
+    this.cool = Math.max(0.35, 0.9 - this.level * 0.15);
+  }
+  _attack(dt, d) {
+    const g = this.g, A = this.anim, K = this.atk;
+    K.t += dt;
+    const fw = _a.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).clone();
+    const S = this.S;
+    if (K.k === 'hammer') {
+      A.charge = Math.min(1, K.t / 0.4);
+      if (K.t > 0.4 && !K.fired) {
+        K.fired = true; A.charge = 0; A.punchT = 1;
+        const hand = this.pos.clone().addScaledVector(fw, 2.2).add(_b.set(0, 2.6, 0));
+        g.smash(hand, 2.2, { vel: fw.clone().multiplyScalar(25), outward: 10, up: 4, max: 800 }); g.blastAll(hand, 8, 28, fw, 0.5);
+        g.fx.wave(hand, 4, 0.25, new THREE.Color(3, 1, 5));
+        if (g.chest().distanceTo(hand) < 4.5) { g.knockPlayer(fw.clone().add(_b.set(0, 0.35, 0)), 70, 'punch'); g.hurtPlayer(38); }
+        g.sfx.boom(1); g.shake(0.3);
+      }
+      if (K.t > 0.9) this.atk = null;
+    } else if (K.k === 'orb') {
+      A.charge = Math.min(1, K.t / 0.6);
+      this.core.scale.setScalar(1 + A.charge * 2.5);
+      if (K.t > 0.6 && !K.fired) {
+        K.fired = true; A.charge = 0; A.punchT = 1; this.core.scale.setScalar(1);
+        const from = this.robot.handWorld(1, new THREE.Vector3());
+        const tgt = g.chest().addScaledVector(g.player.vel, Math.min(1, from.distanceTo(g.chest()) / 70));
+        const m = new THREE.Mesh(this.orbGeo, this.orbMat); m.position.copy(from); g.scene.add(m);
+        this.orbs.push({ p: from, v: tgt.sub(from).setLength(70), m, life: 4 });
+        g.sfx.zap?.(1.5);
+      }
+      if (K.t > 1.0) this.atk = null;
+    } else if (K.k === 'blink') {
+      // vanish in a flash and reappear right behind you, already swinging
+      if (!K.fired) {
+        K.fired = true; this._blinkFx(this.pos);
+        const pf = _b.set(Math.sin(g.player.yaw ?? 0), 0, Math.cos(g.player.yaw ?? 0));
+        const to = g.player.pos.clone().addScaledVector(pf, -3.2);
+        to.y = inTown(to.x, to.z) ? 0 : groundH(to.x, to.z);
+        if (g.player.pos.y - to.y > 6) to.y = g.player.pos.y - 2.6; // it can hang in the air for a moment
+        this.pos.copy(to); this.yaw = Math.atan2(g.player.pos.x - to.x, g.player.pos.z - to.z);
+        this._blinkFx(this.pos);
+      }
+      if (K.t > 0.15) this.atk = { k: 'hammer', t: 0.15, fired: false };
+    } else if (K.k === 'slam') {
+      // leap high and come down on where you'll be
+      if (!K.from) { K.from = this.pos.clone(); const tg = g.player.pos.clone().addScaledVector(g.player.vel, 0.6); K.to = new THREE.Vector3(tg.x, inTown(tg.x, tg.z) ? 0 : groundH(tg.x, tg.z), tg.z); K.dur = 0.55 + K.from.distanceTo(K.to) / 60; }
+      const u = Math.min(1, K.t / K.dur);
+      A.charge = u < 0.2 ? u * 5 : 0;
+      this.pos.lerpVectors(K.from, K.to, u); this.pos.y += Math.sin(u * Math.PI) * (6 + K.from.distanceTo(K.to) * 0.25);
+      if (u >= 1 && !K.fired) {
+        K.fired = true;
+        const p = this.pos.clone();
+        g.smash(p.clone().add(_b.set(0, 0.4, 0)), 4, { outward: 16, up: 10, max: 2500 }); g.blastAll(p, 22, 40, null, 1.2);
+        g.fx.wave(p.clone().add(_b.set(0, 0.5, 0)), 18, 0.45, new THREE.Color(3, 1, 5)); g.fx.ring(p, 24); g.fx.addScorch(p, 6);
+        g.sfx.boom(1.8); g.shake(0.7); g.hitstop(0.06);
+        const pc = g.chest(), pd = pc.distanceTo(p);
+        if (pd < 20) { g.knockPlayer(_b.set(pc.x - p.x, 0, pc.z - p.z), 30 + 30 * (1 - pd / 20), 'slam'); g.hurtPlayer(32 * (1 - pd / 22)); }
+      }
+      if (K.t > K.dur + 0.4) this.atk = null;
+    } else if (K.k === 'fling') {
+      // seize a car with the gauntlet's power and hurl it
+      const c = K.car;
+      A.charge = Math.min(1, K.t / 0.7);
+      if (c && !K.fired) { for (let i = 0; i < 2; i++) g.fx.sparks.emit(c.p, _b.set(Math.random() - 0.5, 1, Math.random() - 0.5).multiplyScalar(4), new THREE.Color(3, 1, 6), 0.3, -0.2, 0.03); }
+      if (K.t > 0.7 && !K.fired) {
+        K.fired = true; A.charge = 0; A.punchT = 1;
+        if (c) { const v = g.chest().sub(c.p); const T = Math.max(0.5, v.length() / 55); v.divideScalar(T); v.y += 10 * T; g.cars.hit(c, c.p.clone(), v); c.thrownBy = 'dummy'; }
+        g.sfx.whoosh();
+      }
+      if (K.t > 1.1) this.atk = null;
+    }
+    if (this.atk == null) A.charge = 0;
+  }
+  _update(dt) {
+    super._update(dt);
+    // gauntlet orbs: fast, straight, and they explode
+    const g = this.g;
+    for (const o of this.orbs) {
+      o.life -= dt; o.p.addScaledVector(o.v, dt); o.m.position.copy(o.p); o.m.scale.setScalar(1 + Math.random() * 0.2);
+      if (Math.random() < 0.7) g.fx.sparks.emit(o.p, _b.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(3), new THREE.Color(3, 1, 6), 0.25, 0, 0.03);
+      const gy = inTown(o.p.x, o.p.z) ? 0 : groundH(o.p.x, o.p.z);
+      if (o.life <= 0 || o.p.y < gy + 0.3 || (inTown(o.p.x, o.p.z) && g.vox.solidAt(o.p.x, o.p.y, o.p.z)) || o.p.distanceTo(g.chest()) < 1.8) {
+        o.dead = true; g.scene.remove(o.m);
+        g.smash(o.p.clone(), 3, { outward: 12, up: 5, max: 1200 }); g.blastAll(o.p.clone(), 12, 34, null, 0.8);
+        g.fx.wave(o.p.clone(), 9, 0.35, new THREE.Color(3, 1, 5)); g.sfx.boom(1.3); g.shake(0.35);
+        const pd = o.p.distanceTo(g.chest()); if (pd < 8) { g.knockPlayer(_a.subVectors(g.chest(), o.p), 50 * (1 - pd / 9)); g.hurtPlayer(34 * (1 - pd / 9)); }
+      }
+    }
+    this.orbs = this.orbs.filter((o) => !o.dead);
+    if (this.core && this.active) this.core.material.color.setRGB(5 + Math.sin(this.t * 8) * 1.5, 1.6, 8);
+  }
+}

@@ -2,8 +2,8 @@
 // instanced meshes (body, glass, wheels, lights) so hundreds of cars stay cheap. Fast cars plough through
 // walls; thrown cars hurt whoever they hit. Can be held overhead by the player or the dummy.
 import * as THREE from 'three';
-import { extrude, smoothShape, lathe } from './geom.js?v=1795378812';
-import { VS } from './voxels.js?v=1795378812';
+import { extrude, smoothShape, lathe } from './geom.js?v=1795441931';
+import { VS } from './voxels.js?v=1795441931';
 
 const G = -20;
 const HX = 0.9, HY = 0.72, HZ = 2.15; // half extents: width, height, length
