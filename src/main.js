@@ -7,29 +7,30 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795442342';
-import { DebrisSystem } from './debris.js?v=1795442342';
-import { Dummy, VARIANTS } from './dummy.js?v=1795442342';
-import { Robot } from './robot.js?v=1795442342';
-import { Spectre } from './spectre.js?v=1795442342';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795442342';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795442342';
-import { Life } from './life.js?v=1795442342';
-import { Colossus, Warlord } from './boss.js?v=1795442342';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795442342';
+import { VoxelWorld, VS } from './voxels.js?v=1795443674';
+import { DebrisSystem } from './debris.js?v=1795443674';
+import { Dummy, VARIANTS } from './dummy.js?v=1795443674';
+import { Robot } from './robot.js?v=1795443674';
+import { Spectre } from './spectre.js?v=1795443674';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795443674';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795443674';
+import { VoxelTrain } from './train.js?v=1795443674';
+import { Life } from './life.js?v=1795443674';
+import { Colossus, Warlord } from './boss.js?v=1795443674';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795443674';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
-let life = null, boss = null;
-import { addOutline } from './outline.js?v=1795442342';
-import { Effects } from './effects.js?v=1795442342';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795442342';
-import { CarSystem } from './cars.js?v=1795442342';
-import { Powers } from './powers.js?v=1795442342';
-import { PropSystem } from './props.js?v=1795442342';
-import { Birds } from './birds.js?v=1795442342';
-import { FireSystem } from './fire.js?v=1795442342';
-import { Sfx } from './audio.js?v=1795442342';
+let life = null, boss = null, train = null;
+import { addOutline } from './outline.js?v=1795443674';
+import { Effects } from './effects.js?v=1795443674';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795443674';
+import { CarSystem } from './cars.js?v=1795443674';
+import { Powers } from './powers.js?v=1795443674';
+import { PropSystem } from './props.js?v=1795443674';
+import { Birds } from './birds.js?v=1795443674';
+import { FireSystem } from './fire.js?v=1795443674';
+import { Sfx } from './audio.js?v=1795443674';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -182,7 +183,8 @@ function smash(center, radius, o = {}) {
   center = center.clone();
   if (o.vel) o = { ...o, vel: o.vel.clone() };
   const removed = vox.breakSphere(center, radius, [], o.max ?? 700);
-  if (!removed.length) return 0;
+  const tn = train ? train.smash(center, radius, o) : 0;
+  if (!removed.length) return tn;
   if (life) life.heat += removed.length * 0.35;
   if (typeof game !== 'undefined') game.score += removed.length;
   const inherit = o.inherit ?? 0.5, outward = o.outward ?? 5, up = o.up ?? 2;
@@ -312,7 +314,7 @@ function updateFreeze(dt) {
   tf.energy = 1;
   tf.k += ((tf.on ? 1 : 0) - tf.k) * Math.min(1, dt * 7);
   if (tf.ripple >= 0) { tf.ripple += dt / 0.7; if (tf.ripple > 1) tf.ripple = -1; }
-  finish.uniforms.uFreeze.value = tf.k;
+  finish.uniforms.uFreeze.value = Math.max(tf.k, RW.k * 0.85);
   finish.uniforms.uRipple.value = tf.ripple;
 
   $('freezeBox').classList.toggle('active', tf.on);
@@ -359,6 +361,11 @@ life = new Life({
   scene, fx, sfx, vox, smash, blastAll, cars, dummy, get fire() { return fire; },
   score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1.4); },
 });
+train = new VoxelTrain({
+  scene, debris, MAT, fx, sfx, vox, smash, blastAll, cars, dummy, get fire() { return fire; }, get player() { return player; },
+  chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
+  score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1.4); },
+});
 const bossCtx = {
   scene, fx, sfx, vox, smash, blastAll, cars, get fire() { return fire; }, get player() { return player; },
   chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
@@ -403,7 +410,7 @@ function spawnEnemy(type) {
     const p = player.pos.clone().addScaledVector(f, 9); p.x += (Math.random() - 0.5) * 6;
     p.y = d._groundAt(p.x, p.z, Math.max(p.y + 2, 70));
     d.active = true; d.group.visible = true; d.ko = false; d.fights = fightsPref;
-    d.setVariant(type === 'champion' ? VARIANTS[4] : { ...VARIANTS[0], name: 'Fighting Dummy' });
+    d.setVariant(type === 'champion' ? { ...VARIANTS[4], invulnerable: true } : { ...VARIANTS[0], name: 'Fighting Dummy' });
     d.spawn(p, Math.atan2(player.pos.x - p.x, player.pos.z - p.z));
     d.say(type === 'champion' ? ['Finally. A worthy opponent.', 'Kneel before the Champion.'] : ['Fresh out of the box!', 'Let us dance.'], true);
     enemies.push({ kind: 'dummy', ref: d });
@@ -442,12 +449,13 @@ const POW_STATE = {
   OVERDRIVE: () => (heroP.overdrive > 0 ? 'ON' : 'off'), STORM: () => (heroP.storms.length ? 'striking' : 'ready'),
   BOULDER: () => (heroP.boulders.length ? 'thrown' : 'ready'), 'GROUND POUND': () => (heroP.pound ? heroP.pound.phase : 'ready'),
   RAGE: () => (heroP.rage > 0 ? 'RAGING' : 'off'),
+  REWIND: () => (RW.on ? 'rewinding' : `hold · ${Math.min(RW.keep, RW.snaps.length / 10).toFixed(0)}s`),
   NOVA: () => (ult.k >= 1 ? 'READY' : Math.round(ult.k * 100) + '%'), SHIELD: () => (shield.on ? 'UP' : Math.round(shield.e * 100) + '%'), DRONES: () => (drones.length ? Math.ceil(drones[0].t) + 's' : 'ready'), 'STOP TIME': () => (tf.on ? 'stopped' : 'ready'),
 };
 let powCells = [];
 function buildPowerHud() {
   const el = $('powers'); el.textContent = '';
-  powCells = [...robot.kit.hud, ['4', 'NOVA'], ['5', 'SHIELD'], ['6', 'DRONES']].map(([k, name]) => {
+  powCells = [...robot.kit.hud, ['4', 'NOVA'], ['5', 'SHIELD'], ['6', 'DRONES'], ['7', 'REWIND']].map(([k, name]) => {
     const s = document.createElement('span'); s.textContent = `${k} ${name} `;
     const b = document.createElement('b'); b.textContent = 'ready'; s.appendChild(b); el.appendChild(s);
     return [b, POW_STATE[name] || (() => 'ready')];
@@ -601,7 +609,7 @@ function updateGame(dt) {
   if (game.score > game.best) { game.best = game.score; if (Math.random() < dt) { try { localStorage.setItem('rubble-best', String(Math.round(game.best))); } catch (e) { /* ignore */ } } }
   // the top bar follows the nearest enemy
   let tgtName = 'PRESS R TO SPAWN AN ENEMY', tgtK = 0, bestD = 1e9;
-  for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase(); tgtK = d.hp / d.v.hp; } }
+  for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase() + (d.v.invulnerable ? ' · INDESTRUCTIBLE' : ''); tgtK = d.hp / d.v.hp; } }
   for (const b of liveBosses()) { const dd = b._distTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = b.name; tgtK = b.hp / b.max; } }
   $('waveName').textContent = tgtName;
   $('dhpFill').style.transform = `scaleX(${Math.max(0, tgtK)})`;
@@ -714,6 +722,7 @@ function updateAim() {
   if (dummy.mode !== 'held') { const dh = dummy.raycast(o, d, best); if (dh) { best = dh.t; kind = 'dummy'; aim.normal.copy(d).negate(); } }
   aim.car = null;
   { const ch = cars.raycast(o, d, best); if (ch && ch.car !== player.holdingCar) { best = ch.t; kind = 'car'; aim.car = ch.car; aim.normal.copy(d).negate(); } }
+  { const th = train.raycast(o, d, best); if (th) { best = th.t; kind = 'voxel'; aim.normal.copy(d).negate(); } }
   if (boss.active) { const bt = boss.rayHit(o, d, best); if (bt != null) { best = bt; kind = 'boss'; aim.normal.copy(d).negate(); } }
   if (d.y < 0) {
     const tg = -o.y / d.y;
@@ -824,7 +833,7 @@ function respawnDummy() {
   game.nextWaveT = -1;
 }
 function rebuildTown() {
-  debris.clear(); buildVoxelTown(vox); fx.clearScorch();
+  debris.clear(); buildVoxelTown(vox); fx.clearScorch(); train.newTrain(); RW.snaps.length = 0; RW.log.length = 0;
   player.holding = false; player.throwWind = 0; if (player.holdingCar) { cars.release(player.holdingCar, new THREE.Vector3(), null); player.holdingCar = null; }
 }
 
@@ -897,6 +906,7 @@ function updatePunch(dt) {
   const reach = 2.6;
   const vh = vox.raycast(c, dir, reach);
   if (vh) { punchImpact(c.clone().addScaledVector(dir, vh.t), dir, player.punchPow); return; }
+  { const th = train.raycast(c, dir, reach); if (th) { punchImpact(c.clone().addScaledVector(dir, th.t), dir, player.punchPow); return; } }
   dummy.chest(tmp);
   const fist = c.clone().addScaledVector(dir, 1.4);
   if (tmp.distanceTo(fist) < 1.6 && dummy.mode !== 'held') { punchImpact(tmp.clone(), dir, player.punchPow); return; }
@@ -1046,6 +1056,13 @@ function updatePlayer(dt) {
         const dl = delta.length();
         if (dl > 1e-6) { delta.divideScalar(dl); const vn = v.dot(delta); if (vn < 0) v.addScaledVector(delta, -vn); }
         if (upN > 0.6 && bh === BODY[0]) player.grounded = true;
+      }
+    }
+    { // the train: plough through it at speed, otherwise get pushed off it
+      const hp = tmp3.set(player.pos.x, player.pos.y + 1.1, player.pos.z), car = train.solidAt(hp);
+      if (car) {
+        if (sp > 14) { smash(hp.clone().addScaledVector(v, 0.02), 2, { vel: v, inherit: 0.7, outward: 7, up: 2 }); v.multiplyScalar(0.96); shake = Math.min(1, shake + 0.1); }
+        else { const lp = train._toLocal(car, hp, new THREE.Vector3()); if (lp.y > 3) lp.y = 4.1; else lp.x = Math.sign(lp.x || 1) * 1.9; car.g.localToWorld(lp); player.pos.set(lp.x, lp.y - 1.1, lp.z); if (lp.y > 3) { if (v.y < 0) v.y = 0; player.grounded = true; } }
       }
     }
     if (Math.abs(player.pos.x) > 300 || Math.abs(player.pos.z) > 300) {
@@ -1349,6 +1366,95 @@ function updateDrones(dt) {
   drones = drones.filter((D) => D.t > 0);
 }
 
+// ---------------------------------------------------------------- REWIND (hold 7)
+// The last 12 seconds are recorded: every block that breaks (buildings and the train), and ten snapshots
+// a second of you, the dummies, the bosses, the cars, the street props and the train. Holding 7 runs it
+// all backwards: rubble flies back into the walls, the train rerails, the dummy un-flies. Let go and
+// time carries on from there.
+const RW = { snaps: [], log: [], on: false, cursor: 0, keep: 12, snapT: 0, k: 0, tickT: 0 };
+vox.onRemove = (i, m, mat, col) => { if (!RW.on) RW.log.push({ t: time, i, m, mat, col }); };
+const V3 = () => new THREE.Vector3();
+function takeSnap() {
+  const cs = cars.cars, ps = props.props;
+  const carA = new Float32Array(cs.length * 10), propA = new Float32Array(ps.length * 7);
+  cs.forEach((c, i) => { c.p.toArray(carA, i * 10); c.q.toArray(carA, i * 10 + 3); c.v.toArray(carA, i * 10 + 7); });
+  ps.forEach((p, i) => { p.p.toArray(propA, i * 7); p.q.toArray(propA, i * 7 + 3); });
+  RW.snaps.push({
+    t: time,
+    pl: { pos: player.pos.clone(), vel: player.vel.clone(), php: game.php, flying: player.flying, yaw: player.yaw },
+    dm: dummies.map((d) => ({ active: d.active, ko: d.ko, hp: d.hp, mode: d.mode, root: d.root.clone(), yaw: d.yaw, p: d.p.map((v) => v.clone()), o: d.o.map((v) => v.clone()), vis: d.group.visible })),
+    bs: bossPool.map((b) => ({ b, active: b.active, dead: b.dead, hp: b.hp, pos: b.pos ? b.pos.clone() : null, yaw: b.yaw, state: b.state, t: b.t })),
+    carA, propA, tr: train.snapshot(),
+  });
+  while (RW.snaps.length && RW.snaps[0].t < time - RW.keep) RW.snaps.shift();
+  // forget blocks older than the window
+  let n = 0; while (n < RW.log.length && RW.log[n].t < time - RW.keep) n++;
+  if (n > 2000 || (n && RW.log.length < 5000)) RW.log.splice(0, n);
+}
+function applySnap(A, B, k) {
+  const L = (a, b) => (b ? a.clone().lerp(b, k) : a.clone());
+  player.pos.copy(L(A.pl.pos, B?.pl.pos)); player.vel.copy(A.pl.vel); game.php = A.pl.php; player.flying = A.pl.flying; player.yaw = A.pl.yaw; player.stun = 0;
+  A.dm.forEach((s, j) => {
+    const d = dummies[j], sb = B?.dm[j];
+    d.active = s.active; d.ko = s.ko; d.hp = s.hp; d.group.visible = s.vis; d.atk = null;
+    d.mode = s.mode === 'getup' || s.mode === 'held' ? 'ragdoll' : s.mode;
+    d.root.copy(L(s.root, sb?.root)); d.yaw = s.yaw;
+    for (let i = 0; i < d.n; i++) { d.p[i].copy(L(s.p[i], sb?.p[i])); d.o[i].copy(L(s.o[i], sb?.o[i])); }
+  });
+  for (const s of A.bs) { const b = s.b; if (!s.pos) continue; const was = b.active; b.active = s.active; b.dead = s.dead; b.hp = s.hp; b.pos.copy(s.pos); b.yaw = s.yaw; b.state = s.state; b.t = s.t; b.atk = null; if (b.robot) { if (b.active && !was) scene.add(b.robot.root); b.robot.root.visible = b.active; if (b.state !== 'fall') b.robot.root.quaternion.identity(); } }
+  cars.cars.forEach((c, i) => { c.p.fromArray(A.carA, i * 10); c.q.fromArray(A.carA, i * 10 + 3); c.v.fromArray(A.carA, i * 10 + 7); c.w.set(0, 0, 0); c.held = null; c.asleep = c.v.lengthSq() < 0.01; cars._write(c); });
+  props.props.forEach((p, i) => { p.p.fromArray(A.propA, i * 7); p.q.fromArray(A.propA, i * 7 + 3); p.v.set(0, 0, 0); p.w.set(0, 0, 0); p.asleep = true; props._write(p); });
+  train.applySnapshot(A.tr);
+}
+train.log = (e) => { if (!RW.on) RW.log.push({ t: time, ...e }); };
+// returns true while rewinding (the normal simulation is skipped)
+function updateRewind(rdt) {
+  const want = keys.has('Digit7') && RW.snaps.length > 1 && !picker.open;
+  if (want && !RW.on) {
+    RW.on = true; RW.cursor = time;
+    debris.clear(); fire.fires.length = 0; shocks.length = 0; nukes.length = 0; craterQ.length = 0;
+    player.holding = false; player.throwWind = 0; player.charging = false; player.laser = false; mouse.l = mouse.r = false;
+    if (tf.on) freezeOff();
+    sfx.freeze(true);
+  } else if (!want && RW.on) {
+    RW.on = false; time = RW.cursor; sfx.freeze(false);
+    RW.snaps.length = Math.max(1, RW.snaps.findIndex((sn) => sn.t > time) < 0 ? RW.snaps.length : RW.snaps.findIndex((sn) => sn.t > time));
+  }
+  RW.k += ((RW.on ? 1 : 0) - RW.k) * Math.min(1, rdt * 8);
+  if (!RW.on) {
+    RW.snapT -= rdt; if (RW.snapT <= 0) { RW.snapT = 0.1; takeSnap(); }
+    return false;
+  }
+  const oldest = RW.snaps[0].t;
+  RW.cursor = Math.max(oldest, RW.cursor - rdt * 1.6);
+  // un-break: blocks come back in reverse order
+  let budget = 6000;
+  while (RW.log.length && RW.log[RW.log.length - 1].t > RW.cursor && budget-- > 0) {
+    const e = RW.log.pop();
+    if (e.type === 'train') train.restore(e.car, e.i); else vox.restore(e.i, e.m, e.mat, e.col);
+  }
+  // snapshots either side of the cursor
+  while (RW.snaps.length > 2 && RW.snaps[RW.snaps.length - 2].t > RW.cursor) RW.snaps.pop();
+  const B = RW.snaps[RW.snaps.length - 1], A = RW.snaps.length > 1 ? RW.snaps[RW.snaps.length - 2] : B;
+  const k = B.t > A.t ? Math.min(1, Math.max(0, (RW.cursor - A.t) / (B.t - A.t))) : 0;
+  applySnap(A, B, k);
+  time = RW.cursor;
+  // keep the picture alive: pose, camera, effects, upload
+  robot.root.position.copy(player.pos); robot.root.rotation.y = player.yaw;
+  robot.animate({ dt: rdt, flying: player.flying, grounded: !player.flying, hSpeed: 0, fwdSpeed: 0, sideSpeed: 0, vSpeed: 0, boost: false, aimPitch: player.camPitch, aimYawRel: 0, charge: 0, punchT: 0, holding: false, throwWind: 0, throwT: 0, turnRate: 0, laser: false, tk: false, clapT: 0, accFwd: 0, accSide: 0 });
+  robot.root.updateMatrixWorld(true);
+  dummy.update(0); boss.update(0);
+  for (const b of bossPool) if (b.robot && b.active) { b.robot.root.position.copy(b.pos); if (b.state !== 'fall') b.robot.root.rotation.set(0, b.yaw, 0); }
+  updateCamera(rdt); camera.updateMatrixWorld(); updateAim();
+  fx.update(rdt, camera, false);
+  finish.uniforms.uFreeze.value = Math.max(tf.k, RW.k * 0.85);
+  RW.tickT -= rdt; if (RW.tickT <= 0) { RW.tickT = 0.12; sfx.tick(Math.random() < 0.5); }
+  vox.flush(); cars.flush(); props.flush(); debris.flush?.();
+  updateHud(rdt);
+  hud.mode.textContent = `◀◀ REWIND  ${Math.max(0, RW.cursor - oldest).toFixed(1)}s`;
+  return true;
+}
+
 function superLanding(vy) {
   const p = player.pos.clone();
   const onRoof = p.y > 0.2;
@@ -1532,7 +1638,7 @@ function updateAtmo(dt) {
   scene.environmentIntensity = (0.1 + 0.8 * dayK) * (1 - 0.35 * R) + atmo.flash * 0.8;
   // haze
   scene.fog.color.copy(FOG.day).lerp(FOG.dusk, golden * 0.7).lerp(FOG.night, 1 - dayK).lerp(tc.copy(FOG.rain).multiplyScalar(0.25 + 0.75 * dayK), R * 0.8);
-  scene.fog.density = (0.0021 + 0.0045 * R + 0.0008 * (1 - dayK)) * (camState.fogK ?? 1);
+  scene.fog.density = 0.0021 + 0.0045 * R + 0.0008 * (1 - dayK);
   world.towers.uNight.value = 1 - dayK; world.cloudMat.emissiveIntensity = 0.1 + 0.3 * dayK; world.cloudMat.color.setScalar(0.25 + 0.75 * dayK);
   renderer.toneMappingExposure = 1.15 + 0.35 * (1 - dayK) + atmo.flash * 0.7;
   stars.material.opacity = (1 - dayK) * (1 - R) * 0.9;
@@ -1604,7 +1710,7 @@ function updateCamera(dt) {
   sky.position.copy(camera.position);
   const alt = Math.max(0, camera.position.y - groundH(camera.position.x, camera.position.z));
   camera.near = Math.min(4, 0.1 + alt * 0.004 + Math.max(0, sp - 150) * 0.004);
-  camState.fogK = 1 - 0.93 * Math.min(1, Math.max(Math.max(0, camera.position.y - 25) / 350, Math.max(0, Math.hypot(camera.position.x, camera.position.z) - 500) / 1500));
+  camState.fogK = 1;
 }
 
 let lampT = 0;
@@ -1724,6 +1830,7 @@ function frame() {
   stats.js = t1 - t0; stats.render = performance.now() - t1; stats.frames++;
 }
 function tick(rdt) {
+  if (updateRewind(rdt)) return;
   const ts = hitstop > 0 ? 0.06 : 1;
   hitstop -= rdt;
   const dt = rdt * ts;
@@ -1787,6 +1894,7 @@ function tick(rdt) {
     boss.update(wdt);
     updateDrones(wdt);
     updateShocks(wdt);
+    train.update(wdt);
     updateNukes(wdt);
   }
   updateShield(dt);
@@ -1823,4 +1931,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { spawnEnemy, enemies, dummies, bossPool, nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { RW, train, spawnEnemy, enemies, dummies, bossPool, nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

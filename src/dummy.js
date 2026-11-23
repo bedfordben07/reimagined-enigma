@@ -1,9 +1,9 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795442342';
-import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795442342';
-import { groundH, WORLD_HALF } from './world.js?v=1795442342';
+import { brushedMetalTex, pbr } from './textures.js?v=1795443674';
+import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795443674';
+import { groundH, WORLD_HALF } from './world.js?v=1795443674';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
@@ -585,6 +585,7 @@ export class Dummy {
   // Lose health (scaled by the player's damage upgrades); knocks it out at zero.
   takeDamage(dmg) {
     if (this.ko) return;
+    if (this.v.invulnerable) { this.lastHurt = this.time; return; } // the Champion can be knocked about, never beaten
     dmg *= this.ctx.dmgMul?.() ?? 1;
     this.hp -= dmg; this.lastHurt = this.time;
     this.onDamage?.(dmg);

@@ -2,8 +2,8 @@
 // dark exposed mechanical core, cable bundles at the neck and waist, articulated three-joint
 // fingers and glowing seams. Built from smooth lathes and bevel-extruded plates.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795442342';
-import { lathe, extrude, roundRect, smoothSym, smoothShape, cable, mesher, toX } from './geom.js?v=1795442342';
+import { brushedMetalTex, pbr } from './textures.js?v=1795443674';
+import { lathe, extrude, roundRect, smoothSym, smoothShape, cable, mesher, toX } from './geom.js?v=1795443674';
 
 const lerpA = (a, b, k) => a + (b - a) * k;
 const _pivot = new THREE.Vector3();

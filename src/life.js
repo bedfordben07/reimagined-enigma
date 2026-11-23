@@ -2,7 +2,7 @@
 // destruction gets serious, a train on a line through the countryside, and container ships at sea.
 // All of them can be wrecked: hit them hard and they become tumbling wrecks that crash and burn.
 import * as THREE from 'three';
-import { groundH, terrainH, SEA_LEVEL } from './world.js?v=1795442342';
+import { groundH, terrainH, SEA_LEVEL } from './world.js?v=1795443674';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _q = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -72,9 +72,10 @@ export class Life {
     // police
     this.police = []; this.polT = 0;
     // train
-    this._buildRail();
+    // the countryside rail line and the ships belong to the big map (the town has its own voxel train now)
+    this.trainCars = []; this.trainAlive = false; this.trainRespawn = 1e12; this.rail = null;
     // ships
-    this.ships = [0, 1, 2].map((i) => { const m = shipModel(i + 1); g.scene.add(m); return { g: m, cx: 8200 + i * 900, cz: -3000 + i * 3500, r: 1800 + i * 500, a: i * 2, sp: 6 / (1800 + i * 500), alive: true, sink: 0, respawn: 0, p: new THREE.Vector3() }; });
+    this.ships = [];
     this.night = 0;
   }
 

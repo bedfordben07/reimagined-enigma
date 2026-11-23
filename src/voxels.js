@@ -138,6 +138,8 @@ export class VoxelWorld {
     const s = this.slot.get(i);
     const last = mesh.count - 1;
     if (outColor) mesh.getColorAt(s, outColor);
+    // time rewind keeps a record of every block that goes, so it can be put back
+    if (this.onRemove) this.onRemove(i, m, mesh.instanceMatrix.array.slice(s * 16, s * 16 + 16), mesh.instanceColor.array.slice(s * 3, s * 3 + 3));
     if (s !== last) {
       const a = mesh.instanceMatrix.array, c = mesh.instanceColor.array;
       for (let k = 0; k < 16; k++) a[s * 16 + k] = a[last * 16 + k];
@@ -152,6 +154,19 @@ export class VoxelWorld {
     if (b) this.dirty.add(b);
     this.total--;
     return m;
+  }
+
+  // Put a removed block back exactly as it was (time rewind).
+  restore(i, m, mat16, col3) {
+    if (this.occ[i]) return;
+    const key = this._key(m, i);
+    const mesh = this.meshes.get(key), cells = this.cells.get(key);
+    if (!mesh || mesh.count >= mesh.instanceMatrix.count) return;
+    const s = mesh.count;
+    mesh.instanceMatrix.array.set(mat16, s * 16); mesh.instanceColor.array.set(col3, s * 3);
+    cells[s] = i; this.slot.set(i, s); mesh.count = s + 1;
+    this.occ[i] = m; this.total++;
+    this._mark(key, s);
   }
 
   // Remove blocks inside a sphere (with a ragged edge). Returns [{x,y,z,m,color}]

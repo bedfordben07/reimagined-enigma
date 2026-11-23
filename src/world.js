@@ -4,7 +4,9 @@
 // far cities are lightweight instanced towers: fly between them, or hit one fast enough and it comes down.
 import * as THREE from 'three';
 
-export const WORLD_HALF = 12000;
+// The map is the town and its fields again (set BIG to bring back the 24 km countryside).
+export const BIG = false;
+export const WORLD_HALF = BIG ? 12000 : 600;
 export const SEA_LEVEL = -3;
 const FLAT_R = 640, BLEND_R = 1500;
 
@@ -50,6 +52,7 @@ function rawH(x, z) {
 }
 
 export function terrainH(x, z) {
+  if (!BIG) return 0;
   let h = rawH(x, z);
   for (let i = 0; i < CITIES.length; i++) {
     const c = CITIES[i], d = Math.hypot(x - c.x, z - c.z);
@@ -63,6 +66,14 @@ export function groundH(x, z) { return Math.max(terrainH(x, z), SEA_LEVEL); }
 
 // ---------------------------------------------------------------- world build
 export function buildWorld(scene) {
+  if (!BIG) {
+    // just a wide field around the town, fading into the haze
+    const g = new THREE.Group(); scene.add(g);
+    const field = new THREE.Mesh(new THREE.RingGeometry(590, 3000, 64, 1), new THREE.MeshStandardMaterial({ color: 0x4f6a3a, roughness: 1 }));
+    field.rotation.x = -Math.PI / 2; field.position.y = -0.02; field.receiveShadow = true; g.add(field);
+    const noTowers = { list: [], uNight: { value: 0 }, at: () => null, topple() {}, update() {} };
+    return { group: g, towers: noTowers, cloudMat: new THREE.MeshStandardMaterial(), clouds: null };
+  }
   const group = new THREE.Group(); scene.add(group);
 
   // terrain: a big grid, finer near the middle (vertices pulled toward the centre)
