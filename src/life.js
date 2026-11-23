@@ -2,7 +2,7 @@
 // destruction gets serious, a train on a line through the countryside, and container ships at sea.
 // All of them can be wrecked: hit them hard and they become tumbling wrecks that crash and burn.
 import * as THREE from 'three';
-import { groundH, terrainH, SEA_LEVEL } from './world.js?v=1795443674';
+import { groundH, terrainH, SEA_LEVEL } from './world.js?v=1795443864';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _q = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);

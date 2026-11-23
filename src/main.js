@@ -7,30 +7,30 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795443674';
-import { DebrisSystem } from './debris.js?v=1795443674';
-import { Dummy, VARIANTS } from './dummy.js?v=1795443674';
-import { Robot } from './robot.js?v=1795443674';
-import { Spectre } from './spectre.js?v=1795443674';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795443674';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795443674';
-import { VoxelTrain } from './train.js?v=1795443674';
-import { Life } from './life.js?v=1795443674';
-import { Colossus, Warlord } from './boss.js?v=1795443674';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795443674';
+import { VoxelWorld, VS } from './voxels.js?v=1795443864';
+import { DebrisSystem } from './debris.js?v=1795443864';
+import { Dummy, VARIANTS } from './dummy.js?v=1795443864';
+import { Robot } from './robot.js?v=1795443864';
+import { Spectre } from './spectre.js?v=1795443864';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795443864';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795443864';
+import { VoxelTrain } from './train.js?v=1795443864';
+import { Life } from './life.js?v=1795443864';
+import { Colossus, Warlord } from './boss.js?v=1795443864';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795443864';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
 let life = null, boss = null, train = null;
-import { addOutline } from './outline.js?v=1795443674';
-import { Effects } from './effects.js?v=1795443674';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795443674';
-import { CarSystem } from './cars.js?v=1795443674';
-import { Powers } from './powers.js?v=1795443674';
-import { PropSystem } from './props.js?v=1795443674';
-import { Birds } from './birds.js?v=1795443674';
-import { FireSystem } from './fire.js?v=1795443674';
-import { Sfx } from './audio.js?v=1795443674';
+import { addOutline } from './outline.js?v=1795443864';
+import { Effects } from './effects.js?v=1795443864';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795443864';
+import { CarSystem } from './cars.js?v=1795443864';
+import { Powers } from './powers.js?v=1795443864';
+import { PropSystem } from './props.js?v=1795443864';
+import { Birds } from './birds.js?v=1795443864';
+import { FireSystem } from './fire.js?v=1795443864';
+import { Sfx } from './audio.js?v=1795443864';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -1393,7 +1393,7 @@ function takeSnap() {
 }
 function applySnap(A, B, k) {
   const L = (a, b) => (b ? a.clone().lerp(b, k) : a.clone());
-  player.pos.copy(L(A.pl.pos, B?.pl.pos)); player.vel.copy(A.pl.vel); game.php = A.pl.php; player.flying = A.pl.flying; player.yaw = A.pl.yaw; player.stun = 0;
+  // you stand outside time: the world rewinds around you, you keep your place and your armour
   A.dm.forEach((s, j) => {
     const d = dummies[j], sb = B?.dm[j];
     d.active = s.active; d.ko = s.ko; d.hp = s.hp; d.group.visible = s.vis; d.atk = null;
@@ -1439,9 +1439,11 @@ function updateRewind(rdt) {
   const k = B.t > A.t ? Math.min(1, Math.max(0, (RW.cursor - A.t) / (B.t - A.t))) : 0;
   applySnap(A, B, k);
   time = RW.cursor;
-  // keep the picture alive: pose, camera, effects, upload
+  // you keep moving freely while the world runs backwards
+  updatePlayer(rdt);
+  const v = player.vel, cy = Math.cos(player.yaw), sy = Math.sin(player.yaw);
   robot.root.position.copy(player.pos); robot.root.rotation.y = player.yaw;
-  robot.animate({ dt: rdt, flying: player.flying, grounded: !player.flying, hSpeed: 0, fwdSpeed: 0, sideSpeed: 0, vSpeed: 0, boost: false, aimPitch: player.camPitch, aimYawRel: 0, charge: 0, punchT: 0, holding: false, throwWind: 0, throwT: 0, turnRate: 0, laser: false, tk: false, clapT: 0, accFwd: 0, accSide: 0 });
+  robot.animate({ dt: rdt, flying: player.flying, grounded: player.grounded, hSpeed: Math.hypot(v.x, v.z), fwdSpeed: v.x * sy + v.z * cy, sideSpeed: v.x * cy - v.z * sy, vSpeed: v.y, boost: keys.has('ShiftLeft') || keys.has('ShiftRight'), aimPitch: player.camPitch, aimYawRel: 0, charge: 0, punchT: 0, holding: false, throwWind: 0, throwT: 0, turnRate: 0, laser: false, tk: false, clapT: 0, accFwd: 0, accSide: 0 });
   robot.root.updateMatrixWorld(true);
   dummy.update(0); boss.update(0);
   for (const b of bossPool) if (b.robot && b.active) { b.robot.root.position.copy(b.pos); if (b.state !== 'fall') b.robot.root.rotation.set(0, b.yaw, 0); }
