@@ -4,11 +4,15 @@
 // far cities are lightweight instanced towers: fly between them, or hit one fast enough and it comes down.
 import * as THREE from 'three';
 
-// The map is the town and its fields again (set BIG to bring back the 24 km countryside).
-export const BIG = false;
-export const WORLD_HALF = BIG ? 12000 : 600;
+// Map size: 'town' (just the town and fields), 'mid' (~5 km of countryside around it), 'big' (24 km).
+export const MAP = 'mid';
+export const BIG = MAP !== 'town';
+const CFG = MAP === 'big'
+  ? { half: 12000, flat: 640, blend: 1500, hill: 0.05, hillMax: 260, hillScale: 1400, north: [-2500, -7500], ridgeScale: 2600, ridgeH: 2100, peakScale: 3000, peakH: 700, trees: 9000, clouds: 420, cloudY: [900, 800], cloudS: [60, 140] }
+  : { half: 2600, flat: 620, blend: 1150, hill: 0.08, hillMax: 170, hillScale: 700, north: [-900, -2100], ridgeScale: 850, ridgeH: 760, peakScale: 1100, peakH: 260, trees: 5500, clouds: 170, cloudY: [320, 300], cloudS: [30, 70] };
+export const WORLD_HALF = MAP === 'town' ? 600 : CFG.half;
 export const SEA_LEVEL = -3;
-const FLAT_R = 640, BLEND_R = 1500;
+const FLAT_R = CFG.flat, BLEND_R = CFG.blend;
 
 // ---------------------------------------------------------------- height field
 function hash(x, z) { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); }
@@ -23,7 +27,11 @@ function ridged(x, z, oct = 5) { let s = 0, a = 0.5, f = 1; for (let i = 0; i < 
 const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 // cities: centre, radius, height scale, style
-export const CITIES = [
+export const CITIES = MAP !== 'big' ? [
+  { x: 1150, z: -1150, r: 330, h: 2.0, name: 'Downtown' },     // skyscrapers, close enough to see from town
+  { x: -1300, z: 900, r: 300, h: 1.0, name: 'Westbrook' },
+  { x: 250, z: 1700, r: 260, h: 0.8, name: 'Southport' },
+] : [
   { x: -3200, z: 1800, r: 520, h: 1.0, name: 'Westbrook' },
   { x: 2600, z: -2700, r: 700, h: 2.4, name: 'Downtown' },     // the skyscraper city
   { x: -5600, z: -3600, r: 420, h: 0.8, name: 'Hollow Pines' },
@@ -38,15 +46,16 @@ function rawH(x, z) {
   const k = sstep(FLAT_R, BLEND_R, r);
   if (k <= 0) return 0;
   // rolling hills everywhere, more relief further out
-  let h = (fbm(x / 1400, z / 1400) - 0.3) * (60 + Math.min(260, (r - FLAT_R) * 0.05));
-  // the northern range: ridged peaks up to ~1.8 km
-  const north = sstep(-2500, -7500, z);
-  h += north * (ridged(x / 2600 + 3.1, z / 2600) * 2100 - 200);
+  let h = (fbm(x / CFG.hillScale, z / CFG.hillScale) - 0.3) * (40 + Math.min(CFG.hillMax, (r - FLAT_R) * CFG.hill));
+  // the northern range: ridged peaks
+  const north = sstep(CFG.north[0], CFG.north[1], z);
+  h += north * (ridged(x / CFG.ridgeScale + 3.1, z / CFG.ridgeScale) * CFG.ridgeH - CFG.ridgeH * 0.1);
   // a few lone peaks
-  h += sstep(0.62, 0.9, vnoise(x / 3000 + 7, z / 3000 - 2)) * 700;
-  // the eastern coast falls into the sea
-  const coast = 4200 + (fbm(z / 1800, 5.3) - 0.5) * 1400;
-  const sea = sstep(coast - 600, coast + 900, x);
+  h += sstep(0.62, 0.9, vnoise(x / CFG.peakScale + 7, z / CFG.peakScale - 2)) * CFG.peakH;
+  // water: the big map has an eastern coast; the mid map a lake to the east with a beach
+  let sea;
+  if (MAP === 'big') { const coast = 4200 + (fbm(z / 1800, 5.3) - 0.5) * 1400; sea = sstep(coast - 600, coast + 900, x); }
+  else { const ld = Math.hypot((x - 1750) / 1.3, z - 350) + (fbm(x / 300, z / 300, 3) - 0.5) * 160; sea = sstep(560, 300, ld); }
   h = h * (1 - sea) + (-70 - fbm(x / 900, z / 900) * 40) * sea;
   return h * k;
 }
@@ -91,8 +100,8 @@ export function buildWorld(scene) {
     const sl = Math.hypot(terrainH(x + 30, z) - h, terrainH(x, z + 30) - h) / 30;
     const n = fbm(x / 300, z / 300, 3);
     if (h < SEA_LEVEL + 2.5 && r > FLAT_R) c.setRGB(0.76, 0.7, 0.52);               // beach / seabed
-    else if (h > 1150 + n * 250) c.setRGB(0.93, 0.95, 0.98);                       // snow
-    else if (sl > 0.55 || h > 800) c.setRGB(0.42 + n * 0.1, 0.4 + n * 0.08, 0.37);   // rock
+    else if (h > CFG.ridgeH * 0.55 + n * CFG.ridgeH * 0.12) c.setRGB(0.93, 0.95, 0.98);                       // snow
+    else if (sl > 0.55 || h > CFG.ridgeH * 0.38) c.setRGB(0.42 + n * 0.1, 0.4 + n * 0.08, 0.37);   // rock
     else c.setRGB(0.2 + n * 0.08, 0.3 + n * 0.1, 0.13 + n * 0.04);                 // grass
     col.set([c.r, c.g, c.b], i * 3);
   }
@@ -113,13 +122,13 @@ export function buildWorld(scene) {
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
   const trees = [];
   let seed = 1; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  for (let i = 0; i < 60000 && trees.length < 9000; i++) {
+  for (let i = 0; i < CFG.trees * 7 && trees.length < CFG.trees; i++) {
     const x = (rnd() * 2 - 1) * WORLD_HALF * 0.95, z = (rnd() * 2 - 1) * WORLD_HALF * 0.95;
     if (Math.hypot(x, z) < FLAT_R + 200) continue;
     if (fbm(x / 900 + 11, z / 900, 3) < 0.5) continue; // forests come in patches
     if (CITIES.some((ct) => Math.hypot(x - ct.x, z - ct.z) < ct.r + 120)) continue;
     const h = terrainH(x, z);
-    if (h < SEA_LEVEL + 3 || h > 900) continue;
+    if (h < SEA_LEVEL + 3 || h > CFG.ridgeH * 0.45) continue;
     const sl = Math.hypot(terrainH(x + 10, z) - h, terrainH(x, z + 10) - h) / 10;
     if (sl > 0.5) continue;
     trees.push([x, h, z, 0.7 + rnd() * 0.9, rnd() * 6.28]);
@@ -135,11 +144,11 @@ export function buildWorld(scene) {
   // a layer of cumulus at 900–1700 m: flying through them sells the speed
   const cloudGeo = mergeCloud();
   const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, emissive: 0x6a7280, emissiveIntensity: 0.35, flatShading: false });
-  const NC = 420;
+  const NC = CFG.clouds;
   const clouds = new THREE.InstancedMesh(cloudGeo, cloudMat, NC);
   for (let i = 0; i < NC; i++) {
-    const sc = 60 + rnd() * 140;
-    m.compose(p.set((rnd() * 2 - 1) * WORLD_HALF, 900 + rnd() * 800, (rnd() * 2 - 1) * WORLD_HALF), q.setFromAxisAngle(UP, rnd() * 6.28), s.set(sc * (1 + rnd()), sc * 0.45, sc));
+    const sc = CFG.cloudS[0] + rnd() * CFG.cloudS[1];
+    m.compose(p.set((rnd() * 2 - 1) * WORLD_HALF, CFG.cloudY[0] + rnd() * CFG.cloudY[1], (rnd() * 2 - 1) * WORLD_HALF), q.setFromAxisAngle(UP, rnd() * 6.28), s.set(sc * (1 + rnd()), sc * 0.45, sc));
     clouds.setMatrixAt(i, m);
   }
   group.add(clouds);

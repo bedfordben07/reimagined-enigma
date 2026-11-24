@@ -1,9 +1,9 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795443864';
-import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795443864';
-import { groundH, WORLD_HALF } from './world.js?v=1795443864';
+import { brushedMetalTex, pbr } from './textures.js?v=1795551525';
+import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795551525';
+import { groundH, WORLD_HALF } from './world.js?v=1795551525';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).

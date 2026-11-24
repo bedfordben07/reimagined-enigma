@@ -7,30 +7,30 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795443864';
-import { DebrisSystem } from './debris.js?v=1795443864';
-import { Dummy, VARIANTS } from './dummy.js?v=1795443864';
-import { Robot } from './robot.js?v=1795443864';
-import { Spectre } from './spectre.js?v=1795443864';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795443864';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795443864';
-import { VoxelTrain } from './train.js?v=1795443864';
-import { Life } from './life.js?v=1795443864';
-import { Colossus, Warlord } from './boss.js?v=1795443864';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795443864';
+import { VoxelWorld, VS } from './voxels.js?v=1795551525';
+import { DebrisSystem } from './debris.js?v=1795551525';
+import { Dummy, VARIANTS } from './dummy.js?v=1795551525';
+import { Robot } from './robot.js?v=1795551525';
+import { Spectre } from './spectre.js?v=1795551525';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795551525';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795551525';
+import { VoxelTrain } from './train.js?v=1795551525';
+import { Life } from './life.js?v=1795551525';
+import { Colossus, Warlord } from './boss.js?v=1795551525';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795551525';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
 let life = null, boss = null, train = null;
-import { addOutline } from './outline.js?v=1795443864';
-import { Effects } from './effects.js?v=1795443864';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795443864';
-import { CarSystem } from './cars.js?v=1795443864';
-import { Powers } from './powers.js?v=1795443864';
-import { PropSystem } from './props.js?v=1795443864';
-import { Birds } from './birds.js?v=1795443864';
-import { FireSystem } from './fire.js?v=1795443864';
-import { Sfx } from './audio.js?v=1795443864';
+import { addOutline } from './outline.js?v=1795551525';
+import { Effects } from './effects.js?v=1795551525';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795551525';
+import { CarSystem } from './cars.js?v=1795551525';
+import { Powers } from './powers.js?v=1795551525';
+import { PropSystem } from './props.js?v=1795551525';
+import { Birds } from './birds.js?v=1795551525';
+import { FireSystem } from './fire.js?v=1795551525';
+import { Sfx } from './audio.js?v=1795551525';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -1640,7 +1640,7 @@ function updateAtmo(dt) {
   scene.environmentIntensity = (0.1 + 0.8 * dayK) * (1 - 0.35 * R) + atmo.flash * 0.8;
   // haze
   scene.fog.color.copy(FOG.day).lerp(FOG.dusk, golden * 0.7).lerp(FOG.night, 1 - dayK).lerp(tc.copy(FOG.rain).multiplyScalar(0.25 + 0.75 * dayK), R * 0.8);
-  scene.fog.density = 0.0021 + 0.0045 * R + 0.0008 * (1 - dayK);
+  scene.fog.density = (0.0021 + 0.0045 * R + 0.0008 * (1 - dayK)) * (camState.fogK ?? 1);
   world.towers.uNight.value = 1 - dayK; world.cloudMat.emissiveIntensity = 0.1 + 0.3 * dayK; world.cloudMat.color.setScalar(0.25 + 0.75 * dayK);
   renderer.toneMappingExposure = 1.15 + 0.35 * (1 - dayK) + atmo.flash * 0.7;
   stars.material.opacity = (1 - dayK) * (1 - R) * 0.9;
@@ -1712,7 +1712,8 @@ function updateCamera(dt) {
   sky.position.copy(camera.position);
   const alt = Math.max(0, camera.position.y - groundH(camera.position.x, camera.position.z));
   camera.near = Math.min(4, 0.1 + alt * 0.004 + Math.max(0, sp - 150) * 0.004);
-  camState.fogK = 1;
+  // the haze thins as you climb or head out of town, so the hills, lake and far cities come into view
+  { const out = Math.max(0, Math.hypot(camera.position.x, camera.position.z) - 300) / 600, alt = Math.max(0, camera.position.y - 25) / 180; camState.fogK = 1 - 0.86 * Math.min(1, Math.max(out, alt)); }
 }
 
 let lampT = 0;
