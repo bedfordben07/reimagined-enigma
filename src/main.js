@@ -7,30 +7,31 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795631059';
-import { DebrisSystem } from './debris.js?v=1795631059';
-import { Dummy, VARIANTS } from './dummy.js?v=1795631059';
-import { Robot } from './robot.js?v=1795631059';
-import { Spectre } from './spectre.js?v=1795631059';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795631059';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795631059';
-import { VoxelTrain } from './train.js?v=1795631059';
-import { Life } from './life.js?v=1795631059';
-import { Colossus, Warlord } from './boss.js?v=1795631059';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795631059';
+import { VoxelWorld, VS } from './voxels.js?v=1795648352';
+import { DebrisSystem } from './debris.js?v=1795648352';
+import { Dummy, VARIANTS } from './dummy.js?v=1795648352';
+import { Robot } from './robot.js?v=1795648352';
+import { Spectre } from './spectre.js?v=1795648352';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795648352';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795648352';
+import { HelperBots } from './helpers.js?v=1795648352';
+import { VoxelTrain } from './train.js?v=1795648352';
+import { Life } from './life.js?v=1795648352';
+import { Colossus, Warlord } from './boss.js?v=1795648352';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795648352';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
-let life = null, boss = null, train = null;
-import { addOutline } from './outline.js?v=1795631059';
-import { Effects } from './effects.js?v=1795631059';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795631059';
-import { CarSystem } from './cars.js?v=1795631059';
-import { Powers } from './powers.js?v=1795631059';
-import { PropSystem } from './props.js?v=1795631059';
-import { Birds } from './birds.js?v=1795631059';
-import { FireSystem } from './fire.js?v=1795631059';
-import { Sfx } from './audio.js?v=1795631059';
+let life = null, boss = null, train = null, helpers = null;
+import { addOutline } from './outline.js?v=1795648352';
+import { Effects } from './effects.js?v=1795648352';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795648352';
+import { CarSystem } from './cars.js?v=1795648352';
+import { Powers } from './powers.js?v=1795648352';
+import { PropSystem } from './props.js?v=1795648352';
+import { Birds } from './birds.js?v=1795648352';
+import { FireSystem } from './fire.js?v=1795648352';
+import { Sfx } from './audio.js?v=1795648352';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -275,6 +276,7 @@ props.onExplode = (pr) => fire.explode(pr.p.clone());
 function blastAll(center, radius, strength, dir = null, up) {
   debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);
   life?.blast(center, radius, strength, dir); boss?.blast(center, radius, strength);
+  helpers?.blast(center, radius, strength);
   if (!dummyA.ctx.src && strength >= 14) for (const d of dummies) if (d.active && d.adapt && d.chest(tmp3).distanceTo(center) < radius) d.observe('blast');
   birds.scare(center, radius * 3 + 10);
 }
@@ -368,6 +370,13 @@ train = new VoxelTrain({
   chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
   score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1.4); },
 });
+helpers = new HelperBots({
+  scene, fx, sfx, vox, smash, blastAll, get player() { return player; },
+  chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
+  score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1); },
+});
+dummy.ctx.helpersAlive = () => helpers.alive;
+dummy.ctx.summonHelpers = (d) => { helpers.summon(d.chest(new THREE.Vector3()), d.v.glow ?? 0xffc020, 2); banner('BACKUP', 'the Champion called in two helper bots', 1.8); };
 const bossCtx = {
   scene, fx, sfx, vox, smash, blastAll, cars, get fire() { return fire; }, get player() { return player; },
   chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
@@ -399,6 +408,7 @@ boss = new Proxy({}, {
 const enemies = []; // { kind: 'dummy' | 'boss', ref }
 function parkDummy(d) { d.active = false; d.group.visible = false; d.atk = null; d.spawn(new THREE.Vector3(9000, -400, 9000), 0); d.active = false; }
 function despawn(e) {
+  if (e.kind === 'dummy' && e.ref.adapt) helpers.clear();
   if (e.kind === 'dummy') { if (player.holding && focusD === e.ref) { player.holding = false; player.throwWind = 0; } parkDummy(e.ref); }
   else { const b = e.ref; b.active = false; b.dead = true; if (b.robot) scene.remove(b.robot.root); b.beam.visible = false; for (const k of b.rocks) scene.remove(k.m); b.rocks = []; for (const o of b.orbs || []) scene.remove(o.m); if (b.orbs) b.orbs = []; }
   const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1);
@@ -615,7 +625,7 @@ function updateGame(dt) {
   if (game.score > game.best) { game.best = game.score; if (Math.random() < dt) { try { localStorage.setItem('rubble-best', String(Math.round(game.best))); } catch (e) { /* ignore */ } } }
   // the top bar follows the nearest enemy
   let tgtName = 'PRESS R TO SPAWN AN ENEMY', tgtK = 0, bestD = 1e9;
-  for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase() + (d.adapt ? ` · ADAPTED ×${d.adapt.level}` : d.v.invulnerable ? ' · INDESTRUCTIBLE' : ''); tgtK = d.hp / d.v.hp; } }
+  for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase() + (d.adapt ? ` · ADAPTED ×${d.adapt.level}${helpers.alive ? ` · ${helpers.alive} BOT${helpers.alive > 1 ? 'S' : ''}` : ''}` : d.v.invulnerable ? ' · INDESTRUCTIBLE' : ''); tgtK = d.hp / d.v.hp; } }
   for (const b of liveBosses()) { const dd = b._distTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = b.name; tgtK = b.hp / b.max; } }
   $('waveName').textContent = tgtName;
   $('dhpFill').style.transform = `scaleX(${Math.max(0, tgtK)})`;
@@ -738,6 +748,7 @@ function updateAim() {
   aim.car = null;
   { const ch = cars.raycast(o, d, best); if (ch && ch.car !== player.holdingCar) { best = ch.t; kind = 'car'; aim.car = ch.car; aim.normal.copy(d).negate(); } }
   { const th = train.raycast(o, d, best); if (th) { best = th.t; kind = 'voxel'; aim.normal.copy(d).negate(); } }
+  aim.bot = null; { const hb = helpers.rayHit(o, d, best); if (hb) { best = hb.t; kind = 'bot'; aim.bot = hb.b; aim.normal.copy(d).negate(); } }
   if (boss.active) { const bt = boss.rayHit(o, d, best); if (bt != null) { best = bt; kind = 'boss'; aim.normal.copy(d).negate(); } }
   if (d.y < 0) {
     const tg = -o.y / d.y;
@@ -927,6 +938,7 @@ function updatePunch(dt) {
   const vh = vox.raycast(c, dir, reach);
   if (vh) { punchImpact(c.clone().addScaledVector(dir, vh.t), dir, player.punchPow); return; }
   { const th = train.raycast(c, dir, reach); if (th) { punchImpact(c.clone().addScaledVector(dir, th.t), dir, player.punchPow); return; } }
+  { const hb = helpers.at(c.clone().addScaledVector(dir, 1.4), 1.4); if (hb) { helpers.damage(hb, 60 + 80 * player.punchPow, hb.p); punchImpact(hb.p.clone(), dir, player.punchPow); return; } }
   dummy.chest(tmp);
   const fist = c.clone().addScaledVector(dir, 1.4);
   if (tmp.distanceTo(fist) < 1.6 && dummy.mode !== 'held') { punchImpact(tmp.clone(), dir, player.punchPow); return; }
@@ -980,6 +992,8 @@ function updateLaser(dt) {
     } else if (hitKind === 'car' && aim.car) {
       cars.hit(aim.car, p, tmp2.copy(beamDir).multiplyScalar(1.2));
       fire.heatCar(aim.car, 0.035);
+    } else if (hitKind === 'bot' && aim.bot) {
+      helpers.damage(aim.bot, 3, p);
     } else if (hitKind === 'boss') {
       boss.damage(1.2, p);
     } else if (hitKind === 'dummy') {
@@ -1383,13 +1397,15 @@ function updateDrones(dt) {
     if (D.fire <= 0) {
       D.fire = 0.38;
       let tgt = null, onBoss = false;
-      if (boss.active && !boss.dead) { const b = boss.pos.clone(); b.y += 1.2 * 8; if (b.distanceTo(D.p) < 110) { tgt = b; onBoss = true; } }
+      let onBot = null; for (const hb of helpers.bots) if (!hb.dead && hb.p.distanceTo(D.p) < 45) { tgt = hb.p.clone(); onBot = hb; break; }
+      if (!tgt && boss.active && !boss.dead) { const b = boss.pos.clone(); b.y += 1.2 * 8; if (b.distanceTo(D.p) < 110) { tgt = b; onBoss = true; } }
       if (!tgt && dummy.group.visible && !dummy.ko) { const dc = dummy.chest(new THREE.Vector3()); if (dc.distanceTo(D.p) < 70) tgt = dc; }
       if (tgt) {
         const dir = tgt.clone().sub(D.p), L = dir.length(); dir.divideScalar(L);
         for (let i = 0; i < 6; i++) fx.sparks.emit(D.p.clone().addScaledVector(dir, (i / 6) * L), dir.clone().multiplyScalar(0.01), new THREE.Color(1.5, 5, 7), 0.08, 0, 0.02);
         const k = 1 + 0.35 * up.drones;
-        if (onBoss) boss.damage(9 * k, tgt);
+        if (onBot) helpers.damage(onBot, 10 * k, tgt);
+        else if (onBoss) boss.damage(9 * k, tgt);
         else { dummy.takeDamage(5 * k); if (Math.random() < 0.3) dummy.hit(tgt, 1.5, dir.clone().multiplyScalar(10).add(UP), 0.5); dummy.ctx.sparks?.(tgt, 0.2); }
         sfx.zap(0.25);
       }
@@ -1931,6 +1947,7 @@ function tick(rdt) {
     updateDrones(wdt);
     updateShocks(wdt);
     train.update(wdt);
+    helpers.update(wdt);
     updateNukes(wdt);
   }
   updateShield(dt);
@@ -1974,4 +1991,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { RW, train, spawnEnemy, enemies, dummies, bossPool, nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { helpers, RW, train, spawnEnemy, enemies, dummies, bossPool, nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

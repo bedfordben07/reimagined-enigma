@@ -1,9 +1,9 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795631059';
-import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795631059';
-import { groundH, WORLD_HALF } from './world.js?v=1795631059';
+import { brushedMetalTex, pbr } from './textures.js?v=1795648352';
+import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795648352';
+import { groundH, WORLD_HALF } from './world.js?v=1795648352';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
@@ -333,6 +333,9 @@ export class Dummy {
       const f = this._resist(src);
       if (this.has('damper') && (!src || src === 'blast') && vel.length() > 12 && this.time - (this.lastDamp || -9) > 3 && this.p[0].distanceTo(center) < radius + 1) { this.lastDamp = this.time; this.dampT = 0.35; }
       if (f !== 1) vel = vel.clone().multiplyScalar(f);
+      // how hard it's being pressed: it calls for backup when this gets high
+      const sp = vel.length();
+      if (sp > 8 && this.p[0].distanceTo(center) < radius + 1.5) this.pressure = (this.pressure || 0) + sp / 45;
     }
     let any = false;
     for (let i = 0; i < this.n; i++) {
@@ -361,6 +364,7 @@ export class Dummy {
       return true;
     }
     this.poise = 0;
+    if (this.adapt && this.mode === 'stand') (this.downs = this.downs || []).push(this.time);
     if (this.atk?.car && this.atk.car.held === 'dummy') this.ctx.dropCar?.(this.atk.car);
     if (this.mode === 'stand' || this.mode === 'getup') this.mode = 'ragdoll';
     this.atk = null; this.runFast = false; this.dodge = null;
@@ -603,6 +607,23 @@ export class Dummy {
   setVariant(v) { this.adapt = v.adaptive ? { exp: {}, have: new Set(), level: 0 } : null; this._resetLook?.(); for (const m of this.shedable || []) m.visible = true; this.shedN = 0; this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
 
   has(t) { return !!this.adapt && this.adapt.have.has(t); }
+  // Backup: when it's being beaten up, knocked down repeatedly, or you keep out of its reach, it launches
+  // two helper bots (straight away if it's pinned on the ground, with a wind-up if it's on its feet).
+  _backup(dt, ctx) {
+    const dx = ctx.playerPos.x - this.root.x, dz = ctx.playerPos.z - this.root.z, d = Math.hypot(dx, dz), dy = ctx.playerPos.y - this.root.y;
+    this.pressure = Math.max(0, (this.pressure || 0) - dt * 0.3);
+    this.farT = (d > 35 || dy > 15) ? (this.farT || 0) + dt : Math.max(0, (this.farT || 0) - dt * 2);
+    this.downs = (this.downs || []).filter((t) => this.time - t < 15);
+    const need = this.pressure > 11 || this.downs.length >= 3 || this.farT > 9;
+    const ready = !this.summonT && (this.ctx.helpersAlive?.() ?? 1) === 0 && this.time - (this.lastSummon ?? -99) > 22;
+    if (need && ready && this.mode !== 'held') {
+      this.lastSummon = this.time;
+      this.say(['Assistance required.', 'Deploying support units.', 'You want a fight? Have three.'], true);
+      if (this.mode === 'stand') { this.summonT = 0.7; this.atk = null; }
+      else { this.pressure = 0; this.downs = []; this.ctx.summonHelpers?.(this); }
+    }
+    if (this.summonT > 0) { this.summonT -= dt; if (this.summonT <= 0) { this.summonT = 0; this.pressure = 0; this.downs = []; this.ctx.summonHelpers?.(this); } }
+  }
   // Something the player did (a punch landed, a second of laser, a blast...). Enough of one thing and it adapts.
   observe(kind, k = 1) {
     const A = this.adapt; if (!A || this.ko || !this.active) return;
@@ -883,6 +904,7 @@ export class Dummy {
     this.time += dt;
     if (this.speech) { this.speech.t -= dt; if (this.speech.t <= 0) this.speech = null; }
     this.player.copy(ctx.playerPos);
+    if (this.adapt && this.fights && !this.ko) this._backup(dt, ctx);
     const dx = ctx.playerPos.x - this.root.x, dz = ctx.playerPos.z - this.root.z, d = Math.hypot(dx, dz);
     const W = this.moodW;
     const want = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0, wind: 0, jab: 0, throwW: 0, throwF: 0, lean: 0 };
@@ -984,6 +1006,7 @@ export class Dummy {
       if (d > 30) this.greetReady = true;
       // the adaptive Champion studies how you fight
       if (this.adapt) {
+        if (this.summonT > 0) { want.throwW = 1; want.lean = -0.2; }
         if (ctx.playerAir) this.observe('air', dt);
         if (d > 22) this.observe('range', dt);
         if (ctx.speed > 40 && d < 80) this.observe('speed', dt);
