@@ -6,8 +6,8 @@
 //           boulders to throw, ground-pounds from the sky and goes into a rage.
 // Sentinel (all the original powers) and Spectre are unchanged.
 import * as THREE from 'three';
-import { Robot } from './robot.js?v=1795551525';
-import { brushedMetalTex, pbr } from './textures.js?v=1795551525';
+import { Robot } from './robot.js?v=1795631059';
+import { brushedMetalTex, pbr } from './textures.js?v=1795631059';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
 

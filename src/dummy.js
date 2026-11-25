@@ -1,9 +1,9 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795551525';
-import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795551525';
-import { groundH, WORLD_HALF } from './world.js?v=1795551525';
+import { brushedMetalTex, pbr } from './textures.js?v=1795631059';
+import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795631059';
+import { groundH, WORLD_HALF } from './world.js?v=1795631059';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
@@ -14,6 +14,20 @@ export const VARIANTS = [
   { name: 'Juggernaut', hp: 650, armor: 24, dmg: 1.6, speed: 0.85, dodge: 0.1, cool: 1.0, poise: 120, tint: [0.6, 0.6, 0.68], glow: 0xa040ff },
   { name: 'Champion', hp: 900, armor: 12, dmg: 1.8, speed: 1.4, dodge: 0.55, cool: 0.55, poise: 80, tint: [1.35, 1.1, 0.6], glow: 0xffc020 },
 ];
+// The adaptive Champion: what it watches for, how much of it it has to see, and what it becomes.
+// Thresholds grow a little with every adaptation, so the later ones take longer to earn.
+export const ADAPT = {
+  punch: { need: 10, trait: 'counter', name: 'Counter-Fighter', desc: 'reads your punches: parries and hits back' },
+  laser: { need: 5, trait: 'reflect', name: 'Reflective Plating', desc: 'the laser barely moves it and bounces back at you' },
+  blast: { need: 9, trait: 'damper', name: 'Shock Dampers', desc: 'soaks up blasts and answers with a shockwave' },
+  ram: { need: 3, trait: 'brace', name: 'Brace', desc: 'catches you when you ram it, and throws you' },
+  air: { need: 18, trait: 'jets', name: 'Hunter Jets', desc: 'leaps into the sky after you' },
+  range: { need: 18, trait: 'closer', name: 'Gap Closer', desc: 'charges and runs far faster: no more keeping away' },
+  freeze: { need: 2, trait: 'temporal', name: 'Temporal Sense', desc: 'keeps moving through stopped time' },
+  shield: { need: 2, trait: 'breaker', name: 'Shield Breaker', desc: 'its blows shatter your shield' },
+  fire: { need: 4, trait: 'heatsink', name: 'Heat Sink', desc: 'fire no longer hurts it' },
+  speed: { need: 14, trait: 'reflex', name: 'Hyper Reflexes', desc: 'dodges more and predicts where you will be' },
+};
 export const ACTIONS = ['idle', 'wave', 'taunt', 'cower', 'flee', 'approach', 'dance', 'point', 'shrug', 'punch', 'combo', 'throw', 'volley', 'charge', 'slam', 'car', 'leap'];
 const ATTACKS = ['punch', 'combo', 'throw', 'volley', 'charge', 'slam', 'car', 'leap'];
 const LINES = {
@@ -314,6 +328,12 @@ export class Dummy {
   // Add velocity (m/s) to body parts inside a sphere.
   hit(center, radius, vel, minFrac = 0.35) {
     if (this.mode === 'held') return false;
+    if (this.adapt) {
+      const src = this.ctx.src;
+      const f = this._resist(src);
+      if (this.has('damper') && (!src || src === 'blast') && vel.length() > 12 && this.time - (this.lastDamp || -9) > 3 && this.p[0].distanceTo(center) < radius + 1) { this.lastDamp = this.time; this.dampT = 0.35; }
+      if (f !== 1) vel = vel.clone().multiplyScalar(f);
+    }
     let any = false;
     for (let i = 0; i < this.n; i++) {
       const d = this.p[i].distanceTo(center);
@@ -580,7 +600,39 @@ export class Dummy {
     }
   }
 
-  setVariant(v) { for (const m of this.shedable || []) m.visible = true; this.shedN = 0; this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
+  setVariant(v) { this.adapt = v.adaptive ? { exp: {}, have: new Set(), level: 0 } : null; this._resetLook?.(); for (const m of this.shedable || []) m.visible = true; this.shedN = 0; this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
+
+  has(t) { return !!this.adapt && this.adapt.have.has(t); }
+  // Something the player did (a punch landed, a second of laser, a blast...). Enough of one thing and it adapts.
+  observe(kind, k = 1) {
+    const A = this.adapt; if (!A || this.ko || !this.active) return;
+    A.exp[kind] = (A.exp[kind] || 0) + k;
+    const a = ADAPT[kind];
+    if (a && !A.have.has(a.trait) && A.exp[kind] >= a.need * (1 + A.have.size * 0.15)) this._adapt(a);
+  }
+  _adapt(a) {
+    const A = this.adapt;
+    A.have.add(a.trait); A.level++;
+    // every adaptation also makes it a better fighter overall
+    this.v.dmg *= 1.1; this.v.speed *= 1.07; this.v.cool *= 0.86; this.v.dodge = Math.min(0.92, this.v.dodge + 0.05); this.v.poise *= 1.2;
+    // its glow shifts hotter, toward white, the more it has adapted
+    const c = new THREE.Color(this.v.glow ?? 0xffc020).lerp(new THREE.Color(0xffffff), Math.min(0.7, A.level * 0.1));
+    this.glowMat.emissive.copy(c); this.eyeMat.emissive.copy(c);
+    if (a.trait === 'reflect') for (const m of this.mats) { m.metalness = 1; m.roughness = 0.08; }
+    if (!this._baseLook) this._baseLook = this.mats.map((m) => [m.metalness, m.roughness]);
+    this.say(['Adapting.', 'I have learned your trick.', 'That will not work twice.', 'Updating combat model.', 'I see you now.'], true);
+    this.onAdapt?.(this, a);
+  }
+  _resetLook() { if (this._baseLook) this.mats.forEach((m, i) => { m.metalness = this._baseLook[i][0]; m.roughness = this._baseLook[i][1]; }); }
+  // how much of a blow of this kind still gets through
+  _resist(src) {
+    let f = 1 / (1 + 0.08 * this.adapt.level);
+    if (src === 'punch' && this.has('counter')) f *= 0.45;
+    if (src === 'laser' && this.has('reflect')) f *= 0.25;
+    if ((src === 'blast' || !src) && this.has('damper')) f *= 0.35;
+    if (src === 'ram' && this.has('brace')) f *= 0.2;
+    return f;
+  }
 
   // Lose health (scaled by the player's damage upgrades); knocks it out at zero.
   takeDamage(dmg) {
@@ -631,7 +683,7 @@ export class Dummy {
   }
 
   startAttack(kind, quiet = false, fast = false) {
-    this.atk = { kind, phase: kind === 'throw' || kind === 'volley' ? 'windup' : kind === 'slam' || kind === 'leap' ? 'crouch' : 'approach', t: 0, n: 0, fast };
+    this.atk = { kind, phase: kind === 'throw' || kind === 'volley' ? 'windup' : kind === 'slam' || kind === 'leap' || kind === 'skyleap' ? 'crouch' : 'approach', t: 0, n: 0, fast };
     if (this.stats[kind] && kind !== 'leap') { this.stats[kind].tries++; this.lastKind = kind; }
     if (kind === 'car') { this.atk.car = this.ctx.nearestCar?.(this.root, 22); if (!this.atk.car) { this.atk = null; return this.startAttack('volley', quiet); } this.atk.phase = 'fetch'; }
     this.anger = Math.max(0, this.anger - 0.6);
@@ -651,6 +703,7 @@ export class Dummy {
     const w = {};
     const add = (k, x) => { w[k] = (w[k] || 0) + x; };
     const car = d > 7 && this.ctx.nearestCar?.(this.root, 18);
+    if (air && this.has('jets')) add('skyleap', 5);
     if (air) { add('volley', 3); add('slam', 2.5); add('throw', 1); if (car) add('car', 2.5); }
     else if (d < 4) { add('combo', 3); add('punch', 1.5); add('slam', 0.6); }
     else if (d < 16) { add('slam', 2); add('charge', 2.2); add('combo', 1); if (car) add('car', 1); }
@@ -661,7 +714,7 @@ export class Dummy {
     for (const k of ['combo', 'charge']) if (w[k]) w[k] *= 1.4 - h * 0.6;
     if (ctx.playerHp != null && ctx.playerHp < 0.3) { if (w.charge) w.charge *= 1.8; if (w.slam) w.slam *= 1.8; if (w.car) w.car *= 1.5; }
     // learning: success rate shifts the odds (a Bayesian-ish running estimate)
-    for (const k in w) { const st = this.stats[k]; w[k] *= 0.5 + 2 * (st.hits + 1) / (st.tries + 3); }
+    for (const k in w) { const st = this.stats[k] || { hits: 0, tries: 0 }; w[k] *= 0.5 + 2 * (st.hits + 1) / (st.tries + 3); }
     // never the same thing three times running
     if (this.prevKinds && this.prevKinds[0] === this.prevKinds[1] && w[this.prevKinds[0]]) w[this.prevKinds[0]] *= 0.25;
     let sum = 0; for (const k in w) sum += w[k];
@@ -681,8 +734,8 @@ export class Dummy {
   // Sidestep a punch it sees coming.
   tryDodge(punchDir) {
     const guarding = this.guardT > 0;
-    const chance = guarding ? Math.max(this.v.dodge, 0.75) : Math.max(this.v.dodge, 0.4);
-    if (this.mode !== 'stand' || this.dodge || this.time - (this.lastDodge || 0) < (guarding ? 1.1 : 2) || Math.random() > chance) return false;
+    const chance = this.has('counter') ? 0.9 : (guarding ? Math.max(this.v.dodge, 0.75) : Math.max(this.v.dodge, 0.4)) + (this.has('reflex') ? 0.15 : 0);
+    if (this.mode !== 'stand' || this.dodge || this.time - (this.lastDodge || 0) < (this.has('counter') ? 0.7 : guarding ? 1.1 : 2) || Math.random() > chance) return false;
     const side = Math.random() < 0.5 ? -1 : 1;
     this.dodge = { x: -punchDir.z * side, z: punchDir.x * side, t: 0.24 };
     this.lastDodge = this.time; this.atk = null;
@@ -750,7 +803,7 @@ export class Dummy {
         want.wind = 1; want.cower = 0.35;
         if (A.t > 0.22) {
           // aim where you're going to be, not where you are
-          const pv = ctx.playerVel || _v.set(0, 0, 0), lead = Math.min(1.2, 0.5 + d / 90);
+          const pv = ctx.playerVel || _v.set(0, 0, 0), lead = Math.min(1.2, 0.5 + d / 90) * (this.has('reflex') ? 1.4 : 1);
           const tx = ctx.playerPos.x + pv.x * lead - this.root.x, tz = ctx.playerPos.z + pv.z * lead - this.root.z, td = Math.hypot(tx, tz) || 1;
           const dir = new THREE.Vector3(tx / td, 0, tz / td), hop = Math.min(td > 120 ? 450 : 55, Math.max(8, td - 4));
           A.from = this.root.clone();
@@ -768,6 +821,29 @@ export class Dummy {
         want.lean = 0.5; want.throwW = 0.3;
         if (u >= 1) { this.root.copy(A.to); next('land'); this.ctx.slam?.(this.root.clone()); }
       } else { want.cower = Math.max(0, 0.6 - A.t * 2); if (A.t > 0.25) this.atk = null; }
+      return toP;
+    } else if (A.kind === 'skyleap') {
+      // Hunter Jets: a rocketing leap straight at you in the air, a strike at the top, then a fall
+      if (A.phase === 'crouch') {
+        want.wind = 1; want.cower = 0.35;
+        if (A.t > 0.18) {
+          const pv = ctx.playerVel || _v.set(0, 0, 0);
+          A.from = this.root.clone();
+          A.to = new THREE.Vector3(ctx.playerPos.x + pv.x * 0.45, ctx.playerPos.y + pv.y * 0.45 - 0.6, ctx.playerPos.z + pv.z * 0.45);
+          A.dur = 0.3 + A.from.distanceTo(A.to) / 75;
+          next('air'); this.say(['You cannot hide up there!', 'UP HERE!', 'Found you.'], true);
+        }
+      } else if (A.phase === 'air') {
+        const u = Math.min(1, A.t / A.dur);
+        this.root.lerpVectors(A.from, A.to, u); this.root.y += Math.sin(u * Math.PI) * 3;
+        want.lean = 0.6; want.throwW = 0.6;
+        const dd = this.root.distanceTo(_v.copy(ctx.playerPos));
+        if (u >= 1 || dd < 2.2) {
+          if (dd < 4.5) this.ctx.hitPlayer?.(_a.set(dx, 0, dz).normalize(), 48, 'slam');
+          this.ctx.whoosh?.();
+          this.atk = null; this.mode = 'ragdoll'; this.push(new THREE.Vector3(0, -6, 0));
+        }
+      }
       return toP;
     } else if (A.kind === 'slam') {
       // crouch, leap in an arc onto the player, then hit the ground hard
@@ -797,7 +873,7 @@ export class Dummy {
         this.atk = null; this.runFast = false;
         // it keeps its feet now: a short stumble instead of bouncing off
         this.stagger = 0.4; this.say(['TACKLE!', 'Down you go!', 'Like a freight train!'], true);
-      } else if (A.t > 3.5 || d > 50 || !this._walk(dt, ctx.playerVel ? Math.atan2(dx + ctx.playerVel.x * 0.35, dz + ctx.playerVel.z * 0.35) : toP, 14, true)) { this.atk = null; this.runFast = false; }
+      } else if (A.t > 3.5 || d > 50 || !this._walk(dt, ctx.playerVel ? Math.atan2(dx + ctx.playerVel.x * 0.35, dz + ctx.playerVel.z * 0.35) : toP, this.has('closer') ? 25 : 14, true)) { this.atk = null; this.runFast = false; }
     }
     return toP;
   }
@@ -837,7 +913,7 @@ export class Dummy {
       // patient regeneration: left alone for a while it patches itself up
       if (this.fights && this.time - this.lastHurt > 6 && this.hp < this.v.hp) this.hp = Math.min(this.v.hp, this.hp + this.v.hp * 0.012 * dt);
       this.guardT = Math.max(0, this.guardT - dt);
-      const outOfReach = dy > 45;
+      const outOfReach = dy > (this.has('jets') ? 160 : 45);
       if (!ctx.whiff) this.whiffUsed = false;
       if (this.counterT > 0 && !this.dodge) {
         // the counter-attack right after a dodge
@@ -865,9 +941,9 @@ export class Dummy {
       } else if (free && (d >= 45 || dy >= 16)) {
         // the hunt: far away or high up, it leaps after you; otherwise it runs at you through anything
         this.huntT = (this.huntT || 0) - dt;
-        if ((d > 45 || dy > 6 || this.huntStuck) && this.huntT <= 0) { this.huntStuck = false; this.huntT = 0.25; this.startAttack('leap', true); }
+        if ((d > (this.has('closer') ? 25 : 45) || dy > 6 || this.huntStuck) && this.huntT <= 0) { this.huntStuck = false; this.huntT = 0.25; this.startAttack(this.has('jets') && dy > 6 ? 'skyleap' : 'leap', true); }
         else if (!(d > 45 || dy > 6)) {
-          if (!this._walk(dt, Math.atan2(dx, dz), 13, true)) this.huntStuck = true;
+          if (!this._walk(dt, Math.atan2(dx, dz), this.has('closer') ? 22 : 13, true)) this.huntStuck = true;
           want.walk = 1; want.lean = 0.6; this.runFast = true;
         }
         if (Math.random() < dt * 0.15) this.say(['Where do you think YOU\'RE going?', 'Running? I love running!', 'Found you!', 'Here I COME!', 'You can\'t hide from me.']);
@@ -906,6 +982,15 @@ export class Dummy {
         if (d < 14 && this.greetReady) { this.greetReady = false; this.mood = 'wave'; this.moodT = 2.4; if (!this.brainOn) this.say(LINES.greet); this.onEvent?.('The player walked up to you.'); }
       }
       if (d > 30) this.greetReady = true;
+      // the adaptive Champion studies how you fight
+      if (this.adapt) {
+        if (ctx.playerAir) this.observe('air', dt);
+        if (d > 22) this.observe('range', dt);
+        if (ctx.speed > 40 && d < 80) this.observe('speed', dt);
+        if (ctx.laserOnMe) { this.observe('laser', dt); if (this.has('reflect')) this.ctx.reflectLaser?.(dt, this); }
+        if (this.burn > 0.1 && !this.has('heatsink')) this.observe('fire', dt);
+        if (this.dampT > 0) { this.dampT -= dt; if (this.dampT <= 0) { this.ctx.slam?.(this.root.clone()); this.say(['Absorbed. Returned.', 'Thank you for the energy.'], true); } }
+      }
       if (threatened && !this.wasThreat) this.onEvent?.(ctx.laserNear ? 'The player is firing laser eyes right next to you.' : ctx.charging ? 'The player is charging up a punch near you.' : 'The player is flying at you at high speed.');
       this.wasThreat = threatened;
       // turn to face the player (or the way it's walking)
@@ -1052,6 +1137,7 @@ export class Dummy {
   }
 
   update(dt) {
+    if (this.has('heatsink')) this.burn = 0;
     // damage: the glow stutters and joints spit sparks as it gets beaten up
     const dmgK = 1 - Math.max(0, this.hp / this.v.hp);
     const fl = dmgK > 0.45 && Math.random() < dmgK * 0.25 ? 0.15 : 1;

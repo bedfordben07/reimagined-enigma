@@ -2,10 +2,10 @@
 // joints and a crimson mono-eye. Built from lathed and bevel-extruded sub-assemblies (no raw
 // boxes) and driven by the shared Robot animation rig.
 import * as THREE from 'three';
-import { Robot } from './robot.js?v=1795551525';
-import { fabricTex, brushedMetalTex, paintedArmorTex, pbr } from './textures.js?v=1795551525';
+import { Robot } from './robot.js?v=1795631059';
+import { fabricTex, brushedMetalTex, paintedArmorTex, pbr } from './textures.js?v=1795631059';
 
-import { V2, lathe, extrude, roundRect, symShape, smoothSym } from './geom.js?v=1795551525';
+import { V2, lathe, extrude, roundRect, symShape, smoothSym } from './geom.js?v=1795631059';
 
 export class Spectre extends Robot {
   constructor() {

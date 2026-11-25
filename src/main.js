@@ -7,30 +7,30 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795551525';
-import { DebrisSystem } from './debris.js?v=1795551525';
-import { Dummy, VARIANTS } from './dummy.js?v=1795551525';
-import { Robot } from './robot.js?v=1795551525';
-import { Spectre } from './spectre.js?v=1795551525';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795551525';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795551525';
-import { VoxelTrain } from './train.js?v=1795551525';
-import { Life } from './life.js?v=1795551525';
-import { Colossus, Warlord } from './boss.js?v=1795551525';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795551525';
+import { VoxelWorld, VS } from './voxels.js?v=1795631059';
+import { DebrisSystem } from './debris.js?v=1795631059';
+import { Dummy, VARIANTS } from './dummy.js?v=1795631059';
+import { Robot } from './robot.js?v=1795631059';
+import { Spectre } from './spectre.js?v=1795631059';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795631059';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795631059';
+import { VoxelTrain } from './train.js?v=1795631059';
+import { Life } from './life.js?v=1795631059';
+import { Colossus, Warlord } from './boss.js?v=1795631059';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795631059';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
 let life = null, boss = null, train = null;
-import { addOutline } from './outline.js?v=1795551525';
-import { Effects } from './effects.js?v=1795551525';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795551525';
-import { CarSystem } from './cars.js?v=1795551525';
-import { Powers } from './powers.js?v=1795551525';
-import { PropSystem } from './props.js?v=1795551525';
-import { Birds } from './birds.js?v=1795551525';
-import { FireSystem } from './fire.js?v=1795551525';
-import { Sfx } from './audio.js?v=1795551525';
+import { addOutline } from './outline.js?v=1795631059';
+import { Effects } from './effects.js?v=1795631059';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795631059';
+import { CarSystem } from './cars.js?v=1795631059';
+import { Powers } from './powers.js?v=1795631059';
+import { PropSystem } from './props.js?v=1795631059';
+import { Birds } from './birds.js?v=1795631059';
+import { FireSystem } from './fire.js?v=1795631059';
+import { Sfx } from './audio.js?v=1795631059';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -246,7 +246,7 @@ const dummyA = new Dummy(scene, vox, { smash });
 const dummyB = new Dummy(scene, vox, dummyA.ctx);
 const dummies = [dummyA, dummyB];
 let focusD = dummyA;
-const D_SET_ALL = new Set(['fights', 'frozen', 'frozenHits', 'onKO', 'onDamage', 'onEvent']);
+const D_SET_ALL = new Set(['fights', 'frozen', 'frozenHits', 'onKO', 'onDamage', 'onEvent', 'onAdapt']);
 const D_EACH = new Set(['step', 'think', 'update']);
 const dummy = new Proxy({}, {
   get(_, k) {
@@ -275,6 +275,7 @@ props.onExplode = (pr) => fire.explode(pr.p.clone());
 function blastAll(center, radius, strength, dir = null, up) {
   debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);
   life?.blast(center, radius, strength, dir); boss?.blast(center, radius, strength);
+  if (!dummyA.ctx.src && strength >= 14) for (const d of dummies) if (d.active && d.adapt && d.chest(tmp3).distanceTo(center) < radius) d.observe('blast');
   birds.scare(center, radius * 3 + 10);
 }
 
@@ -285,6 +286,7 @@ function blastAll(center, radius, strength, dir = null, up) {
 const tf = { on: false, energy: 1, k: 0, ripple: -1, tickT: 0, hits: 0, tickHigh: false };
 function freezeOn() {
   if (tf.on) return;
+  for (const d of dummies) if (d.active) d.observe('freeze');
   tf.on = true; tf.ripple = 0; tf.hits = 0; tf.tickT = 0; dummy.frozenHits = 0;
   dummy.frozen = true;
   sfx.freeze(true);
@@ -410,7 +412,7 @@ function spawnEnemy(type) {
     const p = player.pos.clone().addScaledVector(f, 9); p.x += (Math.random() - 0.5) * 6;
     p.y = d._groundAt(p.x, p.z, Math.max(p.y + 2, 70));
     d.active = true; d.group.visible = true; d.ko = false; d.fights = fightsPref;
-    d.setVariant(type === 'champion' ? { ...VARIANTS[4], invulnerable: true } : { ...VARIANTS[0], name: 'Fighting Dummy' });
+    d.setVariant(type === 'champion' ? { ...VARIANTS[4], invulnerable: true, adaptive: true } : { ...VARIANTS[0], name: 'Fighting Dummy' });
     d.spawn(p, Math.atan2(player.pos.x - p.x, player.pos.z - p.z));
     d.say(type === 'champion' ? ['Finally. A worthy opponent.', 'Kneel before the Champion.'] : ['Fresh out of the box!', 'Let us dance.'], true);
     enemies.push({ kind: 'dummy', ref: d });
@@ -540,6 +542,10 @@ function knockPlayer(dir, power, kind = 'blast') {
 }
 dummy.ctx.hitPlayer = (dir, power, kind) => {
   if (powers.decoy) { powers.decoyHit(power); return; } // it was fighting the hologram
+  if (shield.on && dummies.some((d) => d.active && d.has('breaker'))) {
+    shield.e = Math.max(0, shield.e - 0.4); shield.flash = 1;
+    if (shield.e <= 0.01) { shield.on = false; banner('SHIELD BROKEN', 'it learned to break it', 1.2); sfx.glass(); }
+  }
   dummy.noteHit();
   const m = dummy.v.dmg;
   knockPlayer(dir, power * Math.sqrt(m), kind);
@@ -609,7 +615,7 @@ function updateGame(dt) {
   if (game.score > game.best) { game.best = game.score; if (Math.random() < dt) { try { localStorage.setItem('rubble-best', String(Math.round(game.best))); } catch (e) { /* ignore */ } } }
   // the top bar follows the nearest enemy
   let tgtName = 'PRESS R TO SPAWN AN ENEMY', tgtK = 0, bestD = 1e9;
-  for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase() + (d.v.invulnerable ? ' · INDESTRUCTIBLE' : ''); tgtK = d.hp / d.v.hp; } }
+  for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase() + (d.adapt ? ` · ADAPTED ×${d.adapt.level}` : d.v.invulnerable ? ' · INDESTRUCTIBLE' : ''); tgtK = d.hp / d.v.hp; } }
   for (const b of liveBosses()) { const dd = b._distTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = b.name; tgtK = b.hp / b.max; } }
   $('waveName').textContent = tgtName;
   $('dhpFill').style.transform = `scaleX(${Math.max(0, tgtK)})`;
@@ -634,6 +640,15 @@ dummy.ctx.throwRock = (from, spread = 0, size = 1) => {
   sfx.whoosh();
 };
 dummy.ctx.whoosh = () => sfx.whoosh();
+// Reflective Plating: your laser comes back at you
+dummy.ctx.reflectLaser = (dt, d) => {
+  hurtPlayer(16 * dt);
+  if (Math.random() < dt * 12) { const c = d.chest(new THREE.Vector3()); fx.sparks.emit(c, chestPos(new THREE.Vector3()).sub(c).setLength(60), new THREE.Color(6, 2, 1), 0.25, 0, 0.06); }
+};
+dummy.onAdapt = (d, a) => {
+  banner('CHAMPION ADAPTS', `${a.name}: ${a.desc}`, 3);
+  fx.wave(d.chest(new THREE.Vector3()), 5, 0.45, new THREE.Color(3, 2.6, 1)); sfx.zap?.(1.2); sfx.freeze(true); setTimeout(() => sfx.freeze(false), 120);
+};
 const adrenalineOn = () => up.adrenaline > 0 && game.php < game.pmax * 0.35;
 dummy.ctx.dmgMul = () => up.dmg * (adrenalineOn() ? 1 + 0.6 * up.adrenaline : 1);
 dummy.ctx.poiseMul = () => up.poise;
@@ -781,7 +796,7 @@ addEventListener('keydown', (e) => {
   if (spawnMenu.open) { const k = { Digit0: 0, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4 }[e.code]; if (k != null) { spawnChoice(k); return; } if (e.code === 'KeyR' || e.code === 'Escape') { toggleSpawnMenu(false); return; } }
   if (picker.open) { const k = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code]; if (k != null) pickUpgrade(k); return; }
   if (e.code === 'Digit4') { if (ult.k >= 1) { ult.k = 0; nuke(chestPos(new THREE.Vector3())); } else banner('NOVA', `charging · ${Math.round(ult.k * 100)}%`, 0.8); return; }
-  if (e.code === 'Digit5') { if (shield.on) shield.on = false; else if (shield.e > 0.1) { shield.on = true; sfx.freeze(true); setTimeout(() => sfx.freeze(false), 60); } return; }
+  if (e.code === 'Digit5') { if (shield.on) shield.on = false; else if (shield.e > 0.1) { shield.on = true; for (const d of dummies) if (d.active) d.observe('shield'); sfx.freeze(true); setTimeout(() => sfx.freeze(false), 60); } return; }
   if (e.code === 'Digit6') { spawnDrones(); return; }
   const gated = ['KeyZ', 'KeyN', 'KeyM', 'KeyP', 'KeyU', 'KeyB', 'KeyX'];
   if (kit().allowed && gated.includes(e.code) && !kit().allowed.has(e.code)) { banner(robot.name.toUpperCase(), 'that power is not in this hero\'s kit · V to switch', 1.2); return; }
@@ -877,6 +892,11 @@ function onPrimaryUp() {
 }
 
 function punchImpact(point, dir, power) {
+  dummyA.ctx.src = 'punch';
+  for (const d of dummies) if (d.active && d.adapt && d.chest(new THREE.Vector3()).distanceTo(point) < 3 + 2.6 * power) d.observe('punch');
+  try { punchImpact0(point, dir, power); } finally { dummyA.ctx.src = null; }
+}
+function punchImpact0(point, dir, power) {
   const R = 1.3 + 2.6 * power;
   const c = point.clone().addScaledVector(dir, R * 0.35);
   smash(c, R, { vel: tmp2.copy(dir).multiplyScalar(18 + 45 * power), inherit: 1, outward: 6 + 10 * power, up: 3, max: 1200 });
@@ -963,8 +983,9 @@ function updateLaser(dt) {
     } else if (hitKind === 'boss') {
       boss.damage(1.2, p);
     } else if (hitKind === 'dummy') {
+      dummyA.ctx.src = 'laser';
       dummy.hit(p, 0.7, tmp2.copy(beamDir).multiplyScalar(2.2).addScaledVector(UP, 0.6), 0.2);
-      dummy.burn += 0.03; dummy.anger += 0.04;
+      dummy.burn += 0.03; dummy.anger += 0.04; dummyA.ctx.src = null;
     }
     blastAll(p, 1.2, 3);
   }
@@ -977,6 +998,10 @@ function updateLaser(dt) {
 }
 
 function laserBlast(p, n, dir) {
+  dummyA.ctx.src = 'laser';
+  try { laserBlast0(p, n, dir); } finally { dummyA.ctx.src = null; }
+}
+function laserBlast0(p, n, dir) {
   const R = 1.5;
   smash(p.clone().addScaledVector(dir, 0.4), R, { vel: n.clone().multiplyScalar(10).addScaledVector(dir, 6), inherit: 1, outward: 9, up: 4, max: 400 });
   dummy.hit(p, 3.2, tmp2.subVectors(dummy.chest(tmp3), p).setY(0).normalize().multiplyScalar(14).addScaledVector(dir, 10).addScaledVector(UP, 7), 0.4);
@@ -1092,7 +1117,15 @@ function updatePlayer(dt) {
   // dash through the dummy
   if (speed > 14 && dummy.mode !== 'held') {
     dummy.chest(tmp); chestPos(tmp2);
-    if (tmp.distanceTo(tmp2) < 1.5) dummy.hit(tmp, 1.8, tmp3.copy(v).multiplyScalar(1.15).addScaledVector(UP, 4));
+    if (tmp.distanceTo(tmp2) < 1.5 && (player.ramT = (player.ramT || 0) - dt) <= 0) {
+      player.ramT = 0.5;
+      dummy.observe?.('ram');
+      if (dummy.has?.('brace')) {
+        // it catches you mid-charge and hurls you back the way you came
+        knockPlayer(v.clone().negate().add(new THREE.Vector3(0, 0.3, 0)), 45, 'tackle'); hurtPlayer(18);
+        dummy.say(['Caught you.', 'Predictable.', 'Not this time.'], true); sfx.clang();
+      } else { dummyA.ctx.src = 'ram'; dummy.hit(tmp, 1.8, tmp3.copy(v).multiplyScalar(1.15).addScaledVector(UP, 4)); dummyA.ctx.src = null; }
+    }
   }
   player.pos.y = Math.min(player.pos.y, 4200);
   // the edge of the world: slide along it
@@ -1902,11 +1935,18 @@ function tick(rdt) {
   }
   updateShield(dt);
   vox.flush();
-  if (!frozen) dummy.think(wdt, {
+  const thinkCtx = {
     playerPos: targetPos(), charging: !powers.decoy && player.charging, speed: powers.decoy ? 0 : player.vel.length(), playerAir: targetPos().y > 4,
     laserNear: player.laser && aim.point.distanceTo(dummy.chest(tmp)) < 5, laserOnMe: player.laser && aim.kind === 'dummy',
     playerVel: powers.decoy ? null : targetVel(), playerHp: game.php / game.pmax, whiff: !powers.decoy && player.punchT > 0 && player.punchT < 0.3 && !player.punchHit,
-  });
+  };
+  if (!frozen) dummy.think(wdt, thinkCtx);
+  else for (const d of dummies) if (d.active && d.has('temporal')) {
+    // Temporal Sense: it moves through stopped time at a quarter speed
+    d.tAcc = (d.tAcc || 0) + wdt * 0.25; d.frozen = false;
+    while (d.tAcc >= H) { d.step(H); d.tAcc -= H; }
+    d.think(wdt * 0.25, thinkCtx); d.frozen = true;
+  }
   dummy.update(wdt);
   if (!frozen) updateRocks(dt);
   updateBubble();
