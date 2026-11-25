@@ -1,9 +1,9 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795648352';
-import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795648352';
-import { groundH, WORLD_HALF } from './world.js?v=1795648352';
+import { brushedMetalTex, pbr } from './textures.js?v=1795648513';
+import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795648513';
+import { groundH, WORLD_HALF } from './world.js?v=1795648513';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
@@ -604,7 +604,7 @@ export class Dummy {
     }
   }
 
-  setVariant(v) { this.adapt = v.adaptive ? { exp: {}, have: new Set(), level: 0 } : null; this._resetLook?.(); for (const m of this.shedable || []) m.visible = true; this.shedN = 0; this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
+  setVariant(v) { this.noLearn = false; this.adapt = v.adaptive ? { exp: {}, have: new Set(), level: 0 } : null; this._resetLook?.(); for (const m of this.shedable || []) m.visible = true; this.shedN = 0; this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
 
   has(t) { return !!this.adapt && this.adapt.have.has(t); }
   // Backup: when it's being beaten up, knocked down repeatedly, or you keep out of its reach, it launches
@@ -626,7 +626,7 @@ export class Dummy {
   }
   // Something the player did (a punch landed, a second of laser, a blast...). Enough of one thing and it adapts.
   observe(kind, k = 1) {
-    const A = this.adapt; if (!A || this.ko || !this.active) return;
+    const A = this.adapt; if (!A || this.ko || !this.active || this.noLearn) return;
     A.exp[kind] = (A.exp[kind] || 0) + k;
     const a = ADAPT[kind];
     if (a && !A.have.has(a.trait) && A.exp[kind] >= a.need * (1 + A.have.size * 0.15)) this._adapt(a);
@@ -904,7 +904,7 @@ export class Dummy {
     this.time += dt;
     if (this.speech) { this.speech.t -= dt; if (this.speech.t <= 0) this.speech = null; }
     this.player.copy(ctx.playerPos);
-    if (this.adapt && this.fights && !this.ko) this._backup(dt, ctx);
+    if (this.adapt && !this.isHelper && this.fights && !this.ko) this._backup(dt, ctx);
     const dx = ctx.playerPos.x - this.root.x, dz = ctx.playerPos.z - this.root.z, d = Math.hypot(dx, dz);
     const W = this.moodW;
     const want = { wave: 0, cower: 0, taunt: 0, dizzy: 0, dance: 0, point: 0, shrug: 0, walk: 0, wind: 0, jab: 0, throwW: 0, throwF: 0, lean: 0 };

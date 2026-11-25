@@ -1,7 +1,7 @@
 // Rigid-body rubble: cube chunks with corner contacts against the ground and voxel world,
 // sphere contacts between chunks, and sleeping so settled piles cost nothing.
 import * as THREE from 'three';
-import { VS } from './voxels.js?v=1795648352';
+import { VS } from './voxels.js?v=1795648513';
 
 const G = -20;
 const _m = new THREE.Matrix4();

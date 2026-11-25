@@ -7,31 +7,30 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795648352';
-import { DebrisSystem } from './debris.js?v=1795648352';
-import { Dummy, VARIANTS } from './dummy.js?v=1795648352';
-import { Robot } from './robot.js?v=1795648352';
-import { Spectre } from './spectre.js?v=1795648352';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795648352';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795648352';
-import { HelperBots } from './helpers.js?v=1795648352';
-import { VoxelTrain } from './train.js?v=1795648352';
-import { Life } from './life.js?v=1795648352';
-import { Colossus, Warlord } from './boss.js?v=1795648352';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795648352';
+import { VoxelWorld, VS } from './voxels.js?v=1795648513';
+import { DebrisSystem } from './debris.js?v=1795648513';
+import { Dummy, VARIANTS } from './dummy.js?v=1795648513';
+import { Robot } from './robot.js?v=1795648513';
+import { Spectre } from './spectre.js?v=1795648513';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795648513';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795648513';
+import { VoxelTrain } from './train.js?v=1795648513';
+import { Life } from './life.js?v=1795648513';
+import { Colossus, Warlord } from './boss.js?v=1795648513';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795648513';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
 let life = null, boss = null, train = null, helpers = null;
-import { addOutline } from './outline.js?v=1795648352';
-import { Effects } from './effects.js?v=1795648352';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795648352';
-import { CarSystem } from './cars.js?v=1795648352';
-import { Powers } from './powers.js?v=1795648352';
-import { PropSystem } from './props.js?v=1795648352';
-import { Birds } from './birds.js?v=1795648352';
-import { FireSystem } from './fire.js?v=1795648352';
-import { Sfx } from './audio.js?v=1795648352';
+import { addOutline } from './outline.js?v=1795648513';
+import { Effects } from './effects.js?v=1795648513';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795648513';
+import { CarSystem } from './cars.js?v=1795648513';
+import { Powers } from './powers.js?v=1795648513';
+import { PropSystem } from './props.js?v=1795648513';
+import { Birds } from './birds.js?v=1795648513';
+import { FireSystem } from './fire.js?v=1795648513';
+import { Sfx } from './audio.js?v=1795648513';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -245,7 +244,10 @@ debris.onVoxelImpact = (i, speed, it) => {
 // to whichever one is nearest you (hits, steps and updates go to all of them).
 const dummyA = new Dummy(scene, vox, { smash });
 const dummyB = new Dummy(scene, vox, dummyA.ctx);
-const dummies = [dummyA, dummyB];
+// two Echoes: lesser copies of the Champion that it calls in for backup
+const echoA = new Dummy(scene, vox, dummyA.ctx), echoB = new Dummy(scene, vox, dummyA.ctx);
+echoA.isHelper = echoB.isHelper = true;
+const dummies = [dummyA, dummyB, echoA, echoB];
 let focusD = dummyA;
 const D_SET_ALL = new Set(['fights', 'frozen', 'frozenHits', 'onKO', 'onDamage', 'onEvent', 'onAdapt']);
 const D_EACH = new Set(['step', 'think', 'update']);
@@ -276,7 +278,6 @@ props.onExplode = (pr) => fire.explode(pr.p.clone());
 function blastAll(center, radius, strength, dir = null, up) {
   debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);
   life?.blast(center, radius, strength, dir); boss?.blast(center, radius, strength);
-  helpers?.blast(center, radius, strength);
   if (!dummyA.ctx.src && strength >= 14) for (const d of dummies) if (d.active && d.adapt && d.chest(tmp3).distanceTo(center) < radius) d.observe('blast');
   birds.scare(center, radius * 3 + 10);
 }
@@ -370,13 +371,31 @@ train = new VoxelTrain({
   chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
   score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1.4); },
 });
-helpers = new HelperBots({
-  scene, fx, sfx, vox, smash, blastAll, get player() { return player; },
-  chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
-  score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1); },
-});
+// The Champion's backup: two Echoes, weaker copies of it that carry the adaptations it has learned so far.
+helpers = {
+  get alive() { return [echoA, echoB].filter((e) => e.active && !e.ko).length; },
+  clear() { for (const e of [echoA, echoB]) if (e.active) parkDummy(e); },
+  blast() {}, rayHit() { return null; }, at() { return null; }, damage() {}, bots: [], update() {},
+};
 dummy.ctx.helpersAlive = () => helpers.alive;
-dummy.ctx.summonHelpers = (d) => { helpers.summon(d.chest(new THREE.Vector3()), d.v.glow ?? 0xffc020, 2); banner('BACKUP', 'the Champion called in two helper bots', 1.8); };
+dummy.ctx.summonHelpers = (champ) => {
+  const base = champ.root.clone(), toP = new THREE.Vector3(player.pos.x - base.x, 0, player.pos.z - base.z).normalize();
+  [echoA, echoB].forEach((e, i) => {
+    const side = i ? 1 : -1;
+    const p = base.clone().add(new THREE.Vector3(-toP.z * side * 3, 0, toP.x * side * 3)).addScaledVector(toP, 1);
+    p.y = e._groundAt(p.x, p.z, p.y + 3);
+    e.active = true; e.group.visible = true; e.ko = false; e.fights = fightsPref;
+    e.setVariant({ ...VARIANTS[4], name: 'Echo', hp: 300, dmg: 0.9, speed: 1.25, cool: 0.95, poise: 45, dodge: 0.35, tint: [0.8, 0.66, 0.42], adaptive: true });
+    // it inherits whatever its maker has learned, but doesn't learn on its own
+    for (const t of champ.adapt.have) e.adapt.have.add(t); e.adapt.level = champ.adapt.level; e.noLearn = true;
+    if (e.has('reflect')) for (const m of e.mats) { m.metalness = 1; m.roughness = 0.08; }
+    e.glowMat.emissive.copy(champ.glowMat.emissive); e.eyeMat.emissive.copy(champ.eyeMat.emissive);
+    e.spawn(p, Math.atan2(player.pos.x - p.x, player.pos.z - p.z)); e.atkCool = 0.6 + i * 0.4;
+    fx.wave(p.clone().add(new THREE.Vector3(0, 1, 0)), 3, 0.35, new THREE.Color(3, 2.4, 1)); for (let k = 0; k < 20; k++) fx.sparks.emit(p.clone().add(new THREE.Vector3(0, 1, 0)), rndVec(new THREE.Vector3(), 10), new THREE.Color(5, 3.5, 1.2), 0.3, 0.6, 0.02);
+    e.say(i ? 'Echo two, online.' : 'Echo one, online.', true);
+  });
+  sfx.zap?.(1); banner('BACKUP', `the Champion summoned two Echoes${champ.adapt.level ? ` · they share its ${champ.adapt.level} adaptation${champ.adapt.level > 1 ? 's' : ''}` : ''}`, 2);
+};
 const bossCtx = {
   scene, fx, sfx, vox, smash, blastAll, cars, get fire() { return fire; }, get player() { return player; },
   chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
@@ -418,7 +437,7 @@ function spawnEnemy(type) {
   if (enemies.length >= 2) despawn(enemies[0]);
   const f = fwdH(new THREE.Vector3());
   if (type === 'dummy' || type === 'champion') {
-    const d = dummies.find((x) => !x.active) || dummies[0];
+    const d = dummies.find((x) => !x.active && !x.isHelper) || dummies[0];
     const p = player.pos.clone().addScaledVector(f, 9); p.x += (Math.random() - 0.5) * 6;
     p.y = d._groundAt(p.x, p.z, Math.max(p.y + 2, 70));
     d.active = true; d.group.visible = true; d.ko = false; d.fights = fightsPref;
@@ -583,6 +602,7 @@ function variantFor(i) {
 }
 const INTROS = { Rookie: 'Fresh out of the box!', Brawler: "I've been working out.", Speedster: 'Catch me if you can!', Juggernaut: 'Go on. Hit me.', Champion: 'Finally. A worthy opponent.' };
 dummy.onKO = (d) => {
+  if (d && d.isHelper) { game.score += 1500; banner('ECHO DOWN', '+1,500', 1.2); sfx.boom(0.9); setTimeout(() => { if (d.ko) parkDummy(d); }, 3500); return; }
   const bonus = d && d.v.name === 'Champion' ? 5000 : 1000;
   game.score += bonus;
   banner('KNOCKOUT!', `+${bonus.toLocaleString()}`);
@@ -625,7 +645,7 @@ function updateGame(dt) {
   if (game.score > game.best) { game.best = game.score; if (Math.random() < dt) { try { localStorage.setItem('rubble-best', String(Math.round(game.best))); } catch (e) { /* ignore */ } } }
   // the top bar follows the nearest enemy
   let tgtName = 'PRESS R TO SPAWN AN ENEMY', tgtK = 0, bestD = 1e9;
-  for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase() + (d.adapt ? ` · ADAPTED ×${d.adapt.level}${helpers.alive ? ` · ${helpers.alive} BOT${helpers.alive > 1 ? 'S' : ''}` : ''}` : d.v.invulnerable ? ' · INDESTRUCTIBLE' : ''); tgtK = d.hp / d.v.hp; } }
+  for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase() + (d.adapt ? `${d.adapt.level ? ` · ADAPTED ×${d.adapt.level}` : ''}${helpers.alive && !d.isHelper ? ` · ${helpers.alive} ECHO${helpers.alive > 1 ? 'ES' : ''}` : ''}` : d.v.invulnerable ? ' · INDESTRUCTIBLE' : ''); tgtK = d.hp / d.v.hp; } }
   for (const b of liveBosses()) { const dd = b._distTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = b.name; tgtK = b.hp / b.max; } }
   $('waveName').textContent = tgtName;
   $('dhpFill').style.transform = `scaleX(${Math.max(0, tgtK)})`;
@@ -715,7 +735,7 @@ onNewChar = (c) => { const o = addOutline(c.root); o.setVisible(outlineOn); outl
 try { outlineOn = localStorage.getItem('rubble-ink') !== '0'; } catch (e) { /* ignore */ }
 function setOutline(v) { outlineOn = v; outlines.forEach((o) => o.setVisible(v)); try { localStorage.setItem('rubble-ink', v ? '1' : '0'); } catch (e) { /* ignore */ } }
 setOutline(outlineOn);
-parkDummy(dummyA); parkDummy(dummyB);
+parkDummy(dummyA); parkDummy(dummyB); parkDummy(echoA); parkDummy(echoB);
 setTimeout(() => banner('PRESS R', 'to spawn a dummy or a boss', 3), 1500);
 
 // ---------------------------------------------------------------- player
@@ -748,7 +768,6 @@ function updateAim() {
   aim.car = null;
   { const ch = cars.raycast(o, d, best); if (ch && ch.car !== player.holdingCar) { best = ch.t; kind = 'car'; aim.car = ch.car; aim.normal.copy(d).negate(); } }
   { const th = train.raycast(o, d, best); if (th) { best = th.t; kind = 'voxel'; aim.normal.copy(d).negate(); } }
-  aim.bot = null; { const hb = helpers.rayHit(o, d, best); if (hb) { best = hb.t; kind = 'bot'; aim.bot = hb.b; aim.normal.copy(d).negate(); } }
   if (boss.active) { const bt = boss.rayHit(o, d, best); if (bt != null) { best = bt; kind = 'boss'; aim.normal.copy(d).negate(); } }
   if (d.y < 0) {
     const tg = -o.y / d.y;
@@ -938,7 +957,6 @@ function updatePunch(dt) {
   const vh = vox.raycast(c, dir, reach);
   if (vh) { punchImpact(c.clone().addScaledVector(dir, vh.t), dir, player.punchPow); return; }
   { const th = train.raycast(c, dir, reach); if (th) { punchImpact(c.clone().addScaledVector(dir, th.t), dir, player.punchPow); return; } }
-  { const hb = helpers.at(c.clone().addScaledVector(dir, 1.4), 1.4); if (hb) { helpers.damage(hb, 60 + 80 * player.punchPow, hb.p); punchImpact(hb.p.clone(), dir, player.punchPow); return; } }
   dummy.chest(tmp);
   const fist = c.clone().addScaledVector(dir, 1.4);
   if (tmp.distanceTo(fist) < 1.6 && dummy.mode !== 'held') { punchImpact(tmp.clone(), dir, player.punchPow); return; }
@@ -992,8 +1010,6 @@ function updateLaser(dt) {
     } else if (hitKind === 'car' && aim.car) {
       cars.hit(aim.car, p, tmp2.copy(beamDir).multiplyScalar(1.2));
       fire.heatCar(aim.car, 0.035);
-    } else if (hitKind === 'bot' && aim.bot) {
-      helpers.damage(aim.bot, 3, p);
     } else if (hitKind === 'boss') {
       boss.damage(1.2, p);
     } else if (hitKind === 'dummy') {
@@ -1397,15 +1413,14 @@ function updateDrones(dt) {
     if (D.fire <= 0) {
       D.fire = 0.38;
       let tgt = null, onBoss = false;
-      let onBot = null; for (const hb of helpers.bots) if (!hb.dead && hb.p.distanceTo(D.p) < 45) { tgt = hb.p.clone(); onBot = hb; break; }
+      const onBot = null;
       if (!tgt && boss.active && !boss.dead) { const b = boss.pos.clone(); b.y += 1.2 * 8; if (b.distanceTo(D.p) < 110) { tgt = b; onBoss = true; } }
       if (!tgt && dummy.group.visible && !dummy.ko) { const dc = dummy.chest(new THREE.Vector3()); if (dc.distanceTo(D.p) < 70) tgt = dc; }
       if (tgt) {
         const dir = tgt.clone().sub(D.p), L = dir.length(); dir.divideScalar(L);
         for (let i = 0; i < 6; i++) fx.sparks.emit(D.p.clone().addScaledVector(dir, (i / 6) * L), dir.clone().multiplyScalar(0.01), new THREE.Color(1.5, 5, 7), 0.08, 0, 0.02);
         const k = 1 + 0.35 * up.drones;
-        if (onBot) helpers.damage(onBot, 10 * k, tgt);
-        else if (onBoss) boss.damage(9 * k, tgt);
+        if (onBoss) boss.damage(9 * k, tgt);
         else { dummy.takeDamage(5 * k); if (Math.random() < 0.3) dummy.hit(tgt, 1.5, dir.clone().multiplyScalar(10).add(UP), 0.5); dummy.ctx.sparks?.(tgt, 0.2); }
         sfx.zap(0.25);
       }
@@ -1947,7 +1962,6 @@ function tick(rdt) {
     updateDrones(wdt);
     updateShocks(wdt);
     train.update(wdt);
-    helpers.update(wdt);
     updateNukes(wdt);
   }
   updateShield(dt);
