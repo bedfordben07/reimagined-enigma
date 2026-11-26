@@ -7,30 +7,34 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795648513';
-import { DebrisSystem } from './debris.js?v=1795648513';
-import { Dummy, VARIANTS } from './dummy.js?v=1795648513';
-import { Robot } from './robot.js?v=1795648513';
-import { Spectre } from './spectre.js?v=1795648513';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795648513';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795648513';
-import { VoxelTrain } from './train.js?v=1795648513';
-import { Life } from './life.js?v=1795648513';
-import { Colossus, Warlord } from './boss.js?v=1795648513';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795648513';
+import { VoxelWorld, VS } from './voxels.js?v=1795701775';
+import { DebrisSystem } from './debris.js?v=1795701775';
+import { Dummy, VARIANTS } from './dummy.js?v=1795701775';
+import { Robot } from './robot.js?v=1795701775';
+import { Spectre } from './spectre.js?v=1795701775';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795701775';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795701775';
+import { FlyerFoe, Swarm } from './foes.js?v=1795701775';
+import { ConstructionSite } from './site.js?v=1795701775';
+import { Underground } from './under.js?v=1795701775';
+import { VoxelTrain } from './train.js?v=1795701775';
+import { Life } from './life.js?v=1795701775';
+import { Colossus, Warlord } from './boss.js?v=1795701775';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795701775';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
-let life = null, boss = null, train = null, helpers = null;
-import { addOutline } from './outline.js?v=1795648513';
-import { Effects } from './effects.js?v=1795648513';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795648513';
-import { CarSystem } from './cars.js?v=1795648513';
-import { Powers } from './powers.js?v=1795648513';
-import { PropSystem } from './props.js?v=1795648513';
-import { Birds } from './birds.js?v=1795648513';
-import { FireSystem } from './fire.js?v=1795648513';
-import { Sfx } from './audio.js?v=1795648513';
+let life = null, boss = null, train = null, helpers = null, swarm = null, site = null, under = null;
+let lastPower = null;
+import { addOutline } from './outline.js?v=1795701775';
+import { Effects } from './effects.js?v=1795701775';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, SITE, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795701775';
+import { CarSystem } from './cars.js?v=1795701775';
+import { Powers } from './powers.js?v=1795701775';
+import { PropSystem } from './props.js?v=1795701775';
+import { Birds } from './birds.js?v=1795701775';
+import { FireSystem } from './fire.js?v=1795701775';
+import { Sfx } from './audio.js?v=1795701775';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -277,7 +281,7 @@ props.onExplode = (pr) => fire.explode(pr.p.clone());
 // shockwaves push rubble, cars and street furniture alike, and send the pigeons flying
 function blastAll(center, radius, strength, dir = null, up) {
   debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);
-  life?.blast(center, radius, strength, dir); boss?.blast(center, radius, strength);
+  life?.blast(center, radius, strength, dir); boss?.blast(center, radius, strength); swarm?.blast(center, radius, strength); site?.blast(center, radius, strength, dir);
   if (!dummyA.ctx.src && strength >= 14) for (const d of dummies) if (d.active && d.adapt && d.chest(tmp3).distanceTo(center) < radius) d.observe('blast');
   birds.scare(center, radius * 3 + 10);
 }
@@ -408,6 +412,20 @@ const bossCtx = {
   },
 };
 const bossPool = [];
+const foeCtx = Object.assign(Object.create(bossCtx), {
+  heroClass: () => robot.constructor, voltClass: Volt, lastPower: () => lastPower,
+  sonicBoomAt: (p, level) => sonicBoom(level, p), banner: (a, b, t) => banner(a, b, t),
+});
+swarm = new Swarm({
+  scene, fx, sfx, vox, get player() { return player; }, chest: () => chestPos(new THREE.Vector3()),
+  knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d), score: (n) => { game.score += n; },
+  shieldOn: () => shield.on, banner: (a, b, t) => banner(a, b, t),
+});
+site = new ConstructionSite({
+  scene, fx, sfx, vox, smash, blastAll, dummy, cars, get player() { return player; },
+  score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1.4); }, shake: (k) => { shake = Math.min(1, shake + k); },
+}, new THREE.Vector3(SITE.x, 0, SITE.z));
+under = new Underground({ scene });
 const liveBosses = () => bossPool.filter((b) => b.active && !b.dead);
 function nearestBoss(p) { let best = null, bd = 1e9; for (const b of liveBosses()) { const d = b._distTo(p); if (d < bd) { bd = d; best = b; } } return best; }
 // `boss` stands for the whole pool: blasts and updates reach every boss, everything else the nearest one
@@ -429,7 +447,8 @@ function parkDummy(d) { d.active = false; d.group.visible = false; d.atk = null;
 function despawn(e) {
   if (e.kind === 'dummy' && e.ref.adapt) helpers.clear();
   if (e.kind === 'dummy') { if (player.holding && focusD === e.ref) { player.holding = false; player.throwWind = 0; } parkDummy(e.ref); }
-  else { const b = e.ref; b.active = false; b.dead = true; if (b.robot) scene.remove(b.robot.root); b.beam.visible = false; for (const k of b.rocks) scene.remove(k.m); b.rocks = []; for (const o of b.orbs || []) scene.remove(o.m); if (b.orbs) b.orbs = []; }
+  else if (e.kind === 'swarm') swarm.clear();
+  else { const b = e.ref; for (const s2 of b.shots || []) scene.remove(s2.m); if (b.shots) b.shots = []; b.active = false; b.dead = true; if (b.robot) scene.remove(b.robot.root); b.beam.visible = false; for (const k of b.rocks) scene.remove(k.m); b.rocks = []; for (const o of b.orbs || []) scene.remove(o.m); if (b.orbs) b.orbs = []; }
   const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1);
 }
 function spawnEnemy(type) {
@@ -446,6 +465,17 @@ function spawnEnemy(type) {
     d.say(type === 'champion' ? ['Finally. A worthy opponent.', 'Kneel before the Champion.'] : ['Fresh out of the box!', 'Let us dance.'], true);
     enemies.push({ kind: 'dummy', ref: d });
     banner(type === 'champion' ? 'CHAMPION' : 'FIGHTING DUMMY', 'incoming', 1.4);
+  } else if (type === 'swarm') {
+    swarm.spawn(20, player.pos);
+    enemies.push({ kind: 'swarm', ref: swarm });
+    banner('SWARM', '20 bots incoming · they climb', 1.8);
+  } else if (type === 'mimic' || type === 'rival') {
+    const kind = type === 'mimic' ? 'mimic' : 'vanta';
+    let b = bossPool.find((x) => x.kind === kind && !x.active);
+    if (!b) { b = new FlyerFoe(foeCtx, kind); bossPool.push(b); }
+    b.spawn(player.pos);
+    enemies.push({ kind: 'boss', ref: b });
+    banner(b.name, kind === 'mimic' ? 'it copies you · and your powers' : 'a rival hero · dogfights at Mach speed', 2.5);
   } else {
     const Cls = type === 'warlord' ? Warlord : Colossus;
     let b = bossPool.find((x) => x instanceof Cls && x.constructor === Cls && !x.active);
@@ -459,7 +489,8 @@ const spawnMenu = { open: false };
 function toggleSpawnMenu(v = !spawnMenu.open) { spawnMenu.open = v; $('spawnMenu').hidden = !v; }
 function spawnChoice(k) {
   if (k === 0) { for (const e of [...enemies]) despawn(e); banner('CLEARED', '', 0.8); }
-  else spawnEnemy(['dummy', 'champion', 'colossus', 'warlord'][k - 1]);
+  else if (k === 8) { ambush.on = !ambush.on; banner('AMBUSHES', ambush.on ? 'ON · enemies may burst out of buildings' : 'OFF', 1.4); $('ambushState').textContent = ambush.on ? 'on' : 'off'; }
+  else spawnEnemy(['dummy', 'champion', 'colossus', 'warlord', 'swarm', 'mimic', 'rival'][k - 1]);
   toggleSpawnMenu(false);
 }
 document.querySelectorAll('[data-spawn]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); spawnChoice(+b.dataset.spawn); }));
@@ -768,6 +799,7 @@ function updateAim() {
   aim.car = null;
   { const ch = cars.raycast(o, d, best); if (ch && ch.car !== player.holdingCar) { best = ch.t; kind = 'car'; aim.car = ch.car; aim.normal.copy(d).negate(); } }
   { const th = train.raycast(o, d, best); if (th) { best = th.t; kind = 'voxel'; aim.normal.copy(d).negate(); } }
+  aim.swarmBot = null; { const sb = swarm.rayHit(o, d, best); if (sb) { best = sb.t; kind = 'swarm'; aim.swarmBot = sb.b; aim.normal.copy(d).negate(); } }
   if (boss.active) { const bt = boss.rayHit(o, d, best); if (bt != null) { best = bt; kind = 'boss'; aim.normal.copy(d).negate(); } }
   if (d.y < 0) {
     const tg = -o.y / d.y;
@@ -823,11 +855,18 @@ addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   keys.add(e.code);
-  if (spawnMenu.open) { const k = { Digit0: 0, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4 }[e.code]; if (k != null) { spawnChoice(k); return; } if (e.code === 'KeyR' || e.code === 'Escape') { toggleSpawnMenu(false); return; } }
+  {
+    const kid = kit().id;
+    const P = { KeyZ: 'hole', KeyN: 'clap', KeyM: 'meteor', KeyB: 'lift', KeyP: 'gravity', KeyU: 'decoy', Digit4: 'nova', Digit6: 'drones', KeyI: 'gravity slam',
+      Digit1: kid === 'titan' ? 'boulder' : kid === 'volt' ? 'overdrive' : 'missiles', Digit2: kid === 'titan' ? 'pound' : kid === 'volt' ? 'storm' : 'quake', Digit3: kid === 'titan' ? 'rage' : 'dash' }[e.code];
+    if (P && !spawnMenu.open && !picker.open) lastPower = { name: P, t: time };
+  }
+  if (spawnMenu.open) { const k = { Digit0: 0, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit6: 6, Digit7: 7, Digit8: 8 }[e.code]; if (k != null) { spawnChoice(k); return; } if (e.code === 'KeyR' || e.code === 'Escape') { toggleSpawnMenu(false); return; } }
   if (picker.open) { const k = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code]; if (k != null) pickUpgrade(k); return; }
   if (e.code === 'Digit4') { if (ult.k >= 1) { ult.k = 0; nuke(chestPos(new THREE.Vector3())); } else banner('NOVA', `charging · ${Math.round(ult.k * 100)}%`, 0.8); return; }
   if (e.code === 'Digit5') { if (shield.on) shield.on = false; else if (shield.e > 0.1) { shield.on = true; for (const d of dummies) if (d.active) d.observe('shield'); sfx.freeze(true); setTimeout(() => sfx.freeze(false), 60); } return; }
   if (e.code === 'Digit6') { spawnDrones(); return; }
+  if (e.code === 'KeyI') { gravitySlam(); return; }
   const gated = ['KeyZ', 'KeyN', 'KeyM', 'KeyP', 'KeyU', 'KeyB', 'KeyX'];
   if (kit().allowed && gated.includes(e.code) && !kit().allowed.has(e.code)) { banner(robot.name.toUpperCase(), 'that power is not in this hero\'s kit · V to switch', 1.2); return; }
   if (kit().id === 'volt' && /^Digit[123]$/.test(e.code)) { ({ Digit1: () => heroP.toggleOverdrive(), Digit2: () => heroP.storm(), Digit3: () => heroP.boltDash() })[e.code](); return; }
@@ -885,6 +924,8 @@ function rebuildTown() {
 function tryGrab() {
   const c = chestPos(tmp); dummy.chest(tmp2);
   if (tmp2.distanceTo(c) < 3.6) { player.holding = true; dummy.grab(robot.handWorld(-1, tmp3)); return; }
+  const G = site.nearestGirder(player.pos.clone().add(new THREE.Vector3(0, 0.8, 0)), 3.5);
+  if (G) { player.holding = true; player.holdingGirder = G; site.grab(G); banner('GIRDER', 'click to swing · E to throw', 1.2); return; }
   const car = cars.nearest(player.pos, 4.8);
   if (car) { player.holding = true; player.holdingCar = car; cars.hold(car, 'player'); sfx.boom(0.3); }
 }
@@ -897,19 +938,22 @@ function throwDummy() {
 function releaseThrow() {
   player.holding = false; player.throwWind = 0; player.throwT = 1;
   const d = aimDirFrom(robot.handWorld(-1, tmp3), tmp);
-  if (player.holdingCar) { cars.release(player.holdingCar, tmp2.copy(d).multiplyScalar(75).add(player.vel), 'player'); player.holdingCar = null; }
+  if (player.holdingGirder) { site.throw(tmp2.copy(d).multiplyScalar(70).add(player.vel)); player.holdingGirder = null; }
+  else if (player.holdingCar) { cars.release(player.holdingCar, tmp2.copy(d).multiplyScalar(75).add(player.vel), 'player'); player.holdingCar = null; }
   else dummy.release(tmp2.copy(d).multiplyScalar(105).add(player.vel));
   shake = Math.min(1, shake + 0.2);
   sfx.whoosh();
 }
 
 function onPrimaryDown() {
+  if (player.holdingGirder) { if (!(player.swingT > 0)) { player.swingT = 0.4; player.swingHits = 0; player.throwT = 1; sfx.whoosh(); } mouse.l = false; return; }
   if (player.holding) { throwDummy(); mouse.l = false; return; }
   if (player.punchT > 0.1) return;
   player.charging = true; player.charge = 0;
 }
 function onPrimaryUp() {
   if (!player.charging) return;
+  if (player.charge > 0.5) swarm.shake(null);
   player.charging = false;
   const power = (0.3 + Math.min(1, player.charge / 1.1) * 1.0) * kit().punch * heroP.punchMul;
   player.punchPow = power; player.punchT = 0.4; player.punchHit = false;
@@ -927,6 +971,7 @@ function punchImpact(point, dir, power) {
   try { punchImpact0(point, dir, power); } finally { dummyA.ctx.src = null; }
 }
 function punchImpact0(point, dir, power) {
+  if (point.y < 0.6 && dir.y < 0.05 && under.breach(point.x, point.z, 2.2 + power * 1.6)) { fx.wave(point, 4, 0.3); sfx.crumble(200); banner('BREACH', 'drop in to the tunnels', 1); }
   const R = 1.3 + 2.6 * power;
   const c = point.clone().addScaledVector(dir, R * 0.35);
   smash(c, R, { vel: tmp2.copy(dir).multiplyScalar(18 + 45 * power), inherit: 1, outward: 6 + 10 * power, up: 3, max: 1200 });
@@ -957,6 +1002,7 @@ function updatePunch(dt) {
   const vh = vox.raycast(c, dir, reach);
   if (vh) { punchImpact(c.clone().addScaledVector(dir, vh.t), dir, player.punchPow); return; }
   { const th = train.raycast(c, dir, reach); if (th) { punchImpact(c.clone().addScaledVector(dir, th.t), dir, player.punchPow); return; } }
+  { const sb = swarm.at(c.clone().addScaledVector(dir, 1.4), 1.2); if (sb) { swarm.damage(sb, 999); punchImpact(sb.p.clone().add(UP), dir, player.punchPow); return; } }
   dummy.chest(tmp);
   const fist = c.clone().addScaledVector(dir, 1.4);
   if (tmp.distanceTo(fist) < 1.6 && dummy.mode !== 'held') { punchImpact(tmp.clone(), dir, player.punchPow); return; }
@@ -1010,6 +1056,8 @@ function updateLaser(dt) {
     } else if (hitKind === 'car' && aim.car) {
       cars.hit(aim.car, p, tmp2.copy(beamDir).multiplyScalar(1.2));
       fire.heatCar(aim.car, 0.035);
+    } else if (hitKind === 'swarm' && aim.swarmBot) {
+      swarm.damage(aim.swarmBot, 6);
     } else if (hitKind === 'boss') {
       boss.damage(1.2, p);
     } else if (hitKind === 'dummy') {
@@ -1132,9 +1180,10 @@ function updatePlayer(dt) {
         }
       }
     }
-    const gh = groundH(player.pos.x, player.pos.z);
+    let gh = groundH(player.pos.x, player.pos.z), inTunnel = false;
+    if (player.pos.y < -0.4 || (under.corridorAt(player.pos.x, player.pos.z) && under.openAt(player.pos.x, player.pos.z))) { gh = under.constrain(player.pos); inTunnel = true; if (player.pos.y < gh) {} }
     if (player.pos.y < gh) {
-      if (v.y < -20 && gh < -2.5) { for (let i = 0; i < 20; i++) fx.dust.emit(player.pos, rndVec(new THREE.Vector3(), 6).setY(8 + Math.random() * 10), new THREE.Color(0.8, 0.88, 0.95), 1.5, 1.4, 1.8, 0.5); } // splash
+      if (v.y < -20 && gh < -2.5 && !inTunnel) { for (let i = 0; i < 20; i++) fx.dust.emit(player.pos, rndVec(new THREE.Vector3(), 6).setY(8 + Math.random() * 10), new THREE.Color(0.8, 0.88, 0.95), 1.5, 1.4, 1.8, 0.5); } // splash
       player.pos.y = gh;
       if (v.y < 0) v.y = 0;
       player.grounded = true;
@@ -1414,7 +1463,7 @@ function updateDrones(dt) {
       D.fire = 0.38;
       let tgt = null, onBoss = false;
       const onBot = null;
-      if (!tgt && boss.active && !boss.dead) { const b = boss.pos.clone(); b.y += 1.2 * 8; if (b.distanceTo(D.p) < 110) { tgt = b; onBoss = true; } }
+      if (!tgt && boss.active && !boss.dead) { const b = boss.pos.clone(); b.y += 1.2 * (boss.S || 8); if (b.distanceTo(D.p) < 110) { tgt = b; onBoss = true; } }
       if (!tgt && dummy.group.visible && !dummy.ko) { const dc = dummy.chest(new THREE.Vector3()); if (dc.distanceTo(D.p) < 70) tgt = dc; }
       if (tgt) {
         const dir = tgt.clone().sub(D.p), L = dir.length(); dir.divideScalar(L);
@@ -1478,6 +1527,7 @@ function updateRewind(rdt) {
     RW.on = true; RW.cursor = time;
     debris.clear(); fire.fires.length = 0; shocks.length = 0; nukes.length = 0; craterQ.length = 0;
     player.holding = false; player.throwWind = 0; player.charging = false; player.laser = false; mouse.l = mouse.r = false;
+    if (player.holdingGirder) { site.drop(); player.holdingGirder = null; }
     if (tf.on) freezeOff();
     sfx.freeze(true);
   } else if (!want && RW.on) {
@@ -1521,8 +1571,88 @@ function updateRewind(rdt) {
   return true;
 }
 
+// ---------------------------------------------------------------- GRAVITY WELL SLAM (I)
+// From the air, plummet straight down; where you land a gravity well opens: everything is dragged in and
+// down, and the buildings around you are crushed floor by floor from the top. From the ground you leap
+// up first.
+const gslam = { phase: null, t: 0, crush: [] };
+function gravitySlam() {
+  if (gslam.phase) return;
+  const alt = player.pos.y - (player.pos.y < -0.4 ? (under.floorAt(player.pos.x, player.pos.z) ?? 0) : groundH(player.pos.x, player.pos.z));
+  if (alt < 6) { player.vel.set(player.vel.x * 0.3, 34, player.vel.z * 0.3); player.grounded = false; player.flying = false; gslam.phase = 'rise'; }
+  else { gslam.phase = 'dive'; player.flying = false; }
+  gslam.t = 0; sfx.whoosh();
+}
+function updateGravitySlam(dt) {
+  if (gslam.phase === 'rise' && player.vel.y < 6) gslam.phase = 'dive';
+  if (gslam.phase === 'dive') {
+    gslam.t += dt;
+    player.vel.set(player.vel.x * 0.85, -150, player.vel.z * 0.85); player.flying = false;
+    if (Math.random() < 0.9) fx.sparks.emit(chestPos(tmp), rndVec(tmp2, 3).setY(8), new THREE.Color(2.2, 0.8, 4), 0.3, 0, 0.06);
+    if (player.grounded || gslam.t > 4) { gslam.phase = null; gravityWell(player.pos.clone()); }
+  }
+  // the crush: slices of the buildings around the well, eaten from the top down
+  for (let n = 0; n < 4 && gslam.crush.length; n++) {
+    const C = gslam.crush[0];
+    C.t -= dt * (n ? 0 : 1);
+    if (C.t > 0) break;
+    gslam.crush.shift();
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * C.R;
+      const q = new THREE.Vector3(C.c.x + Math.cos(a) * r, C.y, C.c.z + Math.sin(a) * r);
+      if (vox.solidAt(q.x, q.y, q.z)) smash(q, 2.4, { vel: new THREE.Vector3((C.c.x - q.x) * 0.4, -26, (C.c.z - q.z) * 0.4), inherit: 1, outward: 2, up: 0, noDust: Math.random() < 0.6, max: 500 });
+    }
+  }
+}
+function gravityWell(p) {
+  const R = 30;
+  fx.wave(p.clone().add(UP), R, 0.6, new THREE.Color(2, 0.7, 4)); fx.wave(p.clone().add(UP), 10, 0.3, new THREE.Color(4, 2, 6)); fx.ring(p.clone(), R * 1.3); fx.addScorch(p, 12);
+  for (let i = 0; i < 80; i++) { const a = Math.random() * Math.PI * 2, r = R * (0.3 + Math.random() * 0.7); fx.sparks.emit(new THREE.Vector3(p.x + Math.cos(a) * r, p.y + Math.random() * 12, p.z + Math.sin(a) * r), new THREE.Vector3(-Math.cos(a) * r, -8, -Math.sin(a) * r).multiplyScalar(1.2), new THREE.Color(2.4, 1, 4.5), 0.6, 0.5, 0.05); }
+  sfx.boom(2); sfx.duck?.(0.6); shake = 1; hitstop = Math.max(hitstop, 0.12);
+  smash(p.clone().add(new THREE.Vector3(0, 0.3, 0)), 5, { vel: new THREE.Vector3(0, -20, 0), outward: 6, up: 0, max: 3000 });
+  under.breach(p.x, p.z, 6);
+  // everything nearby is dragged in and slammed down
+  for (const it of debris.items) { const d = it.p.distanceTo(p); if (d < R) { debris.wake(it); it.v.add(new THREE.Vector3(p.x - it.p.x, -12, p.z - it.p.z).multiplyScalar(0.6)); } }
+  for (const c of cars.cars) { const d = c.p.distanceTo(p); if (d < R && !c.held) cars.hit(c, c.p.clone().add(UP), new THREE.Vector3(p.x - c.p.x, -14, p.z - c.p.z).setLength(20 * (1 - d / R) + 6)); }
+  for (const pr of props.props) if (pr.p.distanceTo(p) < R) props._kick(pr, new THREE.Vector3(p.x - pr.p.x, -6, p.z - pr.p.z).multiplyScalar(0.5));
+  for (const d of dummies) { if (!d.active) continue; const c = d.chest(new THREE.Vector3()); const dd = c.distanceTo(p); if (dd < R) { d.takeDamage(40 + 110 * (1 - dd / R)); d.hit(c, 3, new THREE.Vector3(p.x - c.x, -30, p.z - c.z).multiplyScalar(0.7), 1); } }
+  for (const b of liveBosses()) if (b._distTo(p) < R) b.damage(350 * (1 - b._distTo(p) / (R + 5)) + 150, p);
+  swarm.blast(p, R, 80); life.blast(p, R, 40, null); site.blast(p, R, 40, null);
+  // queue the crush, top floor first
+  gslam.crush.length = 0;
+  for (let y = 60, k = 0; y >= 0.5; y -= 1.5, k++) gslam.crush.push({ c: p.clone(), y, R: R * (0.55 + 0.45 * (1 - y / 60)), t: k === 0 ? 0 : 0.035 });
+  game.score += 1500; banner('GRAVITY WELL', '', 0.8);
+}
+
+// ---------------------------------------------------------------- AMBUSH (toggle: R then 8)
+// While you're moving through town, enemies sometimes burst out of a building beside you.
+const ambush = { on: false, t: 25 };
+function updateAmbush(dt) {
+  if (!ambush.on) return;
+  ambush.t -= dt;
+  const inT = Math.abs(player.pos.x) < 175 && Math.abs(player.pos.z) < 175 && player.pos.y < 40 && player.pos.y > -0.4;
+  if (ambush.t > 0 || !inT || player.vel.length() < 5) return;
+  // find a wall beside you
+  const fw = fwdH(new THREE.Vector3()), side = new THREE.Vector3(-fw.z, 0, fw.x);
+  let wall = null;
+  for (let k = 0; k < 12 && !wall; k++) {
+    const dir = side.clone().multiplyScalar(k % 2 ? 1 : -1).addScaledVector(fw, 0.3 + Math.random() * 0.8).normalize();
+    for (let r = 4; r < 18; r += 1) { const q = player.pos.clone().addScaledVector(dir, r); q.y = 1.5 + Math.random() * 4; if (vox.solidAt(q.x, q.y, q.z)) { wall = { q, dir }; break; } }
+  }
+  if (!wall) { ambush.t = 3; return; }
+  ambush.t = 30 + Math.random() * 30;
+  const q = wall.q, out = wall.dir.clone().negate();
+  smash(q.clone(), 3.2, { vel: out.clone().multiplyScalar(25), inherit: 1, outward: 10, up: 3, max: 1200 });
+  fx.wave(q.clone(), 6, 0.35, new THREE.Color(3, 1.4, 0.6)); sfx.boom(1.4); shake = Math.min(1, shake + 0.4);
+  const at = q.clone().addScaledVector(out, 1.5); at.y = 0;
+  const live = enemies.filter((e) => e.ref.active).length;
+  if (Math.random() < 0.5 || live >= 2) { swarm.spawn(8, player.pos, q.clone().addScaledVector(out, 1)); if (!enemies.some((e) => e.kind === 'swarm')) enemies.push({ kind: 'swarm', ref: swarm }); banner('AMBUSH!', 'a swarm burst out of the wall', 1.4); }
+  else { spawnEnemy('dummy'); const d = enemies[enemies.length - 1].ref; d.spawn(at, Math.atan2(player.pos.x - at.x, player.pos.z - at.z)); d.push(out.clone().multiplyScalar(14).add(new THREE.Vector3(0, 5, 0))); banner('AMBUSH!', 'a fighter smashed out of the wall', 1.4); }
+}
+
 function superLanding(vy) {
   const p = player.pos.clone();
+  if (vy > 40 && p.y < 0.3 && under.breach(p.x, p.z, 3 + vy / 30)) { player.grounded = false; player.vel.y = -vy * 0.4; }
   const onRoof = p.y > 0.2;
   if (onRoof && vy > 30) { // crash through
     smash(p.clone().add(new THREE.Vector3(0, -0.3, 0)), 2.2, { vel: new THREE.Vector3(0, -vy * 0.5, 0), inherit: 1, outward: 6 });
@@ -1761,7 +1891,13 @@ function updateCamera(dt) {
   const hit = vox.raycast(start, back, dist);
   if (hit) dist = Math.max(0.6, hit.t - 0.25);
   const pos = start.addScaledVector(back, dist).addScaledVector(UP, 0.3);
-  pos.y = Math.max(0.35, pos.y);
+  if (player.pos.y < -0.4) {
+    // in the tunnels: keep the camera inside the corridor you're in
+    const c = under.corridorAt(player.pos.x, player.pos.z);
+    if (c) { pos.x = Math.max(c.x0 + 0.4, Math.min(c.x1 - 0.4, pos.x)); pos.z = Math.max(c.z0 + 0.4, Math.min(c.z1 - 0.4, pos.z)); }
+    const fl = under.floorAt(player.pos.x, player.pos.z) ?? -10;
+    pos.y = Math.max(fl + 0.4, Math.min(-2.9, pos.y));
+  } else pos.y = Math.max(0.35, pos.y);
   shake = Math.max(0, shake - dt * 1.6);
   const s = shake * shake;
   pos.x += (Math.random() - 0.5) * s * 0.9; pos.y += (Math.random() - 0.5) * s * 0.9; pos.z += (Math.random() - 0.5) * s * 0.9;
@@ -1934,7 +2070,13 @@ function tick(rdt) {
   updateAim();
   updatePunch(dt);
   updateLaser(dt);
-  if (player.holdingCar) cars.carry(player.holdingCar, robot.handWorld(-1, tmp).add(tmp2.set(0, 1.0, 0)), player.yaw);
+  if (player.holdingGirder) {
+    // swinging the girder: sweep it round in front, hitting along the arc
+    let ph = -1;
+    if (player.swingT > 0) { player.swingT -= dt; ph = 1 - player.swingT / 0.4; if (player.swingT <= 0) player.swingT = 0; }
+    site.carry(robot.handWorld(1, tmp), player.camYaw, ph);
+    if (ph >= 0 && player.swingHits < 3 && ph > 0.3 + player.swingHits * 0.22) { player.swingHits++; if (site.swingHit(1)) { shake = Math.min(1, shake + 0.25); hitstop = Math.max(hitstop, 0.04); sfx.boom(0.8); } }
+  } else if (player.holdingCar) cars.carry(player.holdingCar, robot.handWorld(-1, tmp).add(tmp2.set(0, 1.0, 0)), player.yaw);
   else if (player.holding) dummy.holdTarget.copy(robot.handWorld(-1, tmp)).y -= 0.15;
 
   const wdt = dt * heroP.worldScale;
@@ -1962,9 +2104,14 @@ function tick(rdt) {
     updateDrones(wdt);
     updateShocks(wdt);
     train.update(wdt);
+    swarm.update(wdt);
+    site.update(wdt);
+    updateAmbush(wdt);
+    updateGravitySlam(wdt);
     updateNukes(wdt);
   }
   updateShield(dt);
+  under.update(player.pos, player.pos.y < -0.4);
   vox.flush();
   const thinkCtx = {
     playerPos: targetPos(), charging: !powers.decoy && player.charging, speed: powers.decoy ? 0 : player.vel.length(), playerAir: targetPos().y > 4,
@@ -2005,4 +2152,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { helpers, RW, train, spawnEnemy, enemies, dummies, bossPool, nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { blastAll, swarm, site, under, gravitySlam, gslam, ambush, get lastPower() { return lastPower; }, helpers, RW, train, spawnEnemy, enemies, dummies, bossPool, nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };

@@ -1,6 +1,6 @@
 // Particles, shockwaves, laser beams and scorch marks.
 import * as THREE from 'three';
-import { radialTex, scorchTex } from './textures.js?v=1795648513';
+import { radialTex, scorchTex } from './textures.js?v=1795701775';
 
 const _v = new THREE.Vector3();
 const _y = new THREE.Vector3(0, 1, 0);

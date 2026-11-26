@@ -1,7 +1,7 @@
 // Town layout: voxel buildings plus static scenery (roads, sidewalks, lamps, trees).
 import * as THREE from 'three';
-import { VS } from './voxels.js?v=1795648513';
-import * as T from './textures.js?v=1795648513';
+import { VS } from './voxels.js?v=1795701775';
+import * as T from './textures.js?v=1795701775';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const MAT = { BRICK: 1, BRICK_TAN: 2, PLASTER: 3, PLASTER_BLUE: 4, CONCRETE: 5, TRIM: 6, GLASS: 7, ROOF: 8, SLAB: 9, TILE: 10, TRIM_DARK: 11, GLASS_LIT: 12, AWN_RED: 13, AWN_GREEN: 14, AWN_BLUE: 15, SIGN_WARM: 16, SIGN_CYAN: 17, SIGN_PINK: 18, WOOD: 19 };
@@ -262,7 +262,8 @@ function outerBlocks() {
 const OUTER = outerBlocks();
 
 // ---- landmarks: a stadium, a clock tower on a plaza, and a petrol station
-export const LANDMARKS = { '110,-154': 'stadium', '-22,-110': 'clock', '154,22': 'petrol' };
+export const LANDMARKS = { '110,-154': 'stadium', '-22,-110': 'clock', '154,22': 'petrol', '-110,66': 'site' };
+export const SITE = { x: -110, z: 66 };
 const isLandmark = (cx, cz) => !!LANDMARKS[`${cx},${cz}`];
 
 // Oval stadium: a concrete outer wall, a sloped bowl of seating with coloured rows, four gates and
@@ -327,6 +328,33 @@ function petrol(vox, cx, cz) {
     if (edge) vox.set(x0 + x, 11, z0 + z, MAT.TRIM_DARK, b);
   }
   shop(vox, { t: 'shop', x: cx - 6, z: cz + 8, w: 12, d: 6, floors: 1, wall: MAT.PLASTER, trim: MAT.TRIM_DARK, front: 'w', tint: [1, 1, 1], awning: MAT.AWN_RED, sign: MAT.SIGN_CYAN, fixed: true });
+}
+// Construction site: a half-built steel-frame tower (columns, girders, a few concrete floors) and a site
+// fence; the tower crane and loose girders are added in site.js.
+function constructionSite(vox, cx, cz) {
+  const b = vox.addBuilding([1, 1, 1]);
+  const x0 = vox.cx(cx - 10), z0 = vox.cz(cz - 10), N = 40, H = 64;
+  for (let gx = 0; gx <= 4; gx++) for (let gz = 0; gz <= 4; gz++) {
+    const x = Math.min(N - 1, gx * 10), z = Math.min(N - 1, gz * 10);
+    const top = H - (gx + gz) % 3 * 8; // a ragged, unfinished skyline
+    for (let y = 0; y < top; y++) vox.set(x0 + x, y, z0 + z, MAT.TRIM_DARK, b);
+  }
+  for (let f = 1; f <= 7; f++) {
+    const y = f * 8;
+    for (let k = 0; k < N; k++) for (let g = 0; g <= 4; g++) {
+      const L = Math.min(N - 1, g * 10);
+      if (y < H - ((g + Math.floor(k / 10)) % 3) * 8) { vox.set(x0 + k, y, z0 + L, MAT.TRIM_DARK, b); vox.set(x0 + L, y, z0 + k, MAT.TRIM_DARK, b); }
+    }
+    // poured concrete floors on the lower storeys only
+    if (f <= 3) for (let x = 1; x < N - 1; x++) for (let z = 1; z < N - 1; z++) if (f < 3 || x < 24) vox.set(x0 + x, y - 1, z0 + z, MAT.SLAB, b);
+  }
+  // site fence
+  const fb = vox.addBuilding([1, 1, 1]);
+  const fx0 = vox.cx(cx - 14), fz0 = vox.cz(cz - 14);
+  for (let k = 0; k < 56; k++) for (let y = 0; y < 4; y++) {
+    if (k > 22 && k < 32) continue; // gate
+    for (const [x, z] of [[k, 0], [k, 55], [0, k], [55, k]]) vox.set(fx0 + x, y, fz0 + z, y === 3 ? MAT.AWN_RED : MAT.TRIM, fb);
+  }
 }
 export const PUMP_SPOTS = [[154 - 6, 22 - 2], [154 - 6, 22 + 2], [154 + 2, 22 - 2], [154 + 2, 22 + 2]];
 
@@ -471,7 +499,7 @@ export const CAR_SPOTS = (() => {
 
 export function buildVoxelTown(vox) {
   vox.reset();
-  stadium(vox, 110, -154); clockTower(vox, -22, -110); petrol(vox, 154, 22);
+  stadium(vox, 110, -154); clockTower(vox, -22, -110); petrol(vox, 154, 22); constructionSite(vox, -110, 66);
   for (const o of [...LAYOUT, ...OUTER, ...RING, ...EDGE]) {
     if (o.t === 'house') house(vox, o);
     else if (o.t === 'shop') shop(vox, o);

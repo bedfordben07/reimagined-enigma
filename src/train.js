@@ -3,6 +3,7 @@
 // (punches, lasers, blasts, booms, the nuke) chews pieces out of it. Hit it hard enough and the whole
 // train derails: the carriages leave the rails as tumbling bodies that plough through whatever they hit.
 import * as THREE from 'three';
+import { trackDip } from './under.js?v=1795701775';
 
 const VS = 0.5;
 const W = 6, H = 8, L = 36; // blocks: 3 m wide, 4 m tall, 18 m long
@@ -64,14 +65,15 @@ export class VoxelTrain {
     for (let i = 0; i < n; i++) {
       const u = i / n, p = this.track.curve.getPointAt(u), t = this.track.curve.getTangentAt(u);
       _q.setFromUnitVectors(_a.set(0, 0, 1), t);
-      _m.compose(_v.set(p.x, 0.07, p.z), _q, _b.set(1, 1, 1)); sleepers.setMatrixAt(i, _m);
+      const dy = trackDip(p.x, p.z);
+      _m.compose(_v.set(p.x, 0.07 + dy, p.z), _q, _b.set(1, 1, 1)); sleepers.setMatrixAt(i, _m);
       const side = _a.set(t.z, 0, -t.x).normalize();
-      for (const s of [-1, 1]) { _m.compose(_v.set(p.x + side.x * s * 0.72, 0.2, p.z + side.z * s * 0.72), _q, _b.set(1, 1, 1)); rails.setMatrixAt(i * 2 + (s > 0 ? 1 : 0), _m); }
+      for (const s of [-1, 1]) { _m.compose(_v.set(p.x + side.x * s * 0.72, 0.2 + dy, p.z + side.z * s * 0.72), _q, _b.set(1, 1, 1)); rails.setMatrixAt(i * 2 + (s > 0 ? 1 : 0), _m); }
     }
     const bed = new THREE.Mesh(new THREE.TubeGeometry(this.track.curve, 200, 2.1, 4, true), new THREE.MeshStandardMaterial({ color: 0x5b5650, roughness: 1 }));
     bed.scale.y = 0.02; bed.receiveShadow = true;
     for (const m of [sleepers, rails]) { m.receiveShadow = true; g.scene.add(m); }
-    g.scene.add(bed);
+    bed.visible = false; g.scene.add(bed);
   }
 
   newTrain() {
@@ -219,8 +221,9 @@ export class VoxelTrain {
         const sf = this.s - k * 19 + 8.5, sb = this.s - k * 19 - 8.5;
         const pf = tr.curve.getPointAt((((sf % tr.length) + tr.length) % tr.length) / tr.length, _a);
         const pb = tr.curve.getPointAt((((sb % tr.length) + tr.length) % tr.length) / tr.length, _b);
+        pf.y = trackDip(pf.x, pf.z); pb.y = trackDip(pb.x, pb.z);
         const prev = c.p.clone();
-        c.p.addVectors(pf, pb).multiplyScalar(0.5); c.p.y = 0.25;
+        c.p.addVectors(pf, pb).multiplyScalar(0.5); c.p.y += 0.25;
         c.q.setFromUnitVectors(_v.set(0, 0, 1), _v.subVectors(pf, pb).normalize());
         c.v.subVectors(c.p, prev).divideScalar(Math.max(dt, 1e-4));
         c.g.position.copy(c.p); c.g.quaternion.copy(c.q);
