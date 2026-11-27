@@ -7,7 +7,7 @@
 //           together they drag you down. Shake them off at speed, with a shield, or smash them.
 // Mimic and Vanta follow the same interface as the bosses, so every attack in the game already hits them.
 import * as THREE from 'three';
-import { groundH } from './world.js?v=1795701775';
+import { groundH } from './world.js?v=1795814734';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion();
 const inTown = (x, z) => Math.abs(x) < 182 && Math.abs(z) < 182;
@@ -292,10 +292,11 @@ export class Swarm {
       const gy = floorAt(b.p.x, b.p.z);
       const onGround = b.p.y <= gy + 0.02;
       if (onGround) {
-        b.v.x += (to.x * b.spd - b.v.x) * Math.min(1, dt * 6); b.v.z += (to.z * b.spd - b.v.z) * Math.min(1, dt * 6);
+        const hs = g.mind?.has('closer') ? 1.45 : 1; // hive protocols reach the swarm too
+        b.v.x += (to.x * b.spd * hs - b.v.x) * Math.min(1, dt * 6); b.v.z += (to.z * b.spd * hs - b.v.z) * Math.min(1, dt * 6);
         // leap at you when you're close or above
         b.jumpT -= dt;
-        if (b.jumpT <= 0 && b.p.distanceTo(pc) < 9) { b.jumpT = 1.5 + Math.random(); const t = 0.6; b.v.set((pc.x - b.p.x) / t, (pc.y - b.p.y) / t + 10 * t * 0.5 + 3, (pc.z - b.p.z) / t); }
+        if (b.jumpT <= 0 && b.p.distanceTo(pc) < (g.mind?.has('jets') ? 16 : 9)) { b.jumpT = 1.5 + Math.random(); const t = 0.6; b.v.set((pc.x - b.p.x) / t, (pc.y - b.p.y) / t + 10 * t * 0.5 + 3, (pc.z - b.p.z) / t); }
       }
       // climb straight up walls
       const ahead = _b.copy(b.p).addScaledVector(to, 0.5); ahead.y += 0.6;

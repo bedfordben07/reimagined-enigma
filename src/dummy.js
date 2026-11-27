@@ -1,9 +1,9 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795701775';
-import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795701775';
-import { groundH, WORLD_HALF } from './world.js?v=1795701775';
+import { brushedMetalTex, pbr } from './textures.js?v=1795814734';
+import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795814734';
+import { groundH, WORLD_HALF } from './world.js?v=1795814734';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
@@ -336,6 +336,9 @@ export class Dummy {
       // how hard it's being pressed: it calls for backup when this gets high
       const sp = vel.length();
       if (sp > 8 && this.p[0].distanceTo(center) < radius + 1.5) this.pressure = (this.pressure || 0) + sp / 45;
+    } else if (this.ctx.mind) {
+      const f = this.ctx.mind.resist(this.ctx.src);
+      if (f !== 1) vel = vel.clone().multiplyScalar(f);
     }
     let any = false;
     for (let i = 0; i < this.n; i++) {
@@ -606,7 +609,8 @@ export class Dummy {
 
   setVariant(v) { this.noLearn = false; this.adapt = v.adaptive ? { exp: {}, have: new Set(), level: 0 } : null; this._resetLook?.(); for (const m of this.shedable || []) m.visible = true; this.shedN = 0; this.v = v; this.tintC.setRGB(v.tint[0], v.tint[1], v.tint[2]); this.hp = v.hp; this.poise = v.poise; if (v.glow != null) { this.glowMat.emissive.set(v.glow); this.eyeMat.emissive.set(v.glow); } }
 
-  has(t) { return !!this.adapt && this.adapt.have.has(t); }
+  // its own adaptations, plus any counter-protocols the hive mind has uploaded to every body
+  has(t) { return (!!this.adapt && this.adapt.have.has(t)) || !!this.ctx.mind?.has(t); }
   // Backup: when it's being beaten up, knocked down repeatedly, or you keep out of its reach, it launches
   // two helper bots (straight away if it's pinned on the ground, with a wind-up if it's on its feet).
   _backup(dt, ctx) {
@@ -950,7 +954,13 @@ export class Dummy {
         // you're winding up a punch: close and interrupt it, or set up a dodge and a counter
         if (d < 4.5 && Math.random() < dt * 3) { this.startAttack('punch', true, true); this.say(['Not so fast!', 'Interrupted!'], true); }
         else { this.guardT = 0.4; want.wind = 0.4; want.lean = 0.2; if (d > 4.5) { this._walk(dt, Math.atan2(dx, dz) + this.strafeSide * 0.9, 6, false); want.walk = 0.6; } }
-      } else if (free && this.atkCool <= 0 && !outOfReach && d < 45 && dy < 16) {
+      } else if (free && this.ctx.mind?.directive === 'CONTAIN' && this.ctx.mind.containAt) {
+        // the hive's orders: you went underground, so stand over the nearest way out and wait
+        const c = this.ctx.mind.containAt(this.root);
+        const ex = c.x - this.root.x, ez = c.z - this.root.z, ed = Math.hypot(ex, ez);
+        if (ed > 2.5) { this._walk(dt, Math.atan2(ex, ez), this.has('closer') ? 20 : 11, true); want.walk = 1; this.runFast = true; faceTarget = Math.atan2(ex, ez); }
+        else { this.runFast = false; want.taunt = 0.4; }
+      } else if (free && this.atkCool <= 0 && !outOfReach && d < 45 && dy < 16 && (this.ctx.mind ? this.ctx.mind.grant(this) : true)) {
         this.startAttack(this._chooseAttack(d, ctx.playerAir, ctx));
       } else if (free && outOfReach) {
         // you've gone where it can't follow: arm itself and wait at the closest point, taunting
@@ -972,9 +982,16 @@ export class Dummy {
       } else if (free && d > 3) {
         // between attacks it never stands still: it stalks you, weaving side to side so it's hard to laser
         if ((this.strafeT -= dt) <= 0) { this.strafeT = 0.5 + Math.random() * 0.7; this.strafeSide = -this.strafeSide; }
-        const lead = ctx.playerVel ? Math.atan2(dx + ctx.playerVel.x * 0.3, dz + ctx.playerVel.z * 0.3) : Math.atan2(dx, dz);
-        const weave = (ctx.laserNear || ctx.laserOnMe) ? 1.1 : 0.55;
-        if (!this._walk(dt, lead + this.strafeSide * weave, (ctx.laserNear ? 12 : 8.5), true)) this.strafeSide = -this.strafeSide;
+        let lead = ctx.playerVel ? Math.atan2(dx + ctx.playerVel.x * 0.3, dz + ctx.playerVel.z * 0.3) : Math.atan2(dx, dz);
+        let weave = (ctx.laserNear || ctx.laserOnMe) ? 1.1 : 0.55, sp = ctx.laserNear ? 12 : 8.5;
+        // waiting its turn: the hive gives each body its own angle round you, so you end up surrounded
+        const M = this.ctx.mind;
+        if (M && (M.directive === 'FLANK' || M.directive === 'EXECUTE') && !M.attackers.has(this)) {
+          const a = M.slot(this), r = M.directive === 'EXECUTE' ? 5 : 8;
+          const tx = ctx.playerPos.x + Math.cos(a) * r - this.root.x, tz = ctx.playerPos.z + Math.sin(a) * r - this.root.z;
+          if (Math.hypot(tx, tz) > 1.5) { lead = Math.atan2(tx, tz); weave = 0.2; sp = 11; } else { weave = 1.4; sp = 3; }
+        }
+        if (!this._walk(dt, lead + this.strafeSide * weave, sp, true)) this.strafeSide = -this.strafeSide;
         want.walk = 1; want.lean = 0.35; this.runFast = d > 10;
         faceTarget = Math.atan2(dx, dz);
       } else if (!this.atk) this.runFast = false;

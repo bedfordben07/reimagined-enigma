@@ -179,6 +179,12 @@ export class Sfx {
     }
     this.hl.g.gain.setTargetAtTime(d > 0 ? Math.min(0.35, 18 / (d + 30)) : 0, t, 0.3);
   }
+  // AXIOM speaking: a low, detuned chord with a digital edge
+  mind() {
+    if (!this.ctx || this._throttle('mind', 400)) return; const t = this.ctx.currentTime;
+    for (const [f, g] of [[55, 0.12], [82.4, 0.08], [110.6, 0.06], [164.8, 0.03]]) this._tone(t, { type: 'sawtooth', f0: f, f1: f * 0.98, gain: g, dur: 1.1, attack: 0.08, out: this.direct, verb: 0.5 });
+    for (let i = 0; i < 5; i++) this._tone(t + i * 0.05, { type: 'square', f0: 900 + Math.random() * 900, gain: 0.012, dur: 0.03, attack: 0.002, out: this.direct });
+  }
   tick(high) {
     if (!this.ctx) return; const t = this.ctx.currentTime;
     this._tone(t, { type: 'square', f0: high ? 1900 : 1450, gain: 0.05, dur: 0.04, attack: 0.001, out: this.direct });

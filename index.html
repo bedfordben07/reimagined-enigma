@@ -53,6 +53,9 @@
   #shFill { background: #6fe6ff; }
   #shBox.on .unit { color: #6fe6ff; }
   @keyframes pulse { from { opacity: 0.55; } to { opacity: 1; } }
+  #mindBox { position: fixed; left: 50%; top: calc(86px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); max-width: min(560px, calc(100vw - 32px)); text-align: center; pointer-events: none; font-family: var(--mono); font-size: 14px; color: #ff8a70; text-shadow: 0 0 8px rgba(255, 60, 30, 0.7), 0 2px 6px rgba(0,0,0,0.8); opacity: 0; transition: opacity 0.3s; }
+  #mindBox .who { color: #ff3a20; letter-spacing: 0.2em; font-weight: 600; }
+  #mindStatus { margin-top: 3px; font-size: 10px; letter-spacing: 0.25em; color: rgba(255, 120, 100, 0.65); }
   #spawnMenu { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 14px 16px; display: grid; gap: 6px; min-width: 260px; z-index: 6; }
   #spawnMenu[hidden] { display: none !important; }
   #spawnMenu b { letter-spacing: 0.2em; color: var(--amber); }
@@ -127,6 +130,7 @@
   <div class="bar dummy"><i id="dhpFill"></i></div>
   <div id="score"><span id="scoreVal">0</span><small id="comboVal">best 0</small></div>
 </div>
+<div id="mindBox"><span class="who">AXIOM ›</span> <span id="mindVoice"></span><div id="mindStatus">DORMANT</div></div>
 <div id="banner" hidden><b id="bannerText">WAVE 1</b><span id="bannerSub">ROOKIE</span></div>
 
 <div id="hudL" class="panel">
@@ -147,6 +151,7 @@
   <button type="button" data-spawn="6"><kbd>6</kbd> Mimic <em>copies you and your powers</em></button>
   <button type="button" data-spawn="7"><kbd>7</kbd> Vanta <em>rival hero, Mach dogfights</em></button>
   <button type="button" data-spawn="8"><kbd>8</kbd> Ambushes: <b id="ambushState">off</b></button>
+  <button type="button" data-spawn="9"><kbd>9</kbd> Purge AXIOM's memory <em>it forgets you</em></button>
   <button type="button" data-spawn="0"><kbd>0</kbd> Clear all</button>
   <span class="sub">R or Esc to close</span>
 </div>
@@ -257,4 +262,4 @@
   })();
 </script>
 
-<script type="module" src="./src/main.js?v=1795701775"></script>
+<script type="module" src="./src/main.js?v=1795814734"></script>
