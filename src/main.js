@@ -7,35 +7,35 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795814734';
-import { DebrisSystem } from './debris.js?v=1795814734';
-import { Dummy, VARIANTS } from './dummy.js?v=1795814734';
-import { Robot } from './robot.js?v=1795814734';
-import { Spectre } from './spectre.js?v=1795814734';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795814734';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795814734';
-import { Overmind } from './mind.js?v=1795814734';
-import { FlyerFoe, Swarm } from './foes.js?v=1795814734';
-import { ConstructionSite } from './site.js?v=1795814734';
-import { Underground } from './under.js?v=1795814734';
-import { VoxelTrain } from './train.js?v=1795814734';
-import { Life } from './life.js?v=1795814734';
-import { Colossus, Warlord } from './boss.js?v=1795814734';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795814734';
+import { VoxelWorld, VS } from './voxels.js?v=1795822750';
+import { DebrisSystem } from './debris.js?v=1795822750';
+import { Dummy, VARIANTS } from './dummy.js?v=1795822750';
+import { Robot } from './robot.js?v=1795822750';
+import { Spectre } from './spectre.js?v=1795822750';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795822750';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795822750';
+import { Overmind } from './mind.js?v=1795822750';
+import { FlyerFoe, Swarm } from './foes.js?v=1795822750';
+import { ConstructionSite } from './site.js?v=1795822750';
+import { Underground } from './under.js?v=1795822750';
+import { VoxelTrain } from './train.js?v=1795822750';
+import { Life } from './life.js?v=1795822750';
+import { Colossus, Warlord } from './boss.js?v=1795822750';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795822750';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
 let life = null, boss = null, train = null, helpers = null, swarm = null, site = null, under = null;
 let lastPower = null, mind = null;
-import { addOutline } from './outline.js?v=1795814734';
-import { Effects } from './effects.js?v=1795814734';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, SITE, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795814734';
-import { CarSystem } from './cars.js?v=1795814734';
-import { Powers } from './powers.js?v=1795814734';
-import { PropSystem } from './props.js?v=1795814734';
-import { Birds } from './birds.js?v=1795814734';
-import { FireSystem } from './fire.js?v=1795814734';
-import { Sfx } from './audio.js?v=1795814734';
+import { addOutline } from './outline.js?v=1795822750';
+import { Effects } from './effects.js?v=1795822750';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, SITE, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795822750';
+import { CarSystem } from './cars.js?v=1795822750';
+import { Powers } from './powers.js?v=1795822750';
+import { PropSystem } from './props.js?v=1795822750';
+import { Birds } from './birds.js?v=1795822750';
+import { FireSystem } from './fire.js?v=1795822750';
+import { Sfx } from './audio.js?v=1795822750';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -420,6 +420,7 @@ const bossCtx = {
 const bossPool = [];
 const foeCtx = Object.assign(Object.create(bossCtx), {
   heroClass: () => robot.constructor, voltClass: Volt, lastPower: () => lastPower,
+  heroKit: () => robot.kit, say: (t) => mind.say(t, 1), shieldOn: () => shield.on,
   sonicBoomAt: (p, level) => sonicBoom(level, p), banner: (a, b, t) => banner(a, b, t),
 });
 swarm = new Swarm({

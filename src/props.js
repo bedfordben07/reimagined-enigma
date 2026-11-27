@@ -2,7 +2,7 @@
 // mailboxes and traffic cones. Each prop is a simple tumbling rigid body (sphere contact, upright
 // or toppled), instanced per type so hundreds cost a few draw calls.
 import * as THREE from 'three';
-import { lathe, extrude, roundRect } from './geom.js?v=1795814734';
+import { lathe, extrude, roundRect } from './geom.js?v=1795822750';
 
 const G = -20;
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _s = new THREE.Vector3(1, 1, 1), _up = new THREE.Vector3(0, 1, 0);

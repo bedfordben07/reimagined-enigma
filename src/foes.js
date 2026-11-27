@@ -7,11 +7,12 @@
 //           together they drag you down. Shake them off at speed, with a shield, or smash them.
 // Mimic and Vanta follow the same interface as the bosses, so every attack in the game already hits them.
 import * as THREE from 'three';
-import { groundH } from './world.js?v=1795814734';
+import { groundH } from './world.js?v=1795822750';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion();
 const inTown = (x, z) => Math.abs(x) < 182 && Math.abs(z) < 182;
 const floorAt = (x, z) => (inTown(x, z) ? 0 : groundH(x, z));
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
 function darken(root, eye, glow) {
   root.traverse((o) => {
@@ -66,6 +67,8 @@ export class FlyerFoe {
     this.vel.set(0, 0, 0);
     this.max = this.baseHp; this.hp = this.max; this.active = true; this.dead = false; this.state = 'fly'; this.t = 0;
     this.mode = 'approach'; this.modeT = 2; this.fire = 1; this.beamT = 0; this.cool = 1.5;
+    this.act = null; this.recent = []; this.onFoot = false; this.anim = {};
+    if (this.kind === 'mimic') setTimeout(() => this.g.say?.(pick(['Is this what you look like from the outside?', 'Every move you make, I make better.', 'Two of you now. Only one leaves.'])), 600);
     this.g.scene.add(this.robot.root); this.robot.root.visible = true; this.robot.root.quaternion.identity();
     this.g.fx.wave(this.pos.clone(), 6, 0.4, new THREE.Color(4, 0.8, 0.5));
   }
@@ -107,6 +110,154 @@ export class FlyerFoe {
       say('copies your ' + power); g.knockPlayer(_v.subVectors(this.pos, g.chest()), 35); g.hurtPlayer(12);
     } else return false;
     return true;
+  }
+
+  // ---------------------------------------------------------------- the Mimic's brain
+  // It fights the way you do: on foot if you're on foot (or can't fly), in the air if you fly. It picks
+  // from a full move set, weighs each by range and the situation, and avoids repeating itself.
+  _mimic(dt, to, d, pc) {
+    const g = this.g, pl = g.player, kit = g.heroKit?.() || {}, canFly = kit.canFly !== false;
+    const out = { laser: false, punchT: 0, boost: false };
+    const an = this.anim = this.anim || {};
+    an.charge = 0; an.punchT = undefined; an.holding = false; an.throwWind = 0; an.tk = false;
+    an.throwT = Math.max(0, (an.throwT || 0) - dt * 2.5); an.clapT = Math.max(0, (an.clapT || 0) - dt / 0.38);
+    // on foot or in the air, like you
+    this.footT = !pl.flying && pl.grounded ? (this.footT || 0) + dt : 0;
+    const foot = !canFly || this.footT > 2;
+    if (foot !== this.onFoot && !(this.act && this.act.lockMode)) this.onFoot = foot;
+    // your last power, turned back on you
+    const lp = g.lastPower?.();
+    if (lp && lp.t !== this.lastSeen && this.t > 1) { this.lastSeen = lp.t; if (this.cool <= 0 && this._mirror(lp.name)) this.cool = 2.5; }
+    // it knows your wind-up: sidestep a charged punch and counter
+    if (pl.charging && d < 7 && this.t - (this.evadeT ?? -9) > 3 && (!this.act || this.act.name !== 'grab')) { this.evadeT = this.t; this._start('evade'); g.say?.(pick(['I know that wind-up. It is mine too.', 'Too slow. I would know.'])); }
+    if (!this.act) this._start(this._choose(d, foot));
+    const A = this.act; A.t += dt;
+    const fw = to.clone().setY(0).normalize();
+    const moveTo = (p, sp) => {
+      const dv = _b.subVectors(p, this.pos);
+      if (this.onFoot) {
+        const h = dv.clone().setY(0); const L = h.length();
+        const v = L > 0.5 ? h.divideScalar(L).multiplyScalar(Math.min(sp, L * 3)) : h.set(0, 0, 0);
+        this.vel.x += (v.x - this.vel.x) * Math.min(1, dt * 8); this.vel.z += (v.z - this.vel.z) * Math.min(1, dt * 8);
+        if (this.grounded && dv.y > 3) this.vel.y = Math.min(30, 10 + dv.y * 1.6); // jump up to you
+      } else this.vel.lerp(dv.clampLength(0, sp), Math.min(1, dt * 4));
+      return dv.length();
+    };
+    const done = () => { this.recent = [A.name, ...(this.recent || [])].slice(0, 3); this.act = null; };
+    const hit = (pow, kind, dmg) => { g.knockPlayer(fw.clone().add(_a.set(0, kind === 'uppercut' ? 0.8 : 0.25, 0)), pow, kind); g.hurtPlayer(dmg); g.sfx.boom(0.6 + pow / 100); };
+    switch (A.name) {
+      case 'punch': { // close in, wind up, lunge
+        if (A.phase === 0) { if (moveTo(pc.clone().addScaledVector(fw, -3), this.onFoot ? 18 : 40) < 6 || A.t > 3) { A.phase = 1; A.t = 0; } }
+        else if (A.phase === 1) { an.charge = Math.min(1, A.t / 0.45); this.vel.multiplyScalar(0.85); if (A.t > (A.fast ? 0.15 : 0.45)) { A.phase = 2; A.t = 0; this.vel.copy(to).setLength(70); g.sfx.whoosh(); } }
+        else { an.punchT = Math.max(0, 1 - A.t / 0.4); if (d < 2.6) { hit(55, 'punch', 26); if (inTown(pc.x, pc.z)) g.smash(pc.clone(), 1.6, { vel: fw.clone().multiplyScalar(30), outward: 8, max: 600 }); this.vel.multiplyScalar(-0.3); done(); } else if (A.t > 0.45) done(); }
+        break;
+      }
+      case 'combo': { // three jabs and an uppercut
+        if (A.phase === 0) { if (moveTo(pc.clone().addScaledVector(fw, -1.8), this.onFoot ? 18 : 40) < 3 || A.t > 3) { A.phase = 1; A.t = 0; A.n = 0; } }
+        else {
+          moveTo(pc.clone().addScaledVector(fw, -1.8), 10);
+          if (A.t > 0.22 * (A.n + 1) && A.n < 4) { A.n++; an.punchT = 1; this.jabT = 0.18; g.sfx.whoosh(); if (d < 3.4) { if (A.n < 4) hit(6, 'jab', 7); else hit(48, 'uppercut', 20); } }
+          if (this.jabT > 0) { this.jabT -= dt; an.punchT = this.jabT / 0.18; }
+          if (A.n >= 4 && A.t > 1.1) done();
+        }
+        break;
+      }
+      case 'grab': { // seize you, carry you up, hurl you down
+        if (A.phase === 0) { if (moveTo(pc, this.onFoot ? 20 : 48) < 2.3) { if (g.shieldOn?.()) { done(); break; } A.phase = 1; A.t = 0; g.say?.(pick(['Hold still. I want to see how you break.', 'Got you.'])); } else if (A.t > 3.5) done(); }
+        else if (A.phase === 1) {
+          A.lockMode = true; this.onFoot = false; an.holding = true;
+          this.vel.set(fw.x * 4, 16, fw.z * 4);
+          const hand = this.robot.handWorld(-1, new THREE.Vector3());
+          pl.pos.copy(hand).add(_a.set(0, 0.4, 0)); pl.vel.set(0, 0, 0); pl.stun = 0.3; pl.grounded = false;
+          if (A.t > 1.0) { A.phase = 2; A.t = 0; an.throwT = 1; const dir = fw.clone().add(_a.set(0, -0.9, 0)); g.knockPlayer(dir, 80, 'slam'); pl.vel.y = -60; g.hurtPlayer(30); g.sfx.whoosh(); }
+        } else { an.throwT = 1 - A.t * 2; if (A.t > 0.5) { A.lockMode = false; done(); } }
+        break;
+      }
+      case 'car': { // grab a car and throw it, the way you would
+        const c = A.car;
+        if (!c || c.burnt || (c.held && c.held !== 'mimic')) { done(); break; }
+        if (A.phase === 0) { if (moveTo(c.p.clone().add(_a.set(0, 1, 0)), this.onFoot ? 22 : 50) < 3.2) { g.cars.hold(c, 'mimic'); A.phase = 1; A.t = 0; g.say?.(pick(['You do this. I watched.', 'Your move. Borrowed.'])); } else if (A.t > 5) done(); }
+        else {
+          an.holding = A.phase === 1; this.vel.multiplyScalar(0.8);
+          if (A.phase < 3) g.cars.carry(c, this.robot.handWorld(-1, new THREE.Vector3()).add(_a.set(0, 1, 0)), this.yaw);
+          if (A.phase === 1 && A.t > 0.5) { A.phase = 2; A.t = 0; }
+          if (A.phase === 2) { an.throwWind = Math.min(1, A.t / 0.3); if (A.t > 0.3) { A.phase = 3; A.t = 0; an.throwT = 1; const T = Math.max(0.4, c.p.distanceTo(pc) / 60); const v = pc.clone().addScaledVector(pl.vel, T * 0.7).sub(c.p).divideScalar(T); v.y += 10 * T; g.cars.release(c, v, 'dummy'); g.sfx.whoosh(); } }
+          if (A.phase === 3 && A.t > 0.5) done();
+        }
+        break;
+      }
+      case 'laser': {
+        moveTo(pc.clone().addScaledVector(fw, -16).add(_a.set(0, this.onFoot ? 0 : 4, 0)), 30);
+        out.laser = A.t > 0.3; if (A.t > 2) done();
+        break;
+      }
+      case 'slam': { // up high, then straight down on you
+        A.lockMode = true; this.onFoot = false;
+        if (A.phase === 0) { moveTo(pc.clone().add(_a.set(0, 20, 0)), 60); if (this.pos.y > pc.y + 16 || A.t > 1.6) { A.phase = 1; A.t = 0; A.tgt = pc.clone(); g.sfx.whoosh(); } }
+        else {
+          this.vel.copy(A.tgt).sub(this.pos).setLength(95); out.boost = true;
+          if (this.pos.y <= floorAt(this.pos.x, this.pos.z) + 1.2 || this.pos.distanceTo(A.tgt) < 2 || A.t > 2) {
+            const p = this.pos.clone(); g.fx.wave(p, 14, 0.4, new THREE.Color(3, 0.8, 0.5)); g.fx.ring(p.clone().setY(floorAt(p.x, p.z) + 0.1), 18); g.sfx.boom(1.6);
+            if (inTown(p.x, p.z)) g.smash(p, 3.5, { vel: new THREE.Vector3(0, -15, 0), outward: 12, up: 6, max: 2000 });
+            g.blastAll(p, 14, 35, null, 1);
+            const pd = pc.distanceTo(p); if (pd < 13) { g.knockPlayer(pc.clone().sub(p), 45 * (1 - pd / 15)); g.hurtPlayer(28 * (1 - pd / 15)); }
+            this.vel.set(0, 6, 0); A.lockMode = false; done();
+          }
+        }
+        break;
+      }
+      case 'clap': {
+        if (A.phase === 0) { if (moveTo(pc.clone().addScaledVector(fw, -7), this.onFoot ? 18 : 40) < 9 || A.t > 2.5) { A.phase = 1; A.t = 0; an.clapT = 1; } }
+        else if (A.t > 0.2 && !A.fired) {
+          A.fired = true; const p = this.pos.clone().add(_a.set(0, 1.3, 0)).addScaledVector(fw, 1.5);
+          g.fx.wave(p, 6, 0.3, new THREE.Color(3, 1, 0.6)); g.sfx.boom(1.2); g.blastAll(p.clone().addScaledVector(fw, 5), 9, 30, fw, 0.4);
+          if (d < 15 && to.clone().normalize().dot(fw) > 0.6) hit(45, 'blast', 22);
+        } else if (A.t > 0.6) done();
+        break;
+      }
+      case 'signature': { // your hero's own trademark
+        const id = kit.id;
+        if (id === 'volt') { // bolt dash: a telegraphed lightning streak straight through you
+          if (A.phase === 0) { this.vel.multiplyScalar(0.8); an.charge = A.t / 0.5; for (let i = 0; i < 2; i++) g.fx.sparks.emit(this.pos.clone().add(_a.set(0, 1.2, 0)), _b.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(6), new THREE.Color(1.5, 3, 7), 0.2, 0, 0.03); if (A.t > 0.5) { A.phase = 1; A.t = 0; } }
+          else if (!A.fired) {
+            A.fired = true; const a = this.pos.clone().add(_a.set(0, 1, 0)), dir = to.clone().normalize(), b = pc.clone().addScaledVector(dir, 25);
+            for (let k = 0; k <= 20; k++) { const q = a.clone().lerp(b, k / 20); if (inTown(q.x, q.z) && g.vox.solidAt(q.x, q.y, q.z)) g.smash(q, 1.6, { vel: dir.clone().multiplyScalar(25), outward: 6, max: 300 }); if (k % 2 === 0) g.fx.sparks.emit(q, _b.set(Math.random() - 0.5, Math.random(), Math.random() - 0.5).multiplyScalar(6), new THREE.Color(1.5, 3.5, 8), 0.3, 0.5, 0.04); }
+            const ab = b.clone().sub(a), tt = Math.max(0, Math.min(1, pc.clone().sub(a).dot(ab) / ab.lengthSq()));
+            if (a.clone().addScaledVector(ab, tt).distanceTo(pc) < 3) hit(50, 'blast', 30);
+            this.pos.copy(b).y = Math.max(b.y - 1, floorAt(b.x, b.z)); this.vel.copy(dir).multiplyScalar(20); g.sfx.zap?.(1.5); g.sfx.boom(0.8);
+          } else if (A.t > 0.4) done();
+        } else if (id === 'titan') { // tears up a boulder and hurls it
+          an.throwWind = Math.min(1, A.t / 0.6); this.vel.multiplyScalar(0.85);
+          if (A.t > 0.6 && !A.fired) { A.fired = true; an.throwT = 1; const from = this.pos.clone().add(_a.set(0, 3, 0)); this._shot(from, pc.clone().add(_a.set(0, 4, 0)), 55, { size: 3.2, dmg: 34, r: 9, grav: 12, color: new THREE.Color(0.9, 0.8, 0.7) }); if (inTown(this.pos.x, this.pos.z)) g.smash(this.pos.clone(), 1.5, { up: 6, outward: 3, max: 200 }); }
+          if (A.t > 1.1) done();
+        } else { // Sentinel / Spectre: a missile barrage
+          this.vel.multiplyScalar(0.9); an.tk = A.t < 0.3;
+          if (!A.fired && A.t > 0.3) { A.fired = true; const from = this.pos.clone().add(_a.set(0, 1.5, 0)); for (let i = 0; i < 10; i++) setTimeout(() => this.active && !this.dead && this._shot(from.clone().add(_a.set((Math.random() - 0.5) * 2, Math.random() * 2, (Math.random() - 0.5) * 2)), g.chest().add(_a.set(0, 8, 0)), 30, { home: 2.2, dmg: 8, r: 4, size: 0.55, color: new THREE.Color(5, 2.6, 0.9) }), i * 70); }
+          if (A.t > 1.2) done();
+        }
+        break;
+      }
+      case 'evade': { // sidestep the punch, then hit back fast
+        if (A.t < 0.35) { const side = new THREE.Vector3(-fw.z, 0, fw.x).multiplyScalar(A.side * 16); this.vel.x = side.x; this.vel.z = side.z; }
+        else { this.act = { name: 'punch', t: 0, phase: 1, fast: true }; }
+        break;
+      }
+      default: { // a breather: circle you
+        this.ang = (this.ang ?? 0) + dt * 1.2;
+        moveTo(new THREE.Vector3(pc.x + Math.cos(this.ang) * 12, pc.y + (this.onFoot ? 0 : 3), pc.z + Math.sin(this.ang) * 12), this.onFoot ? 12 : 30);
+        if (A.t > 1.4) done();
+      }
+    }
+    return out;
+  }
+  _start(name) { this.act = { name, t: 0, phase: 0, side: Math.random() < 0.5 ? -1 : 1 }; if (name === 'car') this.act.car = this._nearCar(); }
+  _nearCar() { let best = null, bd = 50; for (const c of this.g.cars.cars) { if (c.held || c.burnt) continue; const d = c.p.distanceTo(this.pos); if (d < bd) { bd = d; best = c; } } return best; }
+  _choose(d, foot) {
+    const w = { punch: d < 35 ? 3 : 1, combo: d < 18 ? 2.5 : 0.4, grab: d < 22 ? 1.6 : 0.3, car: this._nearCar() && d > 6 ? 1.8 : 0, laser: d > 8 ? 1.2 : 0.3, slam: (!foot || d < 30) ? 1.4 : 0.4, clap: d < 14 ? 1.5 : 0.3, signature: 2, circle: 0.8 };
+    for (const r of this.recent || []) if (w[r]) w[r] *= 0.2; // don't repeat itself
+    let sum = 0; for (const k in w) sum += w[k];
+    let r = Math.random() * sum; for (const k in w) { r -= w[k]; if (r <= 0) return k; }
+    return 'punch';
   }
 
   update(dt) {
@@ -155,23 +306,15 @@ export class FlyerFoe {
           if (d < 3.5) { g.knockPlayer(this.vel.clone().add(_v.set(0, 60, 0)), 75, 'uppercut'); g.hurtPlayer(40); this.modeT = 0; this.vel.multiplyScalar(-0.3); }
         }
       } else { // mimic
-        if (this.modeT <= 0) { const r = Math.random(); this.mode = d < 10 && r < 0.5 ? 'dash' : r < 0.45 ? 'laser' : r < 0.75 ? 'dash' : 'hover'; this.modeT = this.mode === 'laser' ? 2.2 : this.mode === 'dash' ? 1.4 : 2; this.dashed = false; }
-        // copy your latest power the moment you use it
-        const lp = g.lastPower?.();
-        if (lp && lp.t !== this.lastSeen && this.t > 1) { this.lastSeen = lp.t; if (this.cool <= 0 && this._mirror(lp.name)) this.cool = 2.5; }
-        if (this.mode === 'dash') {
-          if (this.modeT > 0.9) { want.copy(to).setLength(-6).add(_v.set(0, 2, 0)); this.vel.lerp(want, Math.min(1, dt * 4)); this.charge = 1 - (this.modeT - 0.9) / 0.5; }
-          else { if (!this.dashed) { this.dashed = true; this.vel.copy(to).setLength(85); g.sfx.whoosh(); } punchT = this.modeT / 0.9; if (d < 2.6) { g.knockPlayer(to.clone().normalize().add(_v.set(0, 0.3, 0)), 50, 'punch'); g.hurtPlayer(24); this.modeT = 0; this.vel.multiplyScalar(-0.4); g.sfx.boom(0.8); } }
-        } else {
-          const r = this.mode === 'laser' ? 18 : 14;
-          want.copy(pc).addScaledVector(to.clone().normalize(), -r).add(_v.set(Math.sin(this.t * 1.3) * 4, 3, Math.cos(this.t * 1.1) * 4)).sub(this.pos).multiplyScalar(3);
-          this.vel.lerp(want.clampLength(0, 45), Math.min(1, dt * 3));
-          laser = this.mode === 'laser' && this.modeT < 1.9;
-        }
+        const A = this._mimic(dt, to, d, pc);
+        laser = A.laser; punchT = A.punchT; boost = A.boost;
       }
+      if (this.grounded !== undefined && this.onFoot) this.vel.y -= 32 * dt;
       this.pos.addScaledVector(this.vel, dt);
       // stay above ground and out of walls
-      const fl = floorAt(this.pos.x, this.pos.z) + 1; if (this.pos.y < fl) { this.pos.y = fl; if (this.vel.y < 0) this.vel.y = 0; }
+      const fl = floorAt(this.pos.x, this.pos.z) + (this.onFoot ? 0 : 1);
+      this.grounded = false;
+      if (this.pos.y <= fl) { this.pos.y = fl; if (this.vel.y < 0) this.vel.y = 0; this.grounded = this.onFoot; }
       if (inTown(this.pos.x, this.pos.z) && g.vox.solidAt(this.pos.x, this.pos.y + 1, this.pos.z)) {
         if (this.vel.length() > 60) { g.smash(this.pos.clone().add(_v.set(0, 1, 0)), 2.2, { vel: this.vel.clone(), inherit: 0.7, outward: 8, up: 2, max: 600 }); this.vel.multiplyScalar(0.9); }
         else { this.pos.y += 4 * dt * 10; this.vel.multiplyScalar(0.5); }
@@ -209,8 +352,9 @@ export class FlyerFoe {
     // pose
     R.root.position.copy(this.pos); R.root.rotation.set(0, this.yaw, 0);
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw), v = this.vel;
-    R.animate({ dt, flying: this.state !== 'fall' || true, grounded: false, hSpeed: Math.hypot(v.x, v.z), fwdSpeed: v.x * sy + v.z * cy, sideSpeed: v.x * cy - v.z * sy, vSpeed: v.y, boost,
-      aimPitch: -Math.atan2(to.y, Math.hypot(to.x, to.z)), aimYawRel: 0, turnRate: 0, charge: this.charge && this.mode === 'dash' && this.modeT > 0.9 ? this.charge : 0, punchT, holding: false, throwWind: 0, throwT: 0, laser, tk: false, clapT: 0, accFwd: 0, accSide: 0 });
+    const an = this.anim || {};
+    R.animate({ dt, flying: !this.onFoot, grounded: !!this.grounded, hSpeed: Math.hypot(v.x, v.z), fwdSpeed: v.x * sy + v.z * cy, sideSpeed: v.x * cy - v.z * sy, vSpeed: v.y, boost,
+      aimPitch: -Math.atan2(to.y, Math.hypot(to.x, to.z)), aimYawRel: 0, turnRate: 0, charge: an.charge || (this.charge && this.mode === 'dash' && this.modeT > 0.9 ? this.charge : 0), punchT: an.punchT ?? punchT, holding: !!an.holding, throwWind: an.throwWind || 0, throwT: an.throwT || 0, laser, tk: !!an.tk, clapT: an.clapT || 0, accFwd: 0, accSide: 0 });
     this.charge = 0;
     R.root.updateMatrixWorld(true);
   }
