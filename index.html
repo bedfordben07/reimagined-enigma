@@ -56,6 +56,18 @@
   #mindBox { position: fixed; left: 50%; top: calc(86px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); max-width: min(560px, calc(100vw - 32px)); text-align: center; pointer-events: none; font-family: var(--mono); font-size: 14px; color: #ff8a70; text-shadow: 0 0 8px rgba(255, 60, 30, 0.7), 0 2px 6px rgba(0,0,0,0.8); opacity: 0; transition: opacity 0.3s; }
   #mindBox .who { color: #ff3a20; letter-spacing: 0.2em; font-weight: 600; }
   #mindStatus { margin-top: 3px; font-size: 10px; letter-spacing: 0.25em; color: rgba(255, 120, 100, 0.65); }
+  .settings { display: grid; gap: 7px; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); font-size: 13px; }
+  .settings b { letter-spacing: 0.2em; color: var(--amber); font-size: 12px; }
+  .settings .sub { font-size: 11px; color: var(--dim); }
+  .settings label { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--ink); }
+  .settings input[type=range] { width: 150px; accent-color: #ffc94a; }
+  .settings select { background: rgba(255,255,255,0.08); color: var(--ink); border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; padding: 2px 6px; }
+  #wheel { position: fixed; left: 50%; top: 50%; width: min(420px, 80vw); height: min(420px, 80vw); transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, rgba(10,12,14,0.25) 20%, rgba(10,12,14,0.7) 70%); pointer-events: none; z-index: 4; }
+  #wheel[hidden] { display: none !important; }
+  #wheel .wi { position: absolute; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 2px; font: 11px var(--mono); color: var(--dim); padding: 6px 8px; border-radius: 6px; transition: transform 0.08s; }
+  #wheel .wi kbd { font: 600 14px var(--mono); color: var(--ink); }
+  #wheel .wi.on { color: #15130e; background: var(--amber); transform: translate(-50%, -50%) scale(1.15); }
+  #wheel .wi.on kbd { color: #15130e; }
   #spawnMenu { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 14px 16px; display: grid; gap: 6px; min-width: 260px; z-index: 6; }
   #spawnMenu[hidden] { display: none !important; }
   #spawnMenu b { letter-spacing: 0.2em; color: var(--amber); }
@@ -130,6 +142,7 @@
   <div class="bar dummy"><i id="dhpFill"></i></div>
   <div id="score"><span id="scoreVal">0</span><small id="comboVal">best 0</small></div>
 </div>
+<div id="wheel" hidden></div>
 <div id="mindBox"><span class="who">AXIOM ›</span> <span id="mindVoice"></span><div id="mindStatus">DORMANT</div></div>
 <div id="banner" hidden><b id="bannerText">WAVE 1</b><span id="bannerSub">ROOKIE</span></div>
 
@@ -151,6 +164,8 @@
   <button type="button" data-spawn="6"><kbd>6</kbd> Mimic <em>copies you and your powers</em></button>
   <button type="button" data-spawn="7"><kbd>7</kbd> Vanta <em>rival hero, Mach dogfights</em></button>
   <button type="button" data-spawn="8"><kbd>8</kbd> Ambushes: <b id="ambushState">off</b></button>
+  <button type="button" data-spawn="A"><kbd>A</kbd> AXIOM PRIME <em>the hive mind in person</em></button>
+  <button type="button" data-spawn="S"><kbd>S</kbd> Survival <em>endless waves · how long can you last?</em></button>
   <button type="button" data-spawn="9"><kbd>9</kbd> Purge AXIOM's memory <em>it forgets you</em></button>
   <button type="button" data-spawn="0"><kbd>0</kbd> Clear all</button>
   <span class="sub">R or Esc to close</span>
@@ -201,6 +216,8 @@
   <div class="row"><span><kbd>I</kbd></span><span>gravity well slam (from the air)</span></div>
   <div class="row"><span><kbd>E</kbd> girder</span><span>at the building site: grab · click swing · E throw</span></div>
   <div class="row"><span>punch down</span><span>on the main roads: break into the tunnels</span></div>
+  <div class="row"><span>hold <kbd>Tab</kbd></span><span>power wheel: flick the mouse, release</span></div>
+  <div class="row"><span><kbd>Esc</kbd></span><span>pause and settings</span></div>
   <div class="row"><span>hold <kbd>7</kbd></span><span>rewind the world (last 12 s) while you stay in the present</span></div>
   <div class="row"><span><kbd>9</kbd></span><span>skip 6 hours (day / night)</span></div>
   <div class="row"><span><kbd>8</kbd></span><span>music on / off</span></div>
@@ -239,6 +256,16 @@
       <button type="button" data-char="3" aria-pressed="false"><b>Titan</b><span>no flight · huge jumps, boulders, ground pound, rage</span></button>
     </div>
     <button id="startBtn" type="button">Click to play</button>
+    <div id="settings" class="settings">
+      <b>SETTINGS</b><span class="sub">Esc pauses and opens this menu</span>
+      <label>Music <input id="setMusic" type="range" min="0" max="1" step="0.05"></label>
+      <label>Effects <input id="setFx" type="range" min="0" max="1.5" step="0.05"></label>
+      <label>Mouse sensitivity <input id="setSens" type="range" min="0.3" max="2.5" step="0.05"></label>
+      <label>Invert mouse Y <input id="setInvert" type="checkbox"></label>
+      <label>Difficulty <select id="setDiff"><option value="0">Easy</option><option value="1">Normal</option><option value="2">Hard</option></select></label>
+      <label>Graphics <select id="setQual"><option value="auto">Auto</option><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option><option value="3">Ultra</option></select></label>
+      <span class="sub">Hold <kbd>Tab</kbd> for the power wheel · <kbd>H</kbd> for every control</span>
+    </div>
   </div>
 </div>
 
@@ -262,4 +289,4 @@
   })();
 </script>
 
-<script type="module" src="./src/main.js?v=1795822750"></script>
+<script type="module" src="./src/main.js?v=1795857591"></script>

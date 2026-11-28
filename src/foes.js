@@ -7,7 +7,7 @@
 //           together they drag you down. Shake them off at speed, with a shield, or smash them.
 // Mimic and Vanta follow the same interface as the bosses, so every attack in the game already hits them.
 import * as THREE from 'three';
-import { groundH } from './world.js?v=1795822750';
+import { groundH } from './world.js?v=1795857591';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion();
 const inTown = (x, z) => Math.abs(x) < 182 && Math.abs(z) < 182;
@@ -123,13 +123,13 @@ export class FlyerFoe {
     an.throwT = Math.max(0, (an.throwT || 0) - dt * 2.5); an.clapT = Math.max(0, (an.clapT || 0) - dt / 0.38);
     // on foot or in the air, like you
     this.footT = !pl.flying && pl.grounded ? (this.footT || 0) + dt : 0;
-    const foot = !canFly || this.footT > 2;
+    const foot = this.kind === 'mimic' && (!canFly || this.footT > 2);
     if (foot !== this.onFoot && !(this.act && this.act.lockMode)) this.onFoot = foot;
     // your last power, turned back on you
     const lp = g.lastPower?.();
     if (lp && lp.t !== this.lastSeen && this.t > 1) { this.lastSeen = lp.t; if (this.cool <= 0 && this._mirror(lp.name)) this.cool = 2.5; }
     // it knows your wind-up: sidestep a charged punch and counter
-    if (pl.charging && d < 7 && this.t - (this.evadeT ?? -9) > 3 && (!this.act || this.act.name !== 'grab')) { this.evadeT = this.t; this._start('evade'); g.say?.(pick(['I know that wind-up. It is mine too.', 'Too slow. I would know.'])); }
+    if (pl.charging && d < 7 && this.t - (this.evadeT ?? -9) > 3 && (!this.act || this.act.name !== 'grab')) { this.evadeT = this.t; this._start('evade'); if (this.kind === 'mimic') g.say?.(pick(['I know that wind-up. It is mine too.', 'Too slow. I would know.'])); }
     if (!this.act) this._start(this._choose(d, foot));
     const A = this.act; A.t += dt;
     const fw = to.clone().setY(0).normalize();
@@ -163,20 +163,20 @@ export class FlyerFoe {
         break;
       }
       case 'grab': { // seize you, carry you up, hurl you down
-        if (A.phase === 0) { if (moveTo(pc, this.onFoot ? 20 : 48) < 2.3) { if (g.shieldOn?.()) { done(); break; } A.phase = 1; A.t = 0; g.say?.(pick(['Hold still. I want to see how you break.', 'Got you.'])); } else if (A.t > 3.5) done(); }
+        if (A.phase === 0) { if (moveTo(pc, this.onFoot ? 20 : 48) < 2.3) { if (g.shieldOn?.()) { done(); break; } A.phase = 1; A.t = 0; if (this.kind === 'mimic') g.say?.(pick(['Hold still. I want to see how you break.', 'Got you.'])); } else if (A.t > 3.5) done(); }
         else if (A.phase === 1) {
           A.lockMode = true; this.onFoot = false; an.holding = true;
-          this.vel.set(fw.x * 4, 16, fw.z * 4);
+          this.vel.set(fw.x * 4, this.kind === 'vanta' ? 34 : 16, fw.z * 4);
           const hand = this.robot.handWorld(-1, new THREE.Vector3());
           pl.pos.copy(hand).add(_a.set(0, 0.4, 0)); pl.vel.set(0, 0, 0); pl.stun = 0.3; pl.grounded = false;
-          if (A.t > 1.0) { A.phase = 2; A.t = 0; an.throwT = 1; const dir = fw.clone().add(_a.set(0, -0.9, 0)); g.knockPlayer(dir, 80, 'slam'); pl.vel.y = -60; g.hurtPlayer(30); g.sfx.whoosh(); }
+          if (A.t > (this.kind === 'vanta' ? 1.8 : 1.0)) { A.phase = 2; A.t = 0; an.throwT = 1; const dir = fw.clone().add(_a.set(0, -0.9, 0)); g.knockPlayer(dir, 80, 'slam'); pl.vel.y = -60; g.hurtPlayer(30); g.sfx.whoosh(); }
         } else { an.throwT = 1 - A.t * 2; if (A.t > 0.5) { A.lockMode = false; done(); } }
         break;
       }
       case 'car': { // grab a car and throw it, the way you would
         const c = A.car;
         if (!c || c.burnt || (c.held && c.held !== 'mimic')) { done(); break; }
-        if (A.phase === 0) { if (moveTo(c.p.clone().add(_a.set(0, 1, 0)), this.onFoot ? 22 : 50) < 3.2) { g.cars.hold(c, 'mimic'); A.phase = 1; A.t = 0; g.say?.(pick(['You do this. I watched.', 'Your move. Borrowed.'])); } else if (A.t > 5) done(); }
+        if (A.phase === 0) { if (moveTo(c.p.clone().add(_a.set(0, 1, 0)), this.onFoot ? 22 : 50) < 3.2) { g.cars.hold(c, 'mimic'); A.phase = 1; A.t = 0; if (this.kind === 'mimic') g.say?.(pick(['You do this. I watched.', 'Your move. Borrowed.'])); } else if (A.t > 5) done(); }
         else {
           an.holding = A.phase === 1; this.vel.multiplyScalar(0.8);
           if (A.phase < 3) g.cars.carry(c, this.robot.handWorld(-1, new THREE.Vector3()).add(_a.set(0, 1, 0)), this.yaw);
@@ -216,7 +216,7 @@ export class FlyerFoe {
         break;
       }
       case 'signature': { // your hero's own trademark
-        const id = kit.id;
+        const id = this.kind === 'vanta' ? 'vanta' : kit.id;
         if (id === 'volt') { // bolt dash: a telegraphed lightning streak straight through you
           if (A.phase === 0) { this.vel.multiplyScalar(0.8); an.charge = A.t / 0.5; for (let i = 0; i < 2; i++) g.fx.sparks.emit(this.pos.clone().add(_a.set(0, 1.2, 0)), _b.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(6), new THREE.Color(1.5, 3, 7), 0.2, 0, 0.03); if (A.t > 0.5) { A.phase = 1; A.t = 0; } }
           else if (!A.fired) {
@@ -237,6 +237,25 @@ export class FlyerFoe {
         }
         break;
       }
+      case 'ram': { // peel away for a long run, then come back past Mach 1
+        out.boost = true;
+        if (A.phase === 0) { this.vel.lerp(to.clone().setLength(-300).add(_a.set(0, 20, 0)), Math.min(1, dt * 2)); if (d > 220 || A.t > 3) { A.phase = 1; A.t = 0; A.boomed = false; } }
+        else {
+          this.vel.lerp(to.clone().setLength(470), Math.min(1, dt * 2.2)); out.punchT = 0.8;
+          if (!A.boomed && this.vel.length() > 343) { A.boomed = true; g.sonicBoomAt?.(this.pos.clone(), 1); }
+          if (d < 3.5) { g.knockPlayer(this.vel.clone().add(_a.set(0, 60, 0)), 75, 'uppercut'); g.hurtPlayer(40); this.vel.multiplyScalar(-0.3); done(); }
+          else if (A.t > 4) done();
+        }
+        break;
+      }
+      case 'strafe': { // a high-speed pass straight through you, firing
+        out.boost = true;
+        if (!A.dir) A.dir = to.clone().normalize();
+        this.vel.lerp(A.dir.clone().multiplyScalar(240).addScaledVector(to.clone().normalize(), 80), Math.min(1, dt * 1.5));
+        out.laser = d < 50 && to.dot(this.vel) > 0;
+        if (d < 3) { g.knockPlayer(this.vel.clone(), 40, 'tackle'); g.hurtPlayer(22); done(); } else if (A.t > 3) done();
+        break;
+      }
       case 'evade': { // sidestep the punch, then hit back fast
         if (A.t < 0.35) { const side = new THREE.Vector3(-fw.z, 0, fw.x).multiplyScalar(A.side * 16); this.vel.x = side.x; this.vel.z = side.z; }
         else { this.act = { name: 'punch', t: 0, phase: 1, fast: true }; }
@@ -245,7 +264,8 @@ export class FlyerFoe {
       default: { // a breather: circle you
         this.ang = (this.ang ?? 0) + dt * 1.2;
         moveTo(new THREE.Vector3(pc.x + Math.cos(this.ang) * 12, pc.y + (this.onFoot ? 0 : 3), pc.z + Math.sin(this.ang) * 12), this.onFoot ? 12 : 30);
-        if (A.t > 1.4) done();
+        if (this.kind === 'vanta') out.laser = d < 45 && (A.t % 1.6) < 0.8;
+        if (A.t > (this.kind === 'vanta' ? 3.5 : 1.4)) done();
       }
     }
     return out;
@@ -253,7 +273,9 @@ export class FlyerFoe {
   _start(name) { this.act = { name, t: 0, phase: 0, side: Math.random() < 0.5 ? -1 : 1 }; if (name === 'car') this.act.car = this._nearCar(); }
   _nearCar() { let best = null, bd = 50; for (const c of this.g.cars.cars) { if (c.held || c.burnt) continue; const d = c.p.distanceTo(this.pos); if (d < bd) { bd = d; best = c; } } return best; }
   _choose(d, foot) {
-    const w = { punch: d < 35 ? 3 : 1, combo: d < 18 ? 2.5 : 0.4, grab: d < 22 ? 1.6 : 0.3, car: this._nearCar() && d > 6 ? 1.8 : 0, laser: d > 8 ? 1.2 : 0.3, slam: (!foot || d < 30) ? 1.4 : 0.4, clap: d < 14 ? 1.5 : 0.3, signature: 2, circle: 0.8 };
+    const w = this.kind === 'vanta'
+      ? { ram: 2.2, strafe: 2, circle: 1.6, signature: 1.4, grab: d < 40 ? 1.3 : 0.4, slam: 1.2, punch: d < 30 ? 1.2 : 0.4, clap: d < 12 ? 0.8 : 0, car: 0 }
+      : { punch: d < 35 ? 3 : 1, combo: d < 18 ? 2.5 : 0.4, grab: d < 22 ? 1.6 : 0.3, car: this._nearCar() && d > 6 ? 1.8 : 0, laser: d > 8 ? 1.2 : 0.3, slam: (!foot || d < 30) ? 1.4 : 0.4, clap: d < 14 ? 1.5 : 0.3, signature: 2, circle: 0.8 };
     for (const r of this.recent || []) if (w[r]) w[r] *= 0.2; // don't repeat itself
     let sum = 0; for (const k in w) sum += w[k];
     let r = Math.random() * sum; for (const k in w) { r -= w[k]; if (r <= 0) return k; }
@@ -281,31 +303,8 @@ export class FlyerFoe {
     } else {
       this.modeT -= dt; this.cool -= dt;
       const want = new THREE.Vector3();
-      if (this.kind === 'vanta') {
-        if (this.modeT <= 0) { const r = Math.random(); this.mode = d > 60 ? (r < 0.6 ? 'ram' : 'strafe') : r < 0.35 ? 'circle' : r < 0.7 ? 'strafe' : 'ram'; this.modeT = this.mode === 'circle' ? 4 : this.mode === 'ram' ? 9 : 3.5; this.passDir = null; this.boomed = false; this.runup = this.mode === 'ram'; }
-        if (this.mode === 'circle') {
-          // tight duel: orbit you at 25 m, laser bursts
-          this.ang = (this.ang ?? 0) + dt * 1.6;
-          want.set(pc.x + Math.cos(this.ang) * 25, pc.y + 6 + Math.sin(this.t) * 4, pc.z + Math.sin(this.ang) * 25).sub(this.pos).multiplyScalar(4);
-          this.vel.lerp(want.clampLength(0, 90), Math.min(1, dt * 3));
-          laser = (this.t % 2.2) < 0.9 && d < 45;
-        } else if (this.mode === 'strafe') {
-          // high-speed pass straight through your position, firing as it closes
-          if (!this.passDir) this.passDir = to.clone().normalize();
-          const tgtV = _b.copy(this.passDir).multiplyScalar(240).addScaledVector(to.clone().normalize(), 80);
-          this.vel.lerp(tgtV, Math.min(1, dt * 1.5)); boost = true;
-          laser = d < 50 && to.dot(this.vel) > 0;
-          if (d < 3) { g.knockPlayer(this.vel.clone(), 40, 'tackle'); g.hurtPlayer(22); this.passDir = null; this.modeT = 0.8; }
-        } else if (this.runup) { // ram, part 1: peel away to get a long run at you
-          this.vel.lerp(to.clone().setLength(-300).add(_v.set(0, 20, 0)), Math.min(1, dt * 2)); boost = true;
-          if (d > 220) this.runup = false;
-        } else { // ram, part 2: turn and come at you past Mach 1
-          const tgtV = to.clone().setLength(470);
-          this.vel.lerp(tgtV, Math.min(1, dt * 2.2)); boost = true; punchT = 0.8;
-          if (!this.boomed && this.vel.length() > 343) { this.boomed = true; g.sonicBoomAt?.(this.pos.clone(), 1); }
-          if (d < 3.5) { g.knockPlayer(this.vel.clone().add(_v.set(0, 60, 0)), 75, 'uppercut'); g.hurtPlayer(40); this.modeT = 0; this.vel.multiplyScalar(-0.3); }
-        }
-      } else { // mimic
+      if (false) {
+      } else { // both Mimic and Vanta think with the same brain, each with its own repertoire
         const A = this._mimic(dt, to, d, pc);
         laser = A.laser; punchT = A.punchT; boost = A.boost;
       }
@@ -432,8 +431,15 @@ export class Swarm {
         b.m.lookAt(pc);
         continue;
       }
-      const to = _a.set(pl.pos.x - b.p.x, 0, pl.pos.z - b.p.z); const dh = to.length(); to.divideScalar(dh || 1);
-      const gy = floorAt(b.p.x, b.p.z);
+      // follow you into (and out of) the tunnels through the nearest hole
+      const U = g.under, playerUnder = pl.pos.y < -0.4;
+      let tx = pl.pos.x, tz = pl.pos.z;
+      if (U && playerUnder !== !!b.under) {
+        let B = null, bd = 1e9; for (const h of U.breaches) { const dd = Math.hypot(h.x - b.p.x, h.z - b.p.z); if (dd < bd) { bd = dd; B = h; } }
+        if (B) { tx = B.x; tz = B.z; if (bd < Math.max(1, B.r * 0.7)) { b.under = !b.under; b.p.y = b.under ? (U.floorAt(b.p.x, b.p.z) ?? -10) : 0.1; b.v.set(0, b.under ? 0 : 9, 0); } }
+      }
+      const to = _a.set(tx - b.p.x, 0, tz - b.p.z); const dh = to.length(); to.divideScalar(dh || 1);
+      const gy = b.under && U ? (U.floorAt(b.p.x, b.p.z) ?? -10) : floorAt(b.p.x, b.p.z);
       const onGround = b.p.y <= gy + 0.02;
       if (onGround) {
         const hs = g.mind?.has('closer') ? 1.45 : 1; // hive protocols reach the swarm too
@@ -444,10 +450,11 @@ export class Swarm {
       }
       // climb straight up walls
       const ahead = _b.copy(b.p).addScaledVector(to, 0.5); ahead.y += 0.6;
-      b.climb = inTown(b.p.x, b.p.z) && g.vox.solidAt(ahead.x, ahead.y, ahead.z);
+      b.climb = !b.under && inTown(b.p.x, b.p.z) && g.vox.solidAt(ahead.x, ahead.y, ahead.z);
       if (b.climb) { b.v.y = 5.5; b.v.x = to.x * 0.5; b.v.z = to.z * 0.5; }
       else if (!onGround) b.v.y -= 20 * dt;
       b.p.addScaledVector(b.v, dt);
+      if (b.under && U) U.constrain(b.p, 0.8);
       if (b.p.y < gy) { b.p.y = gy; if (b.v.y < 0) b.v.y = 0; }
       // standing on a roof
       if (!b.climb && inTown(b.p.x, b.p.z) && g.vox.solidAt(b.p.x, b.p.y - 0.05, b.p.z)) { if (b.v.y < 0) b.v.y = 0; b.p.y = Math.ceil(b.p.y * 2) / 2; }

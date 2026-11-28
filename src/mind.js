@@ -85,13 +85,30 @@ export class Overmind {
     this.know = {}; this.protocols.clear(); this.encounters = 0; this.kills = 0; this.takedowns = 0; this.met = false; this.save();
     this.say('Memory purged. Hello, stranger.', 3);
   }
-  has(t) { return this.protocols.has(t); }
+  has(t) { return !this.signalLost && this.protocols.has(t); }
+  // relay towers carry the signal: with none left standing, uploaded protocols stop reaching the bodies
+  setRelays(alive, total, rebuilt = false) {
+    const lost = total > 0 && alive === 0;
+    this.relayAlive = alive; this.relayTotal = total;
+    if (lost !== this.signalLost) { this.signalLost = lost; this.say(lost ? 'Signal lost. No matter. I am patient.' : 'Signal restored.', 2); this.pulse = 1.5; }
+    else if (!lost && !rebuilt && this.met) this.say(pick(['You are cutting my wires. Bold.', 'One less voice in the chorus.', 'I have other towers.']), 1);
+  }
+  // time rewound past the moment it learned something: it forgets it (and is not pleased)
+  eraseAfter(t) {
+    let n = 0;
+    for (const [trait, at] of Object.entries(this.protoT || {})) if (at > t && this.protocols.has(trait)) {
+      this.protocols.delete(trait); delete this.protoT[trait]; n++;
+      const kind = Object.keys(PROTO).find((k) => PROTO[k].trait === trait); if (kind) this.know[kind] = PROTO[kind].need * 0.6;
+    }
+    if (n) { this.save(); this.say(n > 1 ? `You erased ${n} things I learned. I will simply learn them again.` : 'You erased what I learned. That was rude.', 3); }
+    return n;
+  }
   // a tactic seen through any body
   observe(kind, k = 1) {
     this.know[kind] = (this.know[kind] || 0) + k;
     const p = PROTO[kind];
     if (p && !this.protocols.has(p.trait) && this.know[kind] >= p.need) {
-      this.protocols.add(p.trait); this.save();
+      this.protocols.add(p.trait); (this.protoT = this.protoT || {})[p.trait] = this.gameTime ?? 0; this.save();
       this.say(pick(LINES.protocol).replace('{p}', p.name.toUpperCase()), 3);
       this.pulse = 1.5;
       this.g.onProtocol?.(p);
@@ -100,6 +117,7 @@ export class Overmind {
   // how much of a hit of this kind gets through to a hive-linked body
   resist(src) {
     let f = 1;
+    if (this.signalLost) return f;
     if (src === 'punch' && this.has('counter')) f *= 0.7;
     if (src === 'laser' && this.has('reflect')) f *= 0.6;
     if ((!src || src === 'blast') && this.has('damper')) f *= 0.65;
@@ -130,7 +148,7 @@ export class Overmind {
   event(name, data = {}) {
     const L = LINES[name]; if (!L) return;
     const prio = { nuke: 3, rewind: 2, playerDown: 2, protocol: 3, intro: 3, returning: 3, bossDown: 2, allDown: 2, lowHp: 2, underground: 2 }[name] || 1;
-    if (name === 'unitDown' || name === 'bossDown') { this.kills++; }
+    if (name === 'unitDown' || name === 'bossDown') { this.kills++; this.sessionKills = (this.sessionKills || 0) + 1; }
     if (name === 'playerDown') this.takedowns++;
     let line = Array.isArray(L) ? pick(L) : L;
     line = line.replace('{n}', this.encounters);
@@ -145,7 +163,7 @@ export class Overmind {
   // ---------------------------------------------------------------- the loop
   // units: [{ ref, pos, kind }], ctx: { playerPos, playerHp (0..1), underground, breaches }
   update(dt, units, ctx) {
-    this.time += dt;
+    this.time += dt; this.gameTime = ctx.gameTime;
     const live = units.length;
     // first contact of the session
     if (live && !this.met) { this.met = true; this.encounters++; this.save(); this.event(this.encounters > 1 ? 'returning' : 'intro'); }
@@ -190,7 +208,8 @@ export class Overmind {
       this.core.rotation.y += dt * 0.6; this.core.rotation.x += dt * 0.25;
       this.core.scale.setScalar(1 + this.pulse * 0.6 + Math.sin(this.time * 3) * 0.05);
       let n = 0;
-      for (const u of units.slice(0, 64)) { this.linkPos.set([this.core.position.x, this.core.position.y, this.core.position.z, u.pos.x, u.pos.y + 1.2, u.pos.z], n * 6); n++; }
+      for (const u of units.slice(0, 56)) { this.linkPos.set([this.core.position.x, this.core.position.y, this.core.position.z, u.pos.x, u.pos.y + 1.2, u.pos.z], n * 6); n++; }
+      for (const r of (ctx.relays || []).slice(0, 8)) { this.linkPos.set([this.core.position.x, this.core.position.y, this.core.position.z, r.x, r.y, r.z], n * 6); n++; }
       this.links.geometry.setDrawRange(0, n * 2); this.links.geometry.attributes.position.needsUpdate = true;
       this.links.material.opacity = 0.18 + this.pulse * 0.5 + Math.sin(this.time * 6) * 0.05;
     }
@@ -204,7 +223,8 @@ export class Overmind {
       if (T.hold <= -0.3) { this.typing = null; this.voiceEl.textContent = ''; }
     }
     this.voiceEl.parentElement.style.opacity = live || this.typing ? 1 : 0;
-    this.statusEl.textContent = live ? `${live} BOD${live > 1 ? 'IES' : 'Y'} LINKED · ${this.directive} · ${this.protocols.size} PROTOCOL${this.protocols.size === 1 ? '' : 'S'}` : (this.protocols.size ? `DORMANT · ${this.protocols.size} PROTOCOLS IN MEMORY` : 'DORMANT');
+    const relayTxt = this.relayTotal ? ` · RELAYS ${this.relayAlive}/${this.relayTotal}${this.signalLost ? ' · SIGNAL LOST' : ''}` : '';
+    this.statusEl.textContent = live ? `${live} BOD${live > 1 ? 'IES' : 'Y'} LINKED · ${this.directive} · ${this.protocols.size} PROTOCOL${this.protocols.size === 1 ? '' : 'S'}${relayTxt}` : (this.protocols.size ? `DORMANT · ${this.protocols.size} PROTOCOLS IN MEMORY` : 'DORMANT');
     this.saveT -= dt; if (this.saveT <= 0) { this.saveT = 10; this.save(); }
   }
 }

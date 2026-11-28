@@ -1,9 +1,9 @@
 // Crash-test dummy: a Verlet ragdoll. Standing still until something hits it, then pure physics.
 // Fast-moving body parts smash through walls.
 import * as THREE from 'three';
-import { brushedMetalTex, pbr } from './textures.js?v=1795822750';
-import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795822750';
-import { groundH, WORLD_HALF } from './world.js?v=1795822750';
+import { brushedMetalTex, pbr } from './textures.js?v=1795857591';
+import { lathe, extrude, roundRect, smoothShape } from './geom.js?v=1795857591';
+import { groundH, WORLD_HALF } from './world.js?v=1795857591';
 
 // Lines it says, by situation.
 // Boss waves: each variant tunes the same dummy (health, armour, speed, damage, dodging, colour).
@@ -308,6 +308,7 @@ export class Dummy {
   }
 
   spawn(pos, yaw) {
+    this.underground = false;
     this.root.copy(pos); this.yaw = yaw; this.mode = 'stand'; this.burn = 0; this.atk = null; this.atkCool = 1.5;
     this.ko = false; this.hp = this.v.hp; this.poise = this.v.poise;
     this._setPose();
@@ -422,6 +423,7 @@ export class Dummy {
 
   grab(target) { if (this.atk?.car && this.atk.car.held === 'dummy') this.ctx.dropCar?.(this.atk.car); this.atk = null; this.restT = 0; this.heldSince = this.time; this.say(LINES.grabbed, true); this.onEvent?.('The player grabbed you and is holding you over their head.'); this.cmd = null; this.mode = 'held'; this.holdTarget.copy(target); }
   release(vel) {
+    this.underground = this.p[0].y < -0.5; // thrown down in the tunnels it stays down there
     this.mode = 'ragdoll'; this.bigHit = 1; this.anger += 1.5; this.atk = null;
     if (vel.length() > 30) { this.say(LINES.thrown, true); this.onEvent?.('The player just threw you as hard as they can.'); }
     for (let i = 0; i < this.n; i++) this.o[i].copy(this.p[i]).addScaledVector(vel, -this.h);
@@ -436,7 +438,7 @@ export class Dummy {
     const dir = new THREE.Vector3().subVectors(P[ID.head], mid); dir.y = 0;
     this.toYaw = dir.lengthSq() > 0.01 ? Math.atan2(dir.x, dir.z) : this.yaw;
     // stand on whatever is underneath: the ground, rubble-free floor or a roof
-    let gy = inTown(mid.x, mid.z) ? 0 : groundH(mid.x, mid.z);
+    let gy = this.underground ? (this.ctx.under?.floorAt(mid.x, mid.z) ?? -10) : inTown(mid.x, mid.z) ? 0 : groundH(mid.x, mid.z);
     for (let y = mid.y + 0.4; y > gy; y -= 0.25) { if (this.voxels.solidAt(mid.x, y, mid.z)) { gy = (Math.floor(y / 0.5) + 1) * 0.5; break; } }
     this.toRoot.set(mid.x, gy, mid.z);
     this.from = P.map((p) => p.clone());
@@ -557,7 +559,8 @@ export class Dummy {
         _v.multiplyScalar(0.7);
         o.subVectors(p, _v);
       }
-      const gy = inTown(p.x, p.z) ? 0 : groundH(p.x, p.z);
+      if (this.underground && this.ctx.under) this.ctx.under.constrain(p, 0.2); // in the tunnels: walls and ceiling hold it in
+      const gy = this.underground ? (this.ctx.under?.floorAt(p.x, p.z) ?? -10) : inTown(p.x, p.z) ? 0 : groundH(p.x, p.z);
       if (p.y < gy + r) {
         p.y = gy + r;
         _v.subVectors(p, o);
@@ -725,6 +728,7 @@ export class Dummy {
   // It weighs every option by range, by how well each attack has worked on you so far, by whether you
   // tend to fight from the air, and goes for the heavy hitters when you're nearly finished.
   _chooseAttack(d, air, ctx = {}) {
+    if (this.underground) { const r = Math.random(); return d < 4 ? (r < 0.6 ? 'combo' : 'punch') : (r < 0.6 ? 'charge' : 'combo'); } // no room to leap down here
     const w = {};
     const add = (k, x) => { w[k] = (w[k] || 0) + x; };
     const car = d > 7 && this.ctx.nearestCar?.(this.root, 18);
@@ -751,6 +755,7 @@ export class Dummy {
 
   // Where it would stand at (x, z): the top of whatever is below `fromY`, or the street.
   _groundAt(x, z, fromY) {
+    if (this.underground) return this.ctx.under?.floorAt(x, z) ?? -10;
     if (!inTown(x, z)) return groundH(x, z);
     for (let y = fromY; y > 0; y -= 0.25) if (this.voxels.solidAt(x, y, z)) return (Math.floor(y / 0.5) + 1) * 0.5;
     return 0;
@@ -941,7 +946,19 @@ export class Dummy {
       this.guardT = Math.max(0, this.guardT - dt);
       const outOfReach = dy > (this.has('jets') ? 160 : 45);
       if (!ctx.whiff) this.whiffUsed = false;
-      if (this.counterT > 0 && !this.dodge) {
+      const U = this.ctx.under, champWaits = this.adapt && !this.isHelper;
+      if (free && U && ctx.playerUnder !== undefined && ctx.playerUnder !== !!this.underground && !champWaits) {
+        // you went underground (or came back up): head for the nearest hole and follow you through it
+        let B = null, bd = 1e9; for (const b of U.breaches) { const dd = Math.hypot(b.x - this.root.x, b.z - this.root.z); if (dd < bd) { bd = dd; B = b; } }
+        if (!B) { want.taunt = 0.5; this.runFast = false; }
+        else if (bd > 1.4) { this._walk(dt, Math.atan2(B.x - this.root.x, B.z - this.root.z), this.has('closer') ? 20 : 12, true); want.walk = 1; this.runFast = true; faceTarget = Math.atan2(B.x - this.root.x, B.z - this.root.z); }
+        else {
+          this.underground = !this.underground;
+          this.root.y = this.underground ? (U.floorAt(this.root.x, this.root.z) ?? -10) : 0;
+          for (let i = 0; i < this.n; i++) { this._poseAt(POSE, this.root, this.yaw, i, this.p[i]); this.o[i].copy(this.p[i]); }
+          this.say(this.underground ? ['Coming down!', 'Nowhere to hide.', 'Found the hole.'] : ['Back up we go.', 'Surface!'], true);
+        }
+      } else if (this.counterT > 0 && !this.dodge) {
         // the counter-attack right after a dodge
         this.counterT -= dt;
         if (this.counterT <= 0 && free && d < 9) { this.startAttack('combo', true, true); this.say(['My turn.', 'Counter!', 'And THAT is how you do it.'], true); }
@@ -973,8 +990,8 @@ export class Dummy {
       } else if (free && (d >= 45 || dy >= 16)) {
         // the hunt: far away or high up, it leaps after you; otherwise it runs at you through anything
         this.huntT = (this.huntT || 0) - dt;
-        if ((d > (this.has('closer') ? 25 : 45) || dy > 6 || this.huntStuck) && this.huntT <= 0) { this.huntStuck = false; this.huntT = 0.25; this.startAttack(this.has('jets') && dy > 6 ? 'skyleap' : 'leap', true); }
-        else if (!(d > 45 || dy > 6)) {
+        if (!this.underground && (d > (this.has('closer') ? 25 : 45) || dy > 6 || this.huntStuck) && this.huntT <= 0) { this.huntStuck = false; this.huntT = 0.25; this.startAttack(this.has('jets') && dy > 6 ? 'skyleap' : 'leap', true); }
+        else if (this.underground || !(d > 45 || dy > 6)) {
           if (!this._walk(dt, Math.atan2(dx, dz), this.has('closer') ? 22 : 13, true)) this.huntStuck = true;
           want.walk = 1; want.lean = 0.6; this.runFast = true;
         }
@@ -1049,6 +1066,13 @@ export class Dummy {
     speed *= this.v.speed;
     const nx = this.root.x + Math.sin(dir) * speed * dt, nz = this.root.z + Math.cos(dir) * speed * dt;
     const y = this.root.y, v = this.voxels;
+    if (this.underground && this.ctx.under) {
+      // tunnels: no buildings to smash, just the corridor walls
+      this.root.x = nx; this.root.z = nz; this.ctx.under.constrain(this.root, 1.9);
+      this.root.y = this.ctx.under.floorAt(this.root.x, this.root.z) ?? -10;
+      this.walkPh += dt * speed * (speed > 6 ? 2.2 : 3.4);
+      return true;
+    }
     if (Math.abs(nx) > DUMMY_BOUND || Math.abs(nz) > DUMMY_BOUND) { this.cmd = null; return false; }
     if (v.solidAt(nx, y + 0.6, nz) || v.solidAt(nx, y + 1.4, nz)) {
       if (!smashWalls) { this.cmd = null; return false; }

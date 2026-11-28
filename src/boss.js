@@ -3,13 +3,20 @@
 // off chunks of building to throw, and sweeps a heat beam from its eyes. Everything that hurts the dummy
 // hurts it too: punches, blasts, missiles, meteors, the laser.
 import * as THREE from 'three';
-import { Robot } from './robot.js?v=1795822750';
-import { retint } from './heroes.js?v=1795822750';
-import { brushedMetalTex, pbr } from './textures.js?v=1795822750';
-import { groundH } from './world.js?v=1795822750';
+import { Robot } from './robot.js?v=1795857591';
+import { retint } from './heroes.js?v=1795857591';
+import { brushedMetalTex, pbr } from './textures.js?v=1795857591';
+import { groundH } from './world.js?v=1795857591';
 
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _r1 = new THREE.Vector3(), _r2 = new THREE.Vector3();
 const inTown = (x, z) => Math.abs(x) < 182 && Math.abs(z) < 182;
+// pick a move by weight, making the last couple of moves much less likely
+function weighted(w, recent = []) {
+  const ww = { ...w }; for (const r of recent || []) if (ww[r]) ww[r] *= 0.2;
+  let sum = 0; for (const k in ww) sum += ww[k];
+  let r = Math.random() * sum; for (const k in ww) { r -= ww[k]; if (r <= 0) return k; }
+  return Object.keys(ww)[0];
+}
 
 export class Colossus {
   constructor(g) {
@@ -170,7 +177,7 @@ export class Colossus {
     let rel = Math.atan2(toP.x, toP.z) - this.yaw; rel = Math.atan2(Math.sin(rel), Math.cos(rel));
     const pitch = Math.atan2(g.chest().y - (this.pos.y + 1.8 * this.S), Math.max(1, d));
     R.animate({ dt, flying: false, grounded: this.state !== 'drop', hSpeed: walk * 4.5, fwdSpeed: walk * 4.5, sideSpeed: 0, vSpeed: this.state === 'drop' ? -20 : 0, boost: false,
-      aimPitch: -pitch, aimYawRel: Math.max(-1, Math.min(1, rel)), turnRate: 0, charge: A.charge, punchT: A.punchT, holding: false, throwWind: A.throwWind, throwT: A.throwT, laser: A.laser, tk: false, clapT: 0, accFwd: 0, accSide: 0 });
+      aimPitch: -pitch, aimYawRel: Math.max(-1, Math.min(1, rel)), turnRate: 0, charge: A.charge, punchT: A.punchT, holding: false, throwWind: A.throwWind, throwT: A.throwT, laser: A.laser, tk: this.atk?.k === 'pull', clapT: this.atk?.k === 'clap' ? Math.max(0, 1 - this.atk.t / 0.9) : 0, accFwd: 0, accSide: 0 });
     R.root.updateMatrixWorld(true);
     // eye beam
     if (A.laser && this._drawEnd) {
@@ -182,20 +189,18 @@ export class Colossus {
 
   _choose(d, pl) {
     const air = pl.pos.y - this.pos.y > 10;
-    const r = Math.random();
-    let k;
-    if (d < 20 && !air) k = r < 0.55 ? 'swipe' : 'stomp';
-    else if (d < 32 && !air) k = r < 0.6 ? 'stomp' : 'throw';
-    else if (air) k = r < 0.6 ? 'beam' : 'throw';
-    else k = r < 0.5 ? 'throw' : 'beam';
-    this.atk = { k, t: 0, fired: false };
+    const w = air ? { beam: 3, throw: 2, clap: d < 30 ? 1.5 : 0.2 }
+      : { swipe: d < 20 ? 3 : 0, stomp: d < 32 ? 2.5 : 0.3, throw: d > 18 ? 2 : 0.6, beam: d > 20 ? 1.6 : 0.5, clap: d < 26 ? 2 : 0.3, march: d < 45 ? 1.4 : 0.6 };
+    const k = weighted(w, this.recent);
+    this.recent = [k, ...(this.recent || [])].slice(0, 2);
+    this.atk = { k, t: 0, fired: false, n: 0 };
     this.cool = Math.max(0.8, 2.2 - this.level * 0.4);
-    this.g.dummySay?.({ swipe: 'Backhand!', stomp: 'TREMBLE!', throw: 'Catch!', beam: 'BURN.' }[k]);
+    this.g.dummySay?.({ swipe: 'Backhand!', stomp: 'TREMBLE!', throw: 'Catch!', beam: 'BURN.', clap: 'CLAP.', march: 'Forward.' }[k]);
   }
   _attack(dt, d) {
     const g = this.g, A = this.anim, K = this.atk;
     K.t += dt;
-    const fw = _a.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    const fw = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     if (K.k === 'swipe') {
       A.charge = Math.min(1, K.t / 0.6);
       if (K.t > 0.6 && !K.fired) {
@@ -233,6 +238,30 @@ export class Colossus {
         g.sfx.whoosh(); g.sfx.crumble(200);
       }
       if (K.t > 1.5) { this.atk = null; A.throwT = 0; }
+    } else if (K.k === 'clap') {
+      // both hands swing together in front of it: a shockwave cone that flattens the street
+      A.charge = Math.min(1, K.t / 0.7);
+      if (K.t > 0.7 && !K.fired) {
+        K.fired = true; A.charge = 0;
+        const p = this.pos.clone().addScaledVector(fw, 0.9 * this.S).add(_b.set(0, 1.2 * this.S, 0));
+        g.fx.wave(p, 3 * this.S, 0.4, new THREE.Color(3, 1.4, 0.6)); g.sfx.boom(2); g.shake(0.6);
+        for (let k = 1; k <= 5; k++) { const q = p.clone().addScaledVector(fw, k * 5).setY(Math.max(1, p.y - k * 2)); if (Math.abs(q.x) < 182 && Math.abs(q.z) < 182) g.smash(q, 3, { vel: fw.clone().multiplyScalar(30), outward: 10, up: 3, max: 900 }); g.blastAll(q, 8, 30, fw, 0.6); }
+        const pc = g.chest(), toP = pc.clone().sub(p); const dist = toP.length();
+        if (dist < 32 && toP.normalize().dot(fw) > 0.5) { g.knockPlayer(fw.clone().add(_b.set(0, 0.3, 0)), 65, 'blast'); g.hurtPlayer(32 * (1 - dist / 36)); }
+      }
+      if (K.t > 1.3) this.atk = null;
+    } else if (K.k === 'march') {
+      // three thundering stomps as it strides at you
+      this.pos.addScaledVector(fw, this.walkSpeed * 1.4 * dt);
+      this.pos.y = Math.abs(this.pos.x) < 182 && Math.abs(this.pos.z) < 182 ? 0 : groundH(this.pos.x, this.pos.z);
+      if (K.t > 0.55 * (K.n + 1) && K.n < 3) {
+        K.n++;
+        const p = this.pos.clone().addScaledVector(fw, 0.3 * this.S);
+        g.fx.ring(p, 3 * this.S); g.sfx.boom(1.4); g.shake(0.5); g.blastAll(p, 2.5 * this.S, 30, null, 1);
+        if (Math.abs(p.x) < 182 && Math.abs(p.z) < 182) g.smash(p.clone().add(_b.set(0, 0.4, 0)), 0.45 * this.S, { outward: 10, up: 6, max: 1200 });
+        const pc = g.chest(), pd = Math.hypot(pc.x - p.x, pc.z - p.z); if (pd < 2.5 * this.S && pc.y - p.y < 6) { g.knockPlayer(_b.set(pc.x - p.x, 0, pc.z - p.z), 40, 'slam'); g.hurtPlayer(22); }
+      }
+      if (K.n >= 3 && K.t > 2) this.atk = null;
     } else if (K.k === 'beam') {
       // the heat beam drags across toward you; it cuts through anything between
       A.laser = K.t > 0.4;
@@ -323,13 +352,15 @@ export class Warlord extends Colossus {
     let k;
     // blinking is rare: at most once every 9 seconds, and mostly when you've got well away from it
     const canBlink = this.t - (this.lastBlink ?? -99) > 9;
-    if (d < 5 && !air) k = r < 0.75 ? 'hammer' : 'slam';
+    if (d < 5 && !air) k = weighted({ hammer: 2, slam: 1, quake: 1.4, volley: 0.5, pull: 0 }, this.recent);
     else if (canBlink && d > 35 && r < 0.3) k = 'blink';
     else if (air) k = r < 0.75 ? 'orb' : canBlink && r < 0.85 ? 'blink' : 'orb';
     else if (car && r < 0.3) k = 'fling';
-    else k = r < 0.5 ? 'orb' : 'slam';
+    else k = weighted({ orb: 1.6, slam: 1.6, quake: d < 25 ? 1.6 : 0.3, volley: d > 12 ? 1.6 : 0.5, pull: d > 8 ? 1.4 : 0 }, this.recent);
+    if (k === this.recent?.[0] && k !== 'hammer') k = weighted({ orb: 1, slam: 1, quake: 1, volley: 1, pull: 1 }, this.recent);
+    this.recent = [k, ...(this.recent || [])].slice(0, 2);
     if (k === 'blink') this.lastBlink = this.t;
-    this.atk = { k, t: 0, fired: false, car };
+    this.atk = { k, t: 0, fired: false, car, n: 0 };
     this.cool = Math.max(0.35, 0.9 - this.level * 0.15);
   }
   _attack(dt, d) {
@@ -403,6 +434,38 @@ export class Warlord extends Colossus {
       }
       if (K.t > 1.1) this.atk = null;
     }
+    if (K.k === 'quake') {
+      // the gauntlet driven into the ground: a ring of force that runs outward
+      A.charge = Math.min(1, K.t / 0.5);
+      if (K.t > 0.5 && !K.fired) {
+        K.fired = true; A.charge = 0; A.punchT = 1;
+        const p = this.pos.clone().addScaledVector(fw, 1.5);
+        g.fx.ring(p, 26); g.fx.wave(p.clone().add(_b.set(0, 0.5, 0)), 14, 0.45, new THREE.Color(3, 1, 5)); g.sfx.boom(1.8); g.shake(0.6);
+        if (Math.abs(p.x) < 182 && Math.abs(p.z) < 182) g.smash(p.clone().add(_b.set(0, 0.3, 0)), 3, { outward: 12, up: 8, max: 1500 });
+        g.blastAll(p, 22, 34, null, 1.3);
+        const pc = g.chest(), pd = Math.hypot(pc.x - p.x, pc.z - p.z); if (pd < 22 && pc.y - p.y < 5) { g.knockPlayer(_b.set(pc.x - p.x, 0, pc.z - p.z), 30 + 30 * (1 - pd / 22), 'slam'); g.hurtPlayer(26 * (1 - pd / 24)); }
+      }
+      if (K.t > 1.1) this.atk = null;
+    } else if (K.k === 'volley') {
+      // three gauntlet orbs in a spread, one after another
+      A.charge = 0.6; this.core.scale.setScalar(2);
+      if (K.t > 0.35 * (K.n + 1) && K.n < 3) {
+        K.n++; A.punchT = 1;
+        const from = this.robot.handWorld(1, new THREE.Vector3());
+        const tgt = g.chest().addScaledVector(g.player.vel, 0.6).add(_b.set((K.n - 2) * 4, 0, 0));
+        const m = new THREE.Mesh(this.orbGeo, this.orbMat); m.position.copy(from); m.scale.setScalar(0.7); g.scene.add(m);
+        this.orbs.push({ p: from, v: tgt.sub(from).setLength(60), m, life: 4 });
+        g.sfx.zap?.(1);
+      }
+      if (K.n >= 3 && K.t > 1.3) { this.atk = null; this.core.scale.setScalar(1); }
+    } else if (K.k === 'pull') {
+      // it closes its fist and drags you to it, then swings
+      A.charge = 1; A.tk = true;
+      const pc = g.chest(); const toW = this.pos.clone().add(_b.set(0, 2.4, 0)).sub(pc);
+      if (!g.shieldOn?.()) { g.player.vel.lerp(toW.clone().setLength(Math.min(45, toW.length() * 3)), Math.min(1, dt * 4)); g.player.stun = 0.15; }
+      for (let i = 0; i < 2; i++) g.fx.sparks.emit(pc, toW.clone().setLength(10), new THREE.Color(3, 1, 6), 0.3, 0, 0.04);
+      if (toW.length() < 4 || K.t > 1.4) this.atk = { k: 'hammer', t: 0.3, fired: false };
+    }
     if (this.atk == null) A.charge = 0;
   }
   _update(dt) {
@@ -423,4 +486,88 @@ export class Warlord extends Colossus {
     this.orbs = this.orbs.filter((o) => !o.dead);
     if (this.core && this.active) this.core.material.color.setRGB(5 + Math.sin(this.t * 8) * 1.5, 1.6, 8);
   }
+}
+
+// AXIOM PRIME: the hive mind's own body, a 12 m sovereign of black chrome and red light with a wireframe
+// halo and orbiting rings. It fights in three phases: as a titan (stomps, claps, beams, swarms), then
+// levitating (raining fire, marching), then desperate (calling in fighters, novas, everything at once).
+export class AxiomPrime extends Colossus {
+  constructor(g) {
+    super(g);
+    this.S = 6; this.name = 'AXIOM PRIME'; this.baseHp = 12000; this.walkSpeed = 10; this.reach = 9; this.dropH = 140; this.score = 50000;
+    this.phase = 1; this.rockMat = new THREE.MeshStandardMaterial({ color: 0x401010, emissive: 0xff2010, emissiveIntensity: 1.2, roughness: 0.6, flatShading: true });
+  }
+  _build() {
+    const r = new Robot();
+    retint(r, {
+      silver: pbr(brushedMetalTex(95, '#1a1b1f', 0.18), { metalness: 1, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 2 }, THREE.MeshPhysicalMaterial),
+      steel: pbr(brushedMetalTex(96, '#5a0d0d', 0.25), { metalness: 0.9 }),
+      graphite: pbr(brushedMetalTex(97, '#0c0c0e', 0.35), { metalness: 0.85 }),
+    }, 0xff1a0a, 0xff2010);
+    r.eyeIntensity = 14;
+    const red = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 0.6, 0.3), wireframe: true });
+    this.halo = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), red); this.halo.position.y = 0.42; r.head.add(this.halo);
+    this.rings = [0, 1].map((i) => { const t = new THREE.Mesh(new THREE.TorusGeometry(0.42 + i * 0.1, 0.012, 6, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 0.6, 0.3) })); r.body.add(t); t.position.y = 0.35; return t; });
+    for (const o of [this.halo, ...this.rings]) o.userData.noOutline = true;
+    r.root.scale.setScalar(this.S); r.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    this.robot = r;
+  }
+  spawn(near, level = 0, at = null) { super.spawn(near, level, at || near.clone().add(new THREE.Vector3(40, 0, 40))); this.phase = 1; this.levT = 0; this.g.say?.('Enough proxies. I will do this myself.'); }
+  _choose(d, pl) {
+    const ph = this.hp / this.max > 0.66 ? 1 : this.hp / this.max > 0.33 ? 2 : 3;
+    if (ph !== this.phase) { this.phase = ph; this.g.say?.(ph === 2 ? 'Interesting. You are worth the full attention.' : 'Then I will spend everything.'); this.g.fx.wave(this.pos.clone().add(_b.set(0, 6, 0)), 30, 0.6, new THREE.Color(5, 0.8, 0.4)); this.g.sfx.boom(2); }
+    const air = pl.pos.y - this.pos.y > 10;
+    const w = { swipe: d < 18 ? 2.5 : 0, stomp: d < 28 ? 2 : 0.3, beam: 1.6 + (air ? 1.5 : 0), clap: d < 24 ? 1.6 : 0.3, summon: 1.1 };
+    if (ph >= 2) Object.assign(w, { rain: 2, march: d < 40 ? 1.5 : 0.5, throw: 1 });
+    if (ph >= 3) Object.assign(w, { echoes: 1.4, nova: 1.8, summon: 1.6 });
+    const k = weighted(w, this.recent);
+    this.recent = [k, ...(this.recent || [])].slice(0, 2);
+    this.atk = { k, t: 0, fired: false, n: 0 };
+    this.cool = ph === 3 ? 0.6 : ph === 2 ? 1 : 1.5;
+  }
+  _attack(dt, d) {
+    const g = this.g, A = this.anim, K = this.atk;
+    if (!['summon', 'rain', 'echoes', 'nova'].includes(K.k)) return super._attack(dt, d);
+    K.t += dt;
+    if (K.k === 'summon') {
+      A.charge = Math.min(1, K.t / 0.6);
+      if (K.t > 0.6 && !K.fired) { K.fired = true; A.charge = 0; g.summon?.('swarm', this.pos.clone().add(_b.set(0, 2, 0))); g.say?.('Rise.'); }
+      if (K.t > 1) this.atk = null;
+    } else if (K.k === 'echoes') {
+      A.charge = Math.min(1, K.t / 0.8);
+      if (K.t > 0.8 && !K.fired) { K.fired = true; A.charge = 0; g.summon?.('dummies', this.pos.clone()); g.say?.('Defend me.'); }
+      if (K.t > 1.2) this.atk = null;
+    } else if (K.k === 'rain') {
+      // fire from the sky, aimed at where you're going
+      A.laser = false; A.tk = true; A.charge = 0.5;
+      if (K.t > 0.25 * (K.n + 1) && K.n < 10) {
+        K.n++;
+        const tgt = g.chest().addScaledVector(g.player.vel, 0.8).add(_b.set((Math.random() - 0.5) * 16, 0, (Math.random() - 0.5) * 16));
+        const from = tgt.clone().add(_b.set((Math.random() - 0.5) * 20, 90, (Math.random() - 0.5) * 20));
+        const m = new THREE.Mesh(this.rockGeo, this.rockMat); m.position.copy(from); m.scale.setScalar(0.6); g.scene.add(m);
+        this.rocks.push({ p: from, v: tgt.sub(from).setLength(75), m });
+      }
+      if (K.n >= 10 && K.t > 3) { this.atk = null; A.tk = false; }
+    } else if (K.k === 'nova') {
+      A.charge = Math.min(1, K.t / 1.1);
+      for (let i = 0; i < 3; i++) { const q = this.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 30, Math.random() * 16, (Math.random() - 0.5) * 30)); g.fx.sparks.emit(q, this.pos.clone().add(new THREE.Vector3(0, 6, 0)).sub(q).multiplyScalar(1.5), new THREE.Color(5, 0.8, 0.4), 0.5, 0, 0.04); } // energy drawn in
+      if (K.t > 1.1 && !K.fired) {
+        K.fired = true; A.charge = 0;
+        const p = this.pos.clone().add(_b.set(0, 6, 0));
+        g.fx.wave(p, 50, 0.7, new THREE.Color(5, 0.8, 0.4)); g.fx.ring(this.pos.clone(), 55); g.sfx.boom(2); g.sfx.duck?.(0.6); g.shake(1);
+        g.blastAll(p, 45, 45, null, 1.2);
+        if (inTown(p.x, p.z)) g.smash(p.clone().setY(2), 7, { outward: 18, up: 8, max: 5000 });
+        const pc = g.chest(), pd = pc.distanceTo(p); if (pd < 45 && !g.shieldOn?.()) { g.knockPlayer(pc.clone().sub(p), 55 * (1 - pd / 50)); g.hurtPlayer(45 * (1 - pd / 50)); }
+      }
+      if (K.t > 1.8) this.atk = null;
+    }
+    if (this.atk == null) A.charge = 0;
+  }
+  _update(dt) {
+    super._update(dt);
+    if (this.halo) { this.halo.rotation.y += dt * 1.5; this.halo.rotation.x += dt * 0.7; this.rings.forEach((r, i) => { r.rotation.x = Math.PI / 2 + Math.sin(this.t * (0.8 + i * 0.4)) * 0.6; r.rotation.y += dt * (i ? -1.2 : 1); }); }
+    // phase 2 onward it hovers a little off the ground
+    if (this.state === 'walk' && this.phase >= 2) { this.levT += dt; this.pos.y = (inTown(this.pos.x, this.pos.z) ? 0 : groundH(this.pos.x, this.pos.z)) + 4 + Math.sin(this.levT * 1.3) * 1.2; }
+  }
+  _die() { super._die(); this.g.say?.('This body was only a draft.'); }
 }

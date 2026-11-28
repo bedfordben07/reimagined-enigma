@@ -61,6 +61,7 @@ export class Sfx {
     // music bus (not muffled by time freeze — it ducks instead)
     this.music = c.createGain(); this.music.gain.value = 0.32; this.music.connect(comp);
     this.mStep = 0; this.mNext = 0; this.mLevel = 0;
+    if (this.fxVol != null) this.setVolumes(this.fxVol, this.musVol);
     this.last = {};
   }
   _src(buf, loop = false) { const s = this.ctx.createBufferSource(); s.buffer = buf; s.loop = loop; return s; }
@@ -149,7 +150,7 @@ export class Sfx {
     if (!this.ctx) return; const c = this.ctx, t = c.currentTime;
     this.world.frequency.cancelScheduledValues(t);
     this.world.frequency.setTargetAtTime(on ? 520 : 20000, t, on ? 0.08 : 0.15);
-    this.music.gain.setTargetAtTime(on ? 0.08 : 0.32, t, 0.2);
+    this.music.gain.setTargetAtTime((on ? 0.08 : 0.32) * (this.musVol ?? 1), t, 0.2);
     this._tone(t, { f0: on ? 520 : 55, f1: on ? 45 : 600, gain: 0.7, dur: 0.8, attack: 0.05, out: this.direct });
     this._burst(t, { type: 'bandpass', f0: on ? 3000 : 300, f1: on ? 200 : 4000, q: 3, gain: 0.25, dur: 0.55, out: this.direct });
   }
@@ -184,6 +185,11 @@ export class Sfx {
     if (!this.ctx || this._throttle('mind', 400)) return; const t = this.ctx.currentTime;
     for (const [f, g] of [[55, 0.12], [82.4, 0.08], [110.6, 0.06], [164.8, 0.03]]) this._tone(t, { type: 'sawtooth', f0: f, f1: f * 0.98, gain: g, dur: 1.1, attack: 0.08, out: this.direct, verb: 0.5 });
     for (let i = 0; i < 5; i++) this._tone(t + i * 0.05, { type: 'square', f0: 900 + Math.random() * 900, gain: 0.012, dur: 0.03, attack: 0.002, out: this.direct });
+  }
+  setVolumes(fx, music) {
+    this.fxVol = fx; this.musVol = music;
+    if (!this.ctx) return;
+    this.master.gain.value = 0.55 * fx; this.direct.gain.value = 0.6 * fx; this.music.gain.value = 0.32 * music;
   }
   tick(high) {
     if (!this.ctx) return; const t = this.ctx.currentTime;

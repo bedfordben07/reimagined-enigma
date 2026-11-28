@@ -7,35 +7,36 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VoxelWorld, VS } from './voxels.js?v=1795822750';
-import { DebrisSystem } from './debris.js?v=1795822750';
-import { Dummy, VARIANTS } from './dummy.js?v=1795822750';
-import { Robot } from './robot.js?v=1795822750';
-import { Spectre } from './spectre.js?v=1795822750';
-import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795822750';
-import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795822750';
-import { Overmind } from './mind.js?v=1795822750';
-import { FlyerFoe, Swarm } from './foes.js?v=1795822750';
-import { ConstructionSite } from './site.js?v=1795822750';
-import { Underground } from './under.js?v=1795822750';
-import { VoxelTrain } from './train.js?v=1795822750';
-import { Life } from './life.js?v=1795822750';
-import { Colossus, Warlord } from './boss.js?v=1795822750';
-import { newStats, rollUpgrades } from './upgrades.js?v=1795822750';
+import { VoxelWorld, VS } from './voxels.js?v=1795857591';
+import { DebrisSystem } from './debris.js?v=1795857591';
+import { Dummy, VARIANTS } from './dummy.js?v=1795857591';
+import { Robot } from './robot.js?v=1795857591';
+import { Spectre } from './spectre.js?v=1795857591';
+import { Volt, Titan, HeroPowers, SENTINEL_KIT } from './heroes.js?v=1795857591';
+import { buildWorld, groundH, WORLD_HALF } from './world.js?v=1795857591';
+import { Relays } from './relays.js?v=1795857591';
+import { Overmind } from './mind.js?v=1795857591';
+import { FlyerFoe, Swarm } from './foes.js?v=1795857591';
+import { ConstructionSite } from './site.js?v=1795857591';
+import { Underground } from './under.js?v=1795857591';
+import { VoxelTrain } from './train.js?v=1795857591';
+import { Life } from './life.js?v=1795857591';
+import { Colossus, Warlord, AxiomPrime } from './boss.js?v=1795857591';
+import { newStats, rollUpgrades } from './upgrades.js?v=1795857591';
 const up = newStats();
 const ult = { k: 0 }, shield = { on: false, e: 1, flash: 0 };
 let drones = [];
 let life = null, boss = null, train = null, helpers = null, swarm = null, site = null, under = null;
-let lastPower = null, mind = null;
-import { addOutline } from './outline.js?v=1795822750';
-import { Effects } from './effects.js?v=1795822750';
-import { makeVoxelMaterials, buildVoxelTown, buildScenery, SITE, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795822750';
-import { CarSystem } from './cars.js?v=1795822750';
-import { Powers } from './powers.js?v=1795822750';
-import { PropSystem } from './props.js?v=1795822750';
-import { Birds } from './birds.js?v=1795822750';
-import { FireSystem } from './fire.js?v=1795822750';
-import { Sfx } from './audio.js?v=1795822750';
+let lastPower = null, mind = null, relays = null;
+import { addOutline } from './outline.js?v=1795857591';
+import { Effects } from './effects.js?v=1795857591';
+import { makeVoxelMaterials, buildVoxelTown, buildScenery, SITE, MAT, CAR_SPOTS, PROP_SPOTS, BIRD_HOMES } from './town.js?v=1795857591';
+import { CarSystem } from './cars.js?v=1795857591';
+import { Powers } from './powers.js?v=1795857591';
+import { PropSystem } from './props.js?v=1795857591';
+import { Birds } from './birds.js?v=1795857591';
+import { FireSystem } from './fire.js?v=1795857591';
+import { Sfx } from './audio.js?v=1795857591';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -285,7 +286,7 @@ props.onExplode = (pr) => fire.explode(pr.p.clone());
 // shockwaves push rubble, cars and street furniture alike, and send the pigeons flying
 function blastAll(center, radius, strength, dir = null, up) {
   debris.blast(center, radius, strength, dir, up); cars.blast(center, radius, strength, dir, up); props.blast(center, radius, strength, dir, up);
-  life?.blast(center, radius, strength, dir); boss?.blast(center, radius, strength); swarm?.blast(center, radius, strength); site?.blast(center, radius, strength, dir);
+  life?.blast(center, radius, strength, dir); boss?.blast(center, radius, strength); swarm?.blast(center, radius, strength); site?.blast(center, radius, strength, dir); relays?.blast(center, radius, strength);
   if (!dummyA.ctx.src && strength >= 14 && (dummies.some((d) => d.active && d.chest(tmp3).distanceTo(center) < radius) || liveBosses().some((b) => b._distTo(center) < radius))) mind?.observe('blast');
   if (!dummyA.ctx.src && strength >= 14) for (const d of dummies) if (d.active && d.adapt && d.chest(tmp3).distanceTo(center) < radius) d.observe('blast');
   birds.scare(center, radius * 3 + 10);
@@ -410,7 +411,8 @@ const bossCtx = {
   scene, fx, sfx, vox, smash, blastAll, cars, get fire() { return fire; }, get player() { return player; },
   chest: () => chestPos(new THREE.Vector3()), knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d),
   shake: (k) => { shake = Math.min(1, shake + k); }, hitstop: (t) => { hitstop = Math.max(hitstop, t); },
-  onDamage: (d) => dummyA.onDamage?.(d), dummySay: () => {}, dmgMul: () => dummyA.ctx.dmgMul() * mind.resist(dummyA.ctx.src), get mind() { return mind; },
+  onDamage: (d) => dummyA.onDamage?.(d), dummySay: () => {}, shieldOn: () => shield.on, say: (t) => mind.say(t, 2),
+  summon: (kind, at) => { if (kind === 'swarm') { swarm.spawn(10, player.pos, at); if (!enemies.some((e) => e.kind === 'swarm')) enemies.push({ kind: 'swarm', ref: swarm }); } else { spawnEnemy('dummy', { summoned: true, at }); spawnEnemy('dummy', { summoned: true, at }); } }, dmgMul: () => dummyA.ctx.dmgMul() * mind.resist(dummyA.ctx.src), get mind() { return mind; },
   onDefeat: (b) => {
     game.score += b.score;
     banner(`${b.name} DOWN!`, `+${b.score.toLocaleString()}`, 4);
@@ -426,13 +428,16 @@ const foeCtx = Object.assign(Object.create(bossCtx), {
 swarm = new Swarm({
   scene, fx, sfx, vox, get player() { return player; }, chest: () => chestPos(new THREE.Vector3()),
   knockPlayer: (d, p, k) => knockPlayer(d, p, k), hurtPlayer: (d) => hurtPlayer(d), score: (n) => { game.score += n; },
-  shieldOn: () => shield.on, banner: (a, b, t) => banner(a, b, t), get mind() { return mind; },
+  shieldOn: () => shield.on, banner: (a, b, t) => banner(a, b, t), get mind() { return mind; }, get under() { return under; },
 });
 site = new ConstructionSite({
   scene, fx, sfx, vox, smash, blastAll, dummy, cars, get player() { return player; },
   score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1.4); }, shake: (k) => { shake = Math.min(1, shake + k); },
 }, new THREE.Vector3(SITE.x, 0, SITE.z));
 under = new Underground({ scene });
+dummyA.ctx.under = under;
+relays = new Relays({ scene, vox, fx, sfx, score: (n, label) => { game.score += n; banner(label, `+${n.toLocaleString()}`, 1.2); }, onChange: (a, t, rebuilt) => mind.setRelays(a, t, rebuilt) });
+mind.setRelays(relays.alive, relays.total, true); mind.signalLost = false;
 const liveBosses = () => bossPool.filter((b) => b.active && !b.dead);
 function nearestBoss(p) { let best = null, bd = 1e9; for (const b of liveBosses()) { const d = b._distTo(p); if (d < bd) { bd = d; best = b; } } return best; }
 // `boss` stands for the whole pool: blasts and updates reach every boss, everything else the nearest one
@@ -458,13 +463,15 @@ function despawn(e) {
   else { const b = e.ref; for (const s2 of b.shots || []) scene.remove(s2.m); if (b.shots) b.shots = []; b.active = false; b.dead = true; if (b.robot) scene.remove(b.robot.root); b.beam.visible = false; for (const k of b.rocks) scene.remove(k.m); b.rocks = []; for (const o of b.orbs || []) scene.remove(o.m); if (b.orbs) b.orbs = []; }
   const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1);
 }
-function spawnEnemy(type) {
-  for (const e of [...enemies]) if ((e.kind === 'boss' && !e.ref.active) || (e.kind === 'dummy' && !e.ref.active)) enemies.splice(enemies.indexOf(e), 1);
-  if (enemies.length >= 2) despawn(enemies[0]);
+const enemyCap = () => (survival.on ? 5 : 2);
+function spawnEnemy(type, opt = {}) {
+  for (const e of [...enemies]) if (!e.ref.active) enemies.splice(enemies.indexOf(e), 1);
+  if (!opt.summoned && enemies.length >= enemyCap()) despawn(enemies.find((e) => !(e.ref instanceof AxiomPrime)) || enemies[0]);
   const f = fwdH(new THREE.Vector3());
   if (type === 'dummy' || type === 'champion') {
-    const d = dummies.find((x) => !x.active && !x.isHelper) || dummies[0];
-    const p = player.pos.clone().addScaledVector(f, 9); p.x += (Math.random() - 0.5) * 6;
+    const d = dummies.find((x) => !x.active && !x.isHelper) || (opt.summoned ? null : dummies[0]);
+    if (!d) return;
+    const p = opt.at ? opt.at.clone() : player.pos.clone().addScaledVector(f, 9); p.x += (Math.random() - 0.5) * 6;
     p.y = d._groundAt(p.x, p.z, Math.max(p.y + 2, 70));
     d.active = true; d.group.visible = true; d.ko = false; d.fights = fightsPref;
     d.setVariant(type === 'champion' ? { ...VARIANTS[4], invulnerable: true, adaptive: true } : { ...VARIANTS[0], name: 'Fighting Dummy' });
@@ -483,6 +490,12 @@ function spawnEnemy(type) {
     b.spawn(player.pos);
     enemies.push({ kind: 'boss', ref: b });
     banner(b.name, kind === 'mimic' ? 'it copies you · and your powers' : 'a rival hero · dogfights at Mach speed', 2.5);
+  } else if (type === 'prime') {
+    let b = bossPool.find((x) => x instanceof AxiomPrime && !x.active);
+    if (!b) { b = new AxiomPrime(bossCtx); bossPool.push(b); }
+    b.spawn(player.pos, 0, player.pos.clone().addScaledVector(f, 55));
+    enemies.push({ kind: 'boss', ref: b });
+    banner('AXIOM PRIME', 'the hive mind, in person', 3);
   } else {
     const Cls = type === 'warlord' ? Warlord : Colossus;
     let b = bossPool.find((x) => x instanceof Cls && x.constructor === Cls && !x.active);
@@ -498,11 +511,13 @@ function toggleSpawnMenu(v = !spawnMenu.open) { spawnMenu.open = v; $('spawnMenu
 function spawnChoice(k) {
   if (k === 0) { for (const e of [...enemies]) despawn(e); banner('CLEARED', '', 0.8); }
   else if (k === 9) mind.purge();
+  else if (k === 'A') spawnEnemy('prime');
+  else if (k === 'S') startSurvival();
   else if (k === 8) { ambush.on = !ambush.on; banner('AMBUSHES', ambush.on ? 'ON · enemies may burst out of buildings' : 'OFF', 1.4); $('ambushState').textContent = ambush.on ? 'on' : 'off'; }
   else spawnEnemy(['dummy', 'champion', 'colossus', 'warlord', 'swarm', 'mimic', 'rival'][k - 1]);
   toggleSpawnMenu(false);
 }
-document.querySelectorAll('[data-spawn]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); spawnChoice(+b.dataset.spawn); }));
+document.querySelectorAll('[data-spawn]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const v = b.dataset.spawn; spawnChoice(/^[0-9]$/.test(v) ? +v : v); }));
 heroP = new HeroPowers({
   scene, fx, sfx, vox, dummy, cars, props, birds, smash, blastAll, get fire() { return fire; }, get player() { return player; },
   strike: (p) => strikeLightning(p), quake: () => powers.quake(),
@@ -616,7 +631,7 @@ dummy.ctx.hitPlayer = (dir, power, kind) => {
     if (shield.e <= 0.01) { shield.on = false; banner('SHIELD BROKEN', 'it learned to break it', 1.2); sfx.glass(); }
   }
   dummy.noteHit();
-  const m = dummy.v.dmg;
+  const m = dummy.v.dmg * (1 + 0.06 * (mind.signalLost ? 0 : relays.alive));
   knockPlayer(dir, power * Math.sqrt(m), kind);
   tagged++; $('tagHud').textContent = tagged;
   hurtPlayer(power * 0.75 * m);
@@ -660,7 +675,7 @@ dummy.onDamage = (d) => {
 };
 function hurtPlayer(d) {
   if (game.invuln > 0) return;
-  d *= kit().armor * heroP.armorMul * up.armor;
+  d *= kit().armor * heroP.armorMul * up.armor * DIFF[settings.diff].taken;
   if (shield.on && shield.e > 0) { shield.e = Math.max(0, shield.e - d * 0.004); shield.flash = 1; sfx.clang(); return; }
   ult.k = Math.min(1, ult.k + d * 0.003 * up.ult);
   game.php -= d; game.regenT = up.regenDelay;
@@ -670,6 +685,7 @@ function hurtPlayer(d) {
     banner('SECOND WIND', 'back in the fight', 1.6); nova(chestPos(new THREE.Vector3()), 0.7);
     return;
   }
+  if (game.php <= 0 && survival.on) { endSurvival(); return; }
   if (game.php <= 0) {
     game.php = game.pmax; game.invuln = 2.5; game.score = Math.max(0, game.score - 500);
     banner('KNOCKED OUT', 'back on your feet · −500'); mind.event('playerDown');
@@ -688,7 +704,7 @@ function updateGame(dt) {
   let tgtName = 'PRESS R TO SPAWN AN ENEMY', tgtK = 0, bestD = 1e9;
   for (const d of dummies) if (d.active && !d.ko) { const dd = d.chest(tmp).distanceTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = d.v.name.toUpperCase() + (d.adapt ? `${d.adapt.level ? ` · ADAPTED ×${d.adapt.level}` : ''}${helpers.alive && !d.isHelper ? ` · ${helpers.alive} ECHO${helpers.alive > 1 ? 'ES' : ''}` : ''}` : d.v.invulnerable ? ' · INDESTRUCTIBLE' : ''); tgtK = d.hp / d.v.hp; } }
   for (const b of liveBosses()) { const dd = b._distTo(player.pos); if (dd < bestD) { bestD = dd; tgtName = b.name; tgtK = b.hp / b.max; } }
-  $('waveName').textContent = tgtName;
+  $('waveName').textContent = (survival.on ? `SURVIVAL · WAVE ${survival.wave} · ` : '') + tgtName;
   $('dhpFill').style.transform = `scaleX(${Math.max(0, tgtK)})`;
   $('scoreVal').textContent = Math.round(game.score).toLocaleString();
   $('comboVal').textContent = game.combo > 1 ? `×${(1 + Math.min(40, game.combo) * 0.1).toFixed(1)} · ${game.combo} hit combo` : `best ${Math.round(game.best).toLocaleString()}`;
@@ -845,12 +861,61 @@ document.addEventListener('pointerlockchange', () => {
   else if (started && !fallbackLook) { overlay.hidden = false; $('startBtn').textContent = 'Click to resume'; mouse.l = mouse.r = false; player.laser = false; }
 });
 document.addEventListener('pointerlockerror', enableFallback);
+// ---------------------------------------------------------------- settings (Esc pauses and shows them)
+const settings = { music: 0.8, fx: 1, sens: 1, invert: false, diff: 1 };
+try { Object.assign(settings, JSON.parse(localStorage.getItem('rubble-settings') || '{}')); } catch (e) { /* defaults */ }
+const DIFF = [{ name: 'Easy', taken: 0.55 }, { name: 'Normal', taken: 1 }, { name: 'Hard', taken: 1.6 }];
+function applySettings() {
+  sfx.setVolumes?.(settings.fx, settings.music);
+  for (const [id, k] of [['setMusic', 'music'], ['setFx', 'fx'], ['setSens', 'sens']]) { const el = $(id); if (el) el.value = settings[k]; }
+  if ($('setInvert')) $('setInvert').checked = settings.invert;
+  if ($('setDiff')) $('setDiff').value = settings.diff;
+  try { localStorage.setItem('rubble-settings', JSON.stringify(settings)); } catch (e) { /* ignore */ }
+}
+for (const [id, k, num] of [['setMusic', 'music', 1], ['setFx', 'fx', 1], ['setSens', 'sens', 1], ['setDiff', 'diff', 1]]) {
+  $(id)?.addEventListener('input', (e) => { settings[k] = num ? +e.target.value : e.target.value; applySettings(); });
+}
+$('setInvert')?.addEventListener('change', (e) => { settings.invert = e.target.checked; applySettings(); });
+$('settings')?.addEventListener('click', (e) => e.stopPropagation());
+$('setQual')?.addEventListener('change', (e) => { const v = e.target.value; if (v === 'auto') { autoQuality = true; } else setQuality(+v, true); });
+applySettings();
+
 addEventListener('mousemove', (e) => {
   if (!locked && !fallbackLook) return;
-  const s = fallbackLook ? 0.004 : 0.0022;
+  if (wheel.open) { wheel.mx += e.movementX; wheel.my += e.movementY; return; } // steering the power wheel
+  const s = (fallbackLook ? 0.004 : 0.0022) * settings.sens;
   player.camYaw -= e.movementX * s;
-  player.camPitch = Math.max(-1.45, Math.min(1.45, player.camPitch - e.movementY * s));
+  player.camPitch = Math.max(-1.45, Math.min(1.45, player.camPitch - e.movementY * s * (settings.invert ? -1 : 1)));
 });
+
+// ---------------------------------------------------------------- the power wheel (hold Tab)
+const wheel = { open: false, mx: 0, my: 0, items: [], sel: -1 };
+function openWheel() {
+  wheel.open = true; wheel.mx = 0; wheel.my = 0; wheel.sel = -1;
+  wheel.items = [...robot.kit.hud, ['4', 'NOVA'], ['5', 'SHIELD'], ['6', 'DRONES'], ['I', 'SLAM']].filter(([k]) => k !== 'X' && k !== '7');
+  const el = $('wheel'); el.querySelectorAll('.wi').forEach((n) => n.remove());
+  wheel.items.forEach(([k, name], i) => {
+    const a = (i / wheel.items.length) * Math.PI * 2 - Math.PI / 2;
+    const d = document.createElement('div'); d.className = 'wi';
+    d.style.left = `${50 + Math.cos(a) * 40}%`; d.style.top = `${50 + Math.sin(a) * 40}%`;
+    const kk = document.createElement('kbd'); kk.textContent = k; const nn = document.createElement('span'); nn.textContent = name;
+    d.append(kk, nn); el.appendChild(d);
+  });
+  el.hidden = false;
+}
+function updateWheel() {
+  if (!wheel.open) return;
+  const L = Math.hypot(wheel.mx, wheel.my);
+  if (L > 140) { wheel.mx *= 140 / L; wheel.my *= 140 / L; }
+  if (L > 25) { let a = Math.atan2(wheel.my, wheel.mx) + Math.PI / 2; if (a < 0) a += Math.PI * 2; wheel.sel = Math.round(a / (Math.PI * 2) * wheel.items.length) % wheel.items.length; } else wheel.sel = -1;
+  $('wheel').querySelectorAll('.wi').forEach((n, i) => n.classList.toggle('on', i === wheel.sel));
+}
+function closeWheel() {
+  wheel.open = false; $('wheel').hidden = true;
+  const it = wheel.items[wheel.sel]; if (!it) return;
+  const code = /^[0-9]$/.test(it[0]) ? 'Digit' + it[0] : 'Key' + it[0];
+  dispatchEvent(new KeyboardEvent('keydown', { code })); setTimeout(() => dispatchEvent(new KeyboardEvent('keyup', { code })), it[1] === 'LIFT' ? 1200 : 60);
+}
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (!locked && !fallbackLook) return;
   if (e.button === 0) { mouse.l = true; onPrimaryDown(); }
@@ -864,6 +929,8 @@ renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
+  if (e.code === 'Tab') { if (started && !wheel.open) openWheel(); return; }
+  if (e.code === 'Escape' && started && fallbackLook) { overlay.hidden = !overlay.hidden; return; }
   keys.add(e.code);
   {
     const kid = kit().id;
@@ -871,7 +938,7 @@ addEventListener('keydown', (e) => {
       Digit1: kid === 'titan' ? 'boulder' : kid === 'volt' ? 'overdrive' : 'missiles', Digit2: kid === 'titan' ? 'pound' : kid === 'volt' ? 'storm' : 'quake', Digit3: kid === 'titan' ? 'rage' : 'dash' }[e.code];
     if (P && !spawnMenu.open && !picker.open) { lastPower = { name: P, t: time }; if (enemies.length) mind.power(P); }
   }
-  if (spawnMenu.open) { const k = { Digit0: 0, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9 }[e.code]; if (k != null) { spawnChoice(k); return; } if (e.code === 'KeyR' || e.code === 'Escape') { toggleSpawnMenu(false); return; } }
+  if (spawnMenu.open) { const k = { Digit0: 0, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9, KeyA: 'A', KeyS: 'S' }[e.code]; if (k != null) { spawnChoice(k); return; } if (e.code === 'KeyR' || e.code === 'Escape') { toggleSpawnMenu(false); return; } }
   if (picker.open) { const k = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code]; if (k != null) pickUpgrade(k); return; }
   if (e.code === 'Digit4') { if (ult.k >= 1) { ult.k = 0; nuke(chestPos(new THREE.Vector3())); } else banner('NOVA', `charging · ${Math.round(ult.k * 100)}%`, 0.8); return; }
   if (e.code === 'Digit5') { if (shield.on) shield.on = false; else if (shield.e > 0.1) { shield.on = true; for (const d of dummies) if (d.active) d.observe('shield'); if (enemies.length) mind.observe('shield'); sfx.freeze(true); setTimeout(() => sfx.freeze(false), 60); } return; }
@@ -909,6 +976,7 @@ addEventListener('keydown', (e) => {
   }
 });
 addEventListener('keyup', (e) => {
+  if (e.code === 'Tab' && wheel.open) { closeWheel(); return; }
   keys.delete(e.code);
   if (e.code === 'KeyJ') { if (mouse.l) onPrimaryUp(); mouse.l = false; }
   if (e.code === 'KeyK') mouse.r = false;
@@ -927,7 +995,7 @@ function respawnDummy() {
   game.nextWaveT = -1;
 }
 function rebuildTown() {
-  debris.clear(); buildVoxelTown(vox); fx.clearScorch(); train.newTrain(); RW.snaps.length = 0; RW.log.length = 0;
+  debris.clear(); buildVoxelTown(vox); fx.clearScorch(); relays.build(); mind.setRelays(relays.alive, relays.total, true); under.clear(); train.newTrain(); RW.snaps.length = 0; RW.log.length = 0;
   player.holding = false; player.throwWind = 0; if (player.holdingCar) { cars.release(player.holdingCar, new THREE.Vector3(), null); player.holdingCar = null; }
 }
 
@@ -1508,7 +1576,7 @@ function takeSnap() {
   RW.snaps.push({
     t: time,
     pl: { pos: player.pos.clone(), vel: player.vel.clone(), php: game.php, flying: player.flying, yaw: player.yaw },
-    dm: dummies.map((d) => ({ active: d.active, ko: d.ko, hp: d.hp, mode: d.mode, root: d.root.clone(), yaw: d.yaw, p: d.p.map((v) => v.clone()), o: d.o.map((v) => v.clone()), vis: d.group.visible })),
+    dm: dummies.map((d) => ({ adapt: d.adapt ? { have: [...d.adapt.have], level: d.adapt.level } : null, active: d.active, ko: d.ko, hp: d.hp, mode: d.mode, root: d.root.clone(), yaw: d.yaw, p: d.p.map((v) => v.clone()), o: d.o.map((v) => v.clone()), vis: d.group.visible })),
     bs: bossPool.map((b) => ({ b, active: b.active, dead: b.dead, hp: b.hp, pos: b.pos ? b.pos.clone() : null, yaw: b.yaw, state: b.state, t: b.t })),
     carA, propA, tr: train.snapshot(),
   });
@@ -1522,6 +1590,7 @@ function applySnap(A, B, k) {
   // you stand outside time: the world rewinds around you, you keep your place and your armour
   A.dm.forEach((s, j) => {
     const d = dummies[j], sb = B?.dm[j];
+    if (s.adapt && d.adapt) { d.adapt.have = new Set(s.adapt.have); d.adapt.level = s.adapt.level; }
     d.active = s.active; d.ko = s.ko; d.hp = s.hp; d.group.visible = s.vis; d.atk = null;
     d.mode = s.mode === 'getup' || s.mode === 'held' ? 'ragdoll' : s.mode;
     d.root.copy(L(s.root, sb?.root)); d.yaw = s.yaw;
@@ -1545,11 +1614,12 @@ function updateRewind(rdt) {
     sfx.freeze(true);
   } else if (!want && RW.on) {
     RW.on = false; time = RW.cursor; sfx.freeze(false);
+    mind.eraseAfter(RW.cursor);
     RW.snaps.length = Math.max(1, RW.snaps.findIndex((sn) => sn.t > time) < 0 ? RW.snaps.length : RW.snaps.findIndex((sn) => sn.t > time));
   }
   RW.k += ((RW.on ? 1 : 0) - RW.k) * Math.min(1, rdt * 8);
   if (!RW.on) {
-    RW.snapT -= rdt; if (RW.snapT <= 0) { RW.snapT = 0.1; takeSnap(); }
+    RW.snapT -= rdt; if (RW.snapT <= 0) { RW.snapT = perf.low ? 0.2 : 0.1; takeSnap(); }
     return false;
   }
   const oldest = RW.snaps[0].t;
@@ -1661,6 +1731,88 @@ function updateAmbush(dt) {
   const live = enemies.filter((e) => e.ref.active).length;
   if (Math.random() < 0.5 || live >= 2) { swarm.spawn(8, player.pos, q.clone().addScaledVector(out, 1)); if (!enemies.some((e) => e.kind === 'swarm')) enemies.push({ kind: 'swarm', ref: swarm }); banner('AMBUSH!', 'a swarm burst out of the wall', 1.4); }
   else { spawnEnemy('dummy'); const d = enemies[enemies.length - 1].ref; d.spawn(at, Math.atan2(player.pos.x - at.x, player.pos.z - at.z)); d.push(out.clone().multiplyScalar(14).add(new THREE.Vector3(0, 5, 0))); banner('AMBUSH!', 'a fighter smashed out of the wall', 1.4); }
+}
+
+// ---------------------------------------------------------------- THE CITY TURNS ON YOU
+// Every so often, while its bodies are fighting you in town, AXIOM takes over the city itself: parked
+// cars launch at you, the street lamps burn red, and the crane swings its hook after you.
+let primeCalled = false;
+const hijack = { t: 30, on: 0, carT: 0 };
+function updateHijack(dt, units) {
+  const inT = Math.abs(player.pos.x) < 185 && Math.abs(player.pos.z) < 185 && player.pos.y > -0.4;
+  if (hijack.on > 0) {
+    hijack.on -= dt; hijack.carT -= dt;
+    const red = Math.sin(time * 20) > 0;
+    lampMats.bulb.emissive?.setRGB(red ? 4 : 0.6, 0.15, 0.1);
+    if (hijack.carT <= 0 && inT) {
+      hijack.carT = 0.65;
+      let best = null, bd = 60; for (const c of cars.cars) { if (c.held || c.burnt) continue; const d = c.p.distanceTo(player.pos); if (d > 8 && d < bd) { bd = d; best = c; } }
+      if (best) { const T = Math.max(0.5, bd / 45); const v = player.pos.clone().addScaledVector(player.vel, T * 0.6).sub(best.p).divideScalar(T); v.y += 8 * T; cars.hit(best, best.p.clone(), v); best.thrownBy = 'dummy'; for (let i = 0; i < 6; i++) fx.sparks.emit(best.p, rndVec(new THREE.Vector3(), 6), new THREE.Color(5, 0.6, 0.3), 0.3, 0.5, 0.03); }
+    }
+    // the crane swings round and drops its hook on you
+    if (site.craneUp && Math.hypot(player.pos.x - site.crane.position.x, player.pos.z - site.crane.position.z) < 60) {
+      const cp = site.crane.position, want = Math.atan2(-(player.pos.z - cp.z), player.pos.x - cp.x);
+      let dy = want - site.top.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); site.top.rotation.y += Math.max(-dt * 0.8, Math.min(dt * 0.8, dy));
+      site.trolley = Math.max(6, Math.min(34, Math.hypot(player.pos.x - cp.x, player.pos.z - cp.z)));
+      site.hookY = Math.max(-site.MH + 2, -(site.MH - player.pos.y - 1.5)); site._placeHook();
+      const hook = site.hook.getWorldPosition(new THREE.Vector3()); if (hook.distanceTo(chestPos(tmp)) < 3) { knockPlayer(tmp.clone().sub(hook), 40); hurtPlayer(20); }
+    }
+    if (hijack.on <= 0) { lampMats.bulb.emissive?.set(0xffd9a0); if (site.craneUp) site.hookY = -22; }
+    return;
+  }
+  if (!units || !inT) return;
+  hijack.t -= dt * (mind.directive === 'EXECUTE' ? 2 : 1);
+  if (hijack.t <= 0) { hijack.t = 35 + Math.random() * 20; hijack.on = 7; mind.say(pick(['The city is mine.', 'Every machine here answers to me.', 'Even the streets want you gone.']), 3); }
+}
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+
+// ---------------------------------------------------------------- SURVIVAL (R then S)
+// AXIOM sends escalating waves; how long can you last? A knockout ends the run.
+const survival = { on: false, wave: 0, nextT: -1, best: 0 };
+try { survival.best = +localStorage.getItem('rubble-survival') || 0; } catch (e) { /* ignore */ }
+function startSurvival() {
+  for (const e of [...enemies]) despawn(e);
+  swarm.clear(); helpers.clear();
+  survival.on = true; survival.wave = 0; survival.nextT = 2;
+  game.php = game.pmax;
+  mind.say('Survival protocol. Let us see how long you last.', 3);
+  banner('SURVIVAL', `best: wave ${survival.best}`, 2.5);
+}
+function endSurvival() {
+  const w = survival.wave;
+  survival.on = false;
+  if (w > survival.best) { survival.best = w; try { localStorage.setItem('rubble-survival', String(w)); } catch (e) { /* ignore */ } }
+  for (const e of [...enemies]) despawn(e);
+  swarm.clear(); helpers.clear();
+  game.php = game.pmax; game.invuln = 3;
+  banner(`SURVIVED ${w} WAVE${w === 1 ? '' : 'S'}`, w >= survival.best ? 'new best!' : `best: wave ${survival.best}`, 4);
+  mind.say(pick(['Wave ' + w + '. Recorded.', 'You lasted ' + w + ' waves. I will remember the number.', 'Again?']), 3);
+}
+function updateSurvival(dt) {
+  if (!survival.on) return;
+  const live = enemies.filter((e) => e.ref.active && !(e.ref.ko)).length + (swarm.alive ? 1 : 0);
+  if (survival.nextT < 0 && live === 0) { survival.nextT = 3.5; if (survival.wave) { banner(`WAVE ${survival.wave} CLEARED`, 'next wave incoming', 2); game.score += 2000 * survival.wave; } }
+  if (survival.nextT > 0) {
+    survival.nextT -= dt;
+    if (survival.nextT <= 0) {
+      survival.nextT = -1; survival.wave++;
+      const n = survival.wave;
+      // a budget that grows each wave, spent on a mix of bodies
+      const COST = { dummy: 2, swarm: 3, mimic: 5, vanta: 6, warlord: 7, colossus: 8 };
+      let budget = 2 + n * 2; const picks = [];
+      let dummiesLeft = 2, guard = 0;
+      while (budget >= 2 && picks.length < 4 && guard++ < 40) {
+        const opts = Object.keys(COST).filter((k) => COST[k] <= budget && (k !== 'dummy' || dummiesLeft > 0) && (k !== 'colossus' || n >= 5) && (k !== 'warlord' || n >= 4) && (k !== 'vanta' || n >= 3) && (k !== 'mimic' || n >= 2) && !(k === 'swarm' && picks.includes('swarm')));
+        if (!opts.length) break;
+        const k = opts[Math.floor(Math.random() * opts.length)];
+        picks.push(k); budget -= COST[k]; if (k === 'dummy') dummiesLeft--;
+      }
+      for (const k of picks) spawnEnemy(k === 'vanta' ? 'rival' : k, { summoned: true });
+      if (n % 10 === 0) spawnEnemy('prime', { summoned: true });
+      banner(`WAVE ${n}`, picks.join(' · ').toUpperCase(), 2.2);
+      mind.say(n === 1 ? 'Begin.' : pick([`Wave ${n}.`, `Wave ${n}. Adjusting.`, `Wave ${n}. You are still here.`]), 2);
+    }
+  }
 }
 
 function superLanding(vy) {
@@ -1999,6 +2151,7 @@ function updateHandThrust(dt) {
 // ---------------------------------------------------------------- HUD
 const hud = { speed: $('speed'), mode: $('mode'), fps: $('fps'), rubble: $('rubble'), charge: $('chargeRing'), grab: $('grabHint'), grabLabel: $('grabLabel') };
 let fpsAcc = 0, fpsN = 0, fpsT = 0, autoT = 0, autoSamples = [];
+const perf = { low: false, cool: 10 };
 function updateHud(rdt) {
   fpsAcc += rdt; fpsN++;
   if (fpsAcc > 0.5) {
@@ -2009,8 +2162,9 @@ function updateHud(rdt) {
       if (autoSamples.length >= 6) {
         const avg = autoSamples.reduce((a, b) => a + b, 0) / autoSamples.length;
         autoSamples = [];
-        if (avg < 30 && quality > 0) setQuality(quality - 1);
-        else autoQuality = avg < 50; // stop adjusting once it runs well
+        perf.low = avg < 36;
+        if (avg < 38 && quality > 0) { setQuality(quality - 1); perf.cool = 12; }
+        else if (avg > 58 && quality < 2 && (perf.cool -= 3) <= 0) { setQuality(quality + 1); perf.cool = 20; }
       }
     }
     fpsAcc = 0; fpsN = 0;
@@ -2039,6 +2193,8 @@ let acc = 0;
 const stats = { js: 0, render: 0, frames: 0 };
 function frame() {
   requestAnimationFrame(frame);
+  if (started && !overlay.hidden) { clock.getDelta(); composer.render(); return; } // paused: the settings menu is open
+  updateWheel();
   const t0 = performance.now();
   tick(Math.min(clock.getDelta(), 1 / 20));
   const t1 = performance.now();
@@ -2116,6 +2272,7 @@ function tick(rdt) {
     boss.update(wdt);
     updateDrones(wdt);
     updateShocks(wdt);
+    relays.update(wdt, time);
     train.update(wdt);
     swarm.update(wdt);
     site.update(wdt);
@@ -2129,7 +2286,7 @@ function tick(rdt) {
   const thinkCtx = {
     playerPos: targetPos(), charging: !powers.decoy && player.charging, speed: powers.decoy ? 0 : player.vel.length(), playerAir: targetPos().y > 4,
     laserNear: player.laser && aim.point.distanceTo(dummy.chest(tmp)) < 5, laserOnMe: player.laser && aim.kind === 'dummy',
-    playerVel: powers.decoy ? null : targetVel(), playerHp: game.php / game.pmax, whiff: !powers.decoy && player.punchT > 0 && player.punchT < 0.3 && !player.punchHit,
+    playerUnder: player.pos.y < -0.4, playerVel: powers.decoy ? null : targetVel(), playerHp: game.php / game.pmax, whiff: !powers.decoy && player.punchT > 0 && player.punchT < 0.3 && !player.punchHit,
   };
   if (thinkCtx.laserOnMe || (player.laser && aim.kind === 'boss')) mind.observe('laser', dt);
   // AXIOM: gather its bodies, then let it think
@@ -2139,7 +2296,11 @@ function tick(rdt) {
     for (const b of liveBosses()) U.push({ ref: b, pos: b.pos, kind: 'boss' });
     swarm.bots.forEach((b, i) => { if (i % 4 === 0) U.push({ ref: b, pos: b.p, kind: 'swarm' }); });
     mind.containAt = (from) => { let best = null, bd = 1e9; for (const b of under.breaches) { const d = Math.hypot(b.x - from.x, b.z - from.z); if (d < bd) { bd = d; best = b; } } return best ? new THREE.Vector3(best.x + 3, 0, best.z + 3) : new THREE.Vector3(player.pos.x, 0, player.pos.z); };
-    mind.update(rdt, U, { playerPos: player.pos, playerHp: game.php / game.pmax, underground: player.pos.y < -0.4, speed: player.vel.length() });
+    mind.update(rdt, U, { playerPos: player.pos, playerHp: game.php / game.pmax, underground: player.pos.y < -0.4, speed: player.vel.length(), gameTime: time, relays: relays.positions() });
+    // enough of its bodies broken this session and AXIOM comes for you itself
+    if (!primeCalled && (mind.sessionKills || 0) >= 20 && !survival.on) { primeCalled = true; mind.say('Twenty bodies. Enough proxies.', 3); setTimeout(() => spawnEnemy('prime'), 6000); }
+    updateHijack(rdt, U.length);
+    updateSurvival(rdt);
   }
   if (!frozen) dummy.think(wdt, thinkCtx);
   else for (const d of dummies) if (d.active && d.has('temporal')) {
@@ -2175,4 +2336,4 @@ frame();
 $('loading').hidden = true;
 
 // test hook for automated screenshots
-window.__game = { get mind() { return mind; }, blastAll, swarm, site, under, gravitySlam, gslam, ambush, get lastPower() { return lastPower; }, helpers, RW, train, spawnEnemy, enemies, dummies, bossPool, nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
+window.__game = { relays, survival, startSurvival, hijack, get mind() { return mind; }, blastAll, swarm, site, under, gravitySlam, gslam, ambush, get lastPower() { return lastPower; }, helpers, RW, train, spawnEnemy, enemies, dummies, bossPool, nuke, sonicBoom, get shocks() { return shocks; }, up, ult, shield, get drones() { return drones; }, picker, pickUpgrade, nova, hurtPlayer, life, boss, heroP, get kit() { return robot.kit; }, atmo, fire, game, props, birds, powers, cars, tf, freezeOn, freezeOff, simulate, stats, onPrimaryDown, onPrimaryUp, camState, scene, sun, hemi, get robot() { return robot; }, setCharacter, setOutline, player, dummy, debris, vox, smash, punchImpact, respawnDummy, throwDummy, tryGrab, setQuality, keys, mouse, fx, camera, aim, renderer };
